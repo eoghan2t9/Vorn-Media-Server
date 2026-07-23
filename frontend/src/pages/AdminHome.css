@@ -1,0 +1,60 @@
+.vorn-admin-home h1 {
+  margin-bottom: 1.5rem;
+}
+
+.vorn-admin-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 2rem;
+}
+
+.vorn-admin-tile {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 1rem 1.1rem;
+  background: var(--vorn-bg-elevated);
+  border: 1px solid var(--vorn-border);
+  border-radius: 0.6rem;
+  color: var(--vorn-text);
+  text-decoration: none;
+  font-weight: 500;
+  transition: border-color 0.15s ease;
+}
+
+.vorn-admin-tile:hover {
+  border-color: var(--vorn-accent);
+}
+
+.vorn-admin-tile-arrow {
+  color: var(--vorn-text-muted);
+}
+
+.vorn-admin-panel {
+  background: var(--vorn-bg-elevated);
+  border: 1px solid var(--vorn-border);
+  border-radius: 0.6rem;
+  padding: 1.1rem 1.25rem;
+}
+
+.vorn-admin-panel h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+
+.vorn-admin-panel p {
+  margin: 0;
+  color: var(--vorn-text-muted);
+  font-size: 0.9rem;
+}
+
+.vorn-admin-panel code {
+  background: var(--vorn-bg);
+  border: 1px solid var(--vorn-border);
+  border-radius: 0.3rem;
+  padding: 0.1rem 0.4rem;
+  font-size: 0.85rem;
+  color: var(--vorn-text);
+}

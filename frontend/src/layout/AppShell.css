@@ -7,7 +7,8 @@
 .vorn-header {
   display: flex;
   align-items: center;
-  gap: 1.5rem;
+  flex-wrap: wrap;
+  gap: 1rem 1.5rem;
   padding: 0.75rem 1.5rem;
   background: var(--vorn-bg-elevated);
   border-bottom: 1px solid var(--vorn-border);
@@ -20,6 +21,33 @@
   font-weight: 600;
   font-size: 1.1rem;
   text-decoration: none;
+  color: var(--vorn-text);
+}
+
+/* The panel holds everything besides the brand/theme-toggle/menu-toggle:
+   nav, search, stats, user, sign-out. On wide screens it's just another
+   flex child laid out inline with the rest of the header (matching the
+   original single-row design); below the breakpoint it becomes a
+   collapsible dropdown toggled by the hamburger button, since there is no
+   way all of this fits in one row on a phone screen. */
+.vorn-header-panel {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: 1rem 1.5rem;
+  min-width: 0;
+}
+
+.vorn-menu-toggle {
+  display: none;
+  border: 1px solid var(--vorn-border);
+  background: transparent;
+  border-radius: 0.4rem;
+  width: 2.25rem;
+  height: 2.25rem;
+  cursor: pointer;
+  font-size: 1.1rem;
   color: var(--vorn-text);
 }
 
@@ -144,4 +172,61 @@
 .vorn-main {
   flex: 1;
   padding: 2rem;
+}
+
+/* Below this breakpoint there's no room for brand + nav + search + stats +
+   user + sign-out in one row, so everything but the brand/theme-toggle
+   collapses into a dropdown panel toggled by the hamburger button. */
+@media (max-width: 768px) {
+  .vorn-brand {
+    order: 1;
+  }
+
+  .vorn-theme-toggle {
+    order: 2;
+  }
+
+  .vorn-menu-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    order: 3;
+  }
+
+  .vorn-header-panel {
+    display: none;
+    order: 4;
+    flex-basis: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 1rem;
+  }
+
+  .vorn-header-panel.vorn-header-panel-open {
+    display: flex;
+  }
+
+  .vorn-nav {
+    flex-direction: column;
+    gap: 0.65rem;
+  }
+
+  .vorn-header-search {
+    max-width: none;
+    width: 100%;
+  }
+
+  .vorn-header-stats {
+    flex-direction: column;
+    gap: 0.35rem;
+    white-space: normal;
+  }
+
+  .vorn-logout {
+    align-self: flex-start;
+  }
+
+  .vorn-main {
+    padding: 1rem;
+  }
 }

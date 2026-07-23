@@ -74,6 +74,7 @@ export function AdminUsers() {
       <h1>Users</h1>
       {error && <p className="vorn-form-error">{error}</p>}
 
+      <div className="vorn-table-wrap">
       <table className="vorn-table">
         <thead>
           <tr>
@@ -117,6 +118,7 @@ export function AdminUsers() {
           ))}
         </tbody>
       </table>
+      </div>
 
       <h2>Add user</h2>
       <form className="vorn-inline-form" onSubmit={handleCreate}>

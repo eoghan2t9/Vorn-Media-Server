@@ -31,6 +31,7 @@ export function AdminCurrentlyWatching() {
       {entries.length === 0 ? (
         <p className="vorn-empty">Nobody is watching anything right now.</p>
       ) : (
+        <div className="vorn-table-wrap">
         <table className="vorn-table">
           <thead>
             <tr>
@@ -54,6 +55,7 @@ export function AdminCurrentlyWatching() {
             })}
           </tbody>
         </table>
+        </div>
       )}
     </section>
   )

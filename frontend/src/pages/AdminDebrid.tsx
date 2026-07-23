@@ -99,6 +99,7 @@ export function AdminDebrid() {
       <h1>Debrid</h1>
       {error && <p className="vorn-form-error">{error}</p>}
 
+      <div className="vorn-table-wrap">
       <table className="vorn-table">
         <thead>
           <tr>
@@ -123,6 +124,7 @@ export function AdminDebrid() {
           ))}
         </tbody>
       </table>
+      </div>
 
       <h2>Add magnet / hash</h2>
       <form className="vorn-inline-form" onSubmit={handleAddLink}>
@@ -156,6 +158,7 @@ export function AdminDebrid() {
       </form>
 
       <h2>Debrid accounts</h2>
+      <div className="vorn-table-wrap">
       <table className="vorn-table">
         <thead>
           <tr>
@@ -178,6 +181,7 @@ export function AdminDebrid() {
           ))}
         </tbody>
       </table>
+      </div>
       <form className="vorn-inline-form" onSubmit={handleAddAccount}>
         <select value={newProvider} onChange={(e) => setNewProvider(e.target.value as 'realdebrid' | 'torbox')}>
           <option value="realdebrid">Real-Debrid</option>

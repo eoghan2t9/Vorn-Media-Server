@@ -76,19 +76,7 @@ export function AdminLogs() {
       <p>
         Live tail: <strong>{connected ? 'connected' : 'disconnected'}</strong>
       </p>
-      <pre
-        ref={logRef}
-        onScroll={handleScroll}
-        style={{
-          background: 'var(--vorn-surface, #111)',
-          color: 'var(--vorn-text, #ddd)',
-          padding: '0.75rem',
-          height: '24rem',
-          overflowY: 'auto',
-          fontSize: '0.8rem',
-          whiteSpace: 'pre-wrap',
-        }}
-      >
+      <pre className="vorn-log-viewer" ref={logRef} onScroll={handleScroll}>
         {lines.join('\n')}
       </pre>
 

@@ -1,7 +1,16 @@
+/* Tables have too many columns to reflow on a phone screen, so they get
+   their own horizontal scroll container instead of forcing the whole page
+   to scroll sideways. */
+.vorn-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  margin: 1rem 0 2rem;
+}
+
 .vorn-admin-users .vorn-table {
   width: 100%;
   border-collapse: collapse;
-  margin: 1rem 0 2rem;
+  margin: 0;
 }
 
 .vorn-table th,
@@ -36,4 +45,30 @@
   color: white;
   cursor: pointer;
   font-weight: 600;
+}
+
+.vorn-log-viewer {
+  background: var(--vorn-bg);
+  color: var(--vorn-text);
+  border: 1px solid var(--vorn-border);
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+  height: 24rem;
+  margin: 0 0 1rem;
+  overflow-y: auto;
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+@media (max-width: 480px) {
+  /* Several pages set a fixed min-width inline (e.g. magnet/API-key inputs)
+     to look reasonable on desktop; on a narrow phone that forces the whole
+     page to scroll sideways, so cap every inline-form input/select to the
+     viewport width regardless of what min-width an individual page set. */
+  .vorn-inline-form input,
+  .vorn-inline-form select {
+    min-width: 0 !important;
+    width: 100%;
+  }
 }

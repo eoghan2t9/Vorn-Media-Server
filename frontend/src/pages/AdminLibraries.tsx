@@ -91,6 +91,7 @@ export function AdminLibraries() {
       <h1>Libraries</h1>
       {error && <p className="vorn-form-error">{error}</p>}
 
+      <div className="vorn-table-wrap">
       <table className="vorn-table">
         <thead>
           <tr>
@@ -141,6 +142,7 @@ export function AdminLibraries() {
           })}
         </tbody>
       </table>
+      </div>
 
       <h2>Add library</h2>
       <form className="vorn-inline-form" onSubmit={handleCreate}>

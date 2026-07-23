@@ -153,6 +153,7 @@ export function AdminTorrents() {
       <h1>Torrents</h1>
       {error && <p className="vorn-form-error">{error}</p>}
 
+      <div className="vorn-table-wrap">
       <table className="vorn-table">
         <thead>
           <tr>
@@ -185,6 +186,7 @@ export function AdminTorrents() {
           ))}
         </tbody>
       </table>
+      </div>
 
       <h2>Add torrent</h2>
       <form className="vorn-inline-form" onSubmit={handleAddMagnet}>
@@ -222,6 +224,7 @@ export function AdminTorrents() {
         </button>
       </form>
       {results && (
+        <div className="vorn-table-wrap">
         <table className="vorn-table">
           <thead>
             <tr>
@@ -248,9 +251,11 @@ export function AdminTorrents() {
             ))}
           </tbody>
         </table>
+        </div>
       )}
 
       <h2>Indexers</h2>
+      <div className="vorn-table-wrap">
       <table className="vorn-table">
         <thead>
           <tr>
@@ -273,6 +278,7 @@ export function AdminTorrents() {
           ))}
         </tbody>
       </table>
+      </div>
       <form className="vorn-inline-form" onSubmit={handleAddIndexer}>
         <input placeholder="Name" value={indexerName} onChange={(e) => setIndexerName(e.target.value)} required />
         <input

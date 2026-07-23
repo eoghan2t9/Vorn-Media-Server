@@ -115,6 +115,7 @@ export function AdminNzb() {
       <h1>NZB / Usenet</h1>
       {error && <p className="vorn-form-error">{error}</p>}
 
+      <div className="vorn-table-wrap">
       <table className="vorn-table">
         <thead>
           <tr>
@@ -147,6 +148,7 @@ export function AdminNzb() {
           ))}
         </tbody>
       </table>
+      </div>
 
       <h2>Add NZB</h2>
       <p>
@@ -162,6 +164,7 @@ export function AdminNzb() {
       </p>
 
       <h2>Usenet servers</h2>
+      <div className="vorn-table-wrap">
       <table className="vorn-table">
         <thead>
           <tr>
@@ -190,6 +193,7 @@ export function AdminNzb() {
           ))}
         </tbody>
       </table>
+      </div>
       <form className="vorn-inline-form" onSubmit={handleAddServer}>
         <input placeholder="Name" value={serverName} onChange={(e) => setServerName(e.target.value)} required />
         <input placeholder="Host" value={serverHost} onChange={(e) => setServerHost(e.target.value)} required />

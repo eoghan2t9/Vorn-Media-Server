@@ -5,6 +5,8 @@
 .vorn-library-row-header {
   display: flex;
   align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
   justify-content: space-between;
   margin-bottom: 0.75rem;
 }
