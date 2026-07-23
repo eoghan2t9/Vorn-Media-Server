@@ -34,7 +34,7 @@ Tracked in phases; each phase is delivered as a runnable increment with its own 
 - [x] **Phase 2 — Library scanner**: fast concurrent scanner with DragonflyDB staging, plus a
       dev-mode synthetic file generator for benchmarking scan speed at scale (verified at 50k
       files in ~3.6s locally).
-- [ ] **Phase 3 — Library management & dashboard UI**: folder mapping, admin header
+- [x] **Phase 3 — Library management & dashboard UI**: folder mapping, admin header
       (profile/stats/search), continue-watching, per-library filters.
 - [ ] **Phase 4 — Metadata sync**: TMDb-backed art/trailers, manual metadata override.
 - [ ] **Phase 5 — Transcoder**: ffmpeg/ffprobe wrapper, GPU capability probing, on-the-fly HLS.
