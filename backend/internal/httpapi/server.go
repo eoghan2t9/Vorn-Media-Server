@@ -8,24 +8,45 @@ import (
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/metadata"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/scanner"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/store"
+	"github.com/eoghan2t9/vorn-media-server/backend/internal/transcode"
 )
 
 const sessionCookieName = "vorn_session"
 
-type Server struct {
-	store       *store.Store
-	scanner     *scanner.Service
-	metadataSvc *metadata.Service // nil if no TMDb API key is configured
-	devMode     bool
+// Deps bundles everything the HTTP layer needs. Fields other than Store are
+// nil-able: each represents a subsystem that may be unconfigured (no TMDb
+// key, no ffmpeg found, ...), and every handler that uses one must degrade
+// gracefully (typically a 503) rather than assume it's present.
+type Deps struct {
+	Store        *store.Store
+	Scanner      *scanner.Service
+	Metadata     *metadata.Service
+	TranscodeMgr *transcode.Manager
+	CORSOrigin   string
+	DevMode      bool
 }
 
-func NewServer(st *store.Store, sc *scanner.Service, metadataSvc *metadata.Service, devMode bool) *Server {
-	return &Server{store: st, scanner: sc, metadataSvc: metadataSvc, devMode: devMode}
+type Server struct {
+	store        *store.Store
+	scanner      *scanner.Service
+	metadataSvc  *metadata.Service
+	transcodeMgr *transcode.Manager
+	devMode      bool
+}
+
+func NewServer(deps Deps) *Server {
+	return &Server{
+		store:        deps.Store,
+		scanner:      deps.Scanner,
+		metadataSvc:  deps.Metadata,
+		transcodeMgr: deps.TranscodeMgr,
+		devMode:      deps.DevMode,
+	}
 }
 
 // NewRouter returns the root HTTP handler for the Vorn backend.
-func NewRouter(st *store.Store, sc *scanner.Service, metadataSvc *metadata.Service, corsOrigin string, devMode bool) http.Handler {
-	s := NewServer(st, sc, metadataSvc, devMode)
+func NewRouter(deps Deps) http.Handler {
+	s := NewServer(deps)
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/healthz", handleHealthz)
@@ -66,7 +87,13 @@ func NewRouter(st *store.Store, sc *scanner.Service, metadataSvc *metadata.Servi
 	mux.HandleFunc("GET /api/metadata-jobs/{id}", s.withAdmin(s.handleGetMetadataJob))
 	mux.HandleFunc("PATCH /api/items/{id}/metadata", s.withAdmin(s.handleUpdateItemMetadata))
 
-	return withCORS(mux, corsOrigin)
+	mux.HandleFunc("GET /api/transcode/capabilities", s.withAuth(s.handleTranscodeCapabilities))
+	mux.HandleFunc("POST /api/items/{id}/play", s.withAuth(s.handlePlayItem))
+	mux.HandleFunc("GET /api/stream/direct/{id}", s.withAuth(s.handleDirectStream))
+	mux.HandleFunc("GET /api/stream/session/{sessionId}/{file}", s.withAuth(s.handleSessionFile))
+	mux.HandleFunc("DELETE /api/stream/session/{sessionId}", s.withAuth(s.handleStopSession))
+
+	return withCORS(mux, deps.CORSOrigin)
 }
 
 // withCORS allows the frontend dev server (or, in production, whatever

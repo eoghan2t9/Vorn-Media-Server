@@ -13,6 +13,8 @@ var videoExtensions = map[string]bool{
 	".m2ts": true,
 	".webm": true,
 	".flv":  true,
+	".mpg":  true,
+	".mpeg": true,
 }
 
 func isVideoFile(name string) bool {

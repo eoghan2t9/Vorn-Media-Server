@@ -5,6 +5,7 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"os"
 
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/config"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/httpapi"
@@ -12,6 +13,7 @@ import (
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/migrate"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/scanner"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/store"
+	"github.com/eoghan2t9/vorn-media-server/backend/internal/transcode"
 )
 
 func main() {
@@ -44,7 +46,30 @@ func main() {
 		log.Print("VORN_TMDB_API_KEY not set: metadata sync is disabled")
 	}
 
-	router := httpapi.NewRouter(st, scanSvc, metadataSvc, cfg.CORSOrigin, cfg.DevMode)
+	var transcodeMgr *transcode.Manager
+	backends := transcode.DetectBackends(context.Background())
+	if len(backends) == 0 {
+		log.Print("no working ffmpeg encoder found (checked hardware + software): transcoding is disabled")
+	} else {
+		names := make([]string, len(backends))
+		for i, b := range backends {
+			names[i] = b.Name
+		}
+		log.Printf("transcoder backends available: %v", names)
+		if err := os.MkdirAll(cfg.TranscodeOutputDir, 0o755); err != nil {
+			log.Fatalf("creating transcode output dir: %v", err)
+		}
+		transcodeMgr = transcode.NewManager(cfg.TranscodeOutputDir, backends, cfg.TranscodeMaxSessions)
+	}
+
+	router := httpapi.NewRouter(httpapi.Deps{
+		Store:        st,
+		Scanner:      scanSvc,
+		Metadata:     metadataSvc,
+		TranscodeMgr: transcodeMgr,
+		CORSOrigin:   cfg.CORSOrigin,
+		DevMode:      cfg.DevMode,
+	})
 
 	log.Printf("listening on %s", cfg.HTTPAddr)
 	if err := http.ListenAndServe(cfg.HTTPAddr, router); err != nil {
