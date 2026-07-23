@@ -26,6 +26,7 @@
   flex-wrap: wrap;
   gap: 0.6rem;
   align-items: center;
+  margin: 0 0 1rem;
 }
 
 .vorn-inline-form input[type='text'],
@@ -45,6 +46,17 @@
   color: white;
   cursor: pointer;
   font-weight: 600;
+}
+
+/* Groups of action buttons that used to rely on a literal text space
+   between them -- fine until they wrap onto their own line on a narrow
+   table-cell/screen, where a single space reads as the buttons touching. */
+.vorn-button-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin: 0.35rem 0;
 }
 
 .vorn-log-viewer {

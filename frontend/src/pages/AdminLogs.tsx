@@ -81,14 +81,14 @@ export function AdminLogs() {
       </pre>
 
       <h2>Maintenance</h2>
-      <p>
+      <div className="vorn-button-group">
         <button type="button" onClick={handleClearScanCache}>
           Clear scan cache
-        </button>{' '}
+        </button>
         <button type="button" onClick={handleClearTranscodeCache}>
           Clear finished transcode sessions
         </button>
-      </p>
+      </div>
 
       <h2>OpenSubtitles quota</h2>
       {quota === null ? (

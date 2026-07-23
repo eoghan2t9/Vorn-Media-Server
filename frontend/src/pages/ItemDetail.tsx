@@ -103,7 +103,7 @@ export function ItemDetail() {
               }}
             />
           ) : (
-            <button type="button" onClick={() => setEditing(true)}>
+            <button type="button" className="vorn-edit-toggle" onClick={() => setEditing(true)}>
               Edit metadata
             </button>
           )}

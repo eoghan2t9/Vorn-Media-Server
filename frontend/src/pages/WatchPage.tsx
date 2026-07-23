@@ -123,17 +123,31 @@ export function WatchPage() {
 
   return (
     <div className="vorn-watch-page">
-      <video
-        ref={videoRef}
-        className="vorn-video"
-        controls
-        onTimeUpdate={handleTimeUpdate}
-        onEnded={goToNextEpisode}
-      >
-        {id && subtitleLanguage !== 'off' && (
-          <track key={subtitleLanguage} kind="subtitles" src={subtitlesUrl(id, subtitleLanguage)} srcLang={subtitleLanguage} default />
+      <div className="vorn-video-wrap">
+        <video
+          ref={videoRef}
+          className="vorn-video"
+          controls
+          onTimeUpdate={handleTimeUpdate}
+          onEnded={goToNextEpisode}
+        >
+          {id && subtitleLanguage !== 'off' && (
+            <track key={subtitleLanguage} kind="subtitles" src={subtitlesUrl(id, subtitleLanguage)} srcLang={subtitleLanguage} default />
+          )}
+        </video>
+
+        {showUpNext && nextEpisode && (
+          <div className="vorn-up-next">
+            <span>Up next: {nextEpisode.title}</span>
+            <button type="button" onClick={goToNextEpisode}>
+              Play now
+            </button>
+            <button type="button" onClick={() => setShowUpNext(false)}>
+              Dismiss
+            </button>
+          </div>
         )}
-      </video>
+      </div>
       {item && <h1 className="vorn-watch-title">{item.title}</h1>}
 
       <label className="vorn-subtitle-picker">
@@ -146,18 +160,6 @@ export function WatchPage() {
           ))}
         </select>
       </label>
-
-      {showUpNext && nextEpisode && (
-        <div className="vorn-up-next">
-          <span>Up next: {nextEpisode.title}</span>
-          <button type="button" onClick={goToNextEpisode}>
-            Play now
-          </button>
-          <button type="button" onClick={() => setShowUpNext(false)}>
-            Dismiss
-          </button>
-        </div>
-      )}
     </div>
   )
 }

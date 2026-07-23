@@ -123,19 +123,21 @@ export function AdminLibraries() {
                     : '—'}
                 </td>
                 <td>
-                  <button type="button" onClick={() => handleScan(l.id)} disabled={scanJob?.status === 'running'}>
-                    {scanJob?.status === 'running' ? 'Scanning…' : 'Scan'}
-                  </button>{' '}
-                  <button
-                    type="button"
-                    onClick={() => handleSyncMetadata(l.id)}
-                    disabled={metaJob?.status === 'running'}
-                  >
-                    {metaJob?.status === 'running' ? 'Syncing…' : 'Sync metadata'}
-                  </button>{' '}
-                  <button type="button" onClick={() => handleDelete(l.id)}>
-                    Delete
-                  </button>
+                  <div className="vorn-button-group">
+                    <button type="button" onClick={() => handleScan(l.id)} disabled={scanJob?.status === 'running'}>
+                      {scanJob?.status === 'running' ? 'Scanning…' : 'Scan'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSyncMetadata(l.id)}
+                      disabled={metaJob?.status === 'running'}
+                    >
+                      {metaJob?.status === 'running' ? 'Syncing…' : 'Sync metadata'}
+                    </button>
+                    <button type="button" onClick={() => handleDelete(l.id)}>
+                      Delete
+                    </button>
+                  </div>
                 </td>
               </tr>
             )

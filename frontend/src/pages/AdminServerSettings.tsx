@@ -133,16 +133,16 @@ export function AdminServerSettings() {
 
       <h2>Software update</h2>
       {updateMessage && <p>{updateMessage}</p>}
-      <p>
+      <div className="vorn-button-group">
         <button type="button" onClick={handleCheckForUpdate} disabled={updateBusy}>
           Check for updates
-        </button>{' '}
+        </button>
         {updateInfo && updateInfo.updateAvailable && !updateInfo.dockerized && (
           <button type="button" onClick={handleApplyUpdate} disabled={updateBusy}>
             {updateBusy ? 'Working…' : `Update to ${updateInfo.latestVersion}`}
           </button>
         )}
-      </p>
+      </div>
       {updateInfo && (
         <p>
           Running {updateInfo.currentVersion}

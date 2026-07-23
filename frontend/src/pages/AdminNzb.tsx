@@ -137,12 +137,14 @@ export function AdminNzb() {
               </td>
               <td>{n.promoted ? 'yes' : 'no'}</td>
               <td>
-                <button type="button" onClick={() => handleRemove(n.id, false)}>
-                  Remove
-                </button>{' '}
-                <button type="button" onClick={() => handleRemove(n.id, true)}>
-                  Remove + delete files
-                </button>
+                <div className="vorn-button-group">
+                  <button type="button" onClick={() => handleRemove(n.id, false)}>
+                    Remove
+                  </button>
+                  <button type="button" onClick={() => handleRemove(n.id, true)}>
+                    Remove + delete files
+                  </button>
+                </div>
               </td>
             </tr>
           ))}

@@ -175,12 +175,14 @@ export function AdminTorrents() {
               </td>
               <td>{t.sequential ? 'yes' : 'no'}</td>
               <td>
-                <button type="button" onClick={() => handleRemove(t.id, false)}>
-                  Remove
-                </button>{' '}
-                <button type="button" onClick={() => handleRemove(t.id, true)}>
-                  Remove + delete files
-                </button>
+                <div className="vorn-button-group">
+                  <button type="button" onClick={() => handleRemove(t.id, false)}>
+                    Remove
+                  </button>
+                  <button type="button" onClick={() => handleRemove(t.id, true)}>
+                    Remove + delete files
+                  </button>
+                </div>
               </td>
             </tr>
           ))}
