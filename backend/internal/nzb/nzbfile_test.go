@@ -52,6 +52,32 @@ func TestParseNZB(t *testing.T) {
 	}
 }
 
+// TestParseNZB_ISO88591 covers real-world .nzb files, which commonly
+// declare ISO-8859-1 (the NZB DTD's own example encoding) even though
+// encoding/xml only accepts UTF-8 and US-ASCII out of the box without a
+// CharsetReader.
+func TestParseNZB_ISO88591(t *testing.T) {
+	// 0xE9 is "é" in ISO-8859-1, written directly as a raw byte (not a Go
+	// UTF-8 escape) to simulate what actually arrives over the wire.
+	raw := []byte(`<?xml version="1.0" encoding="iso-8859-1"?>
+<nzb xmlns="http://www.newzbin.com/DTD/2003/nzb">
+  <head><meta type="title">Caf` + "\xe9" + `.Movie.2020</meta></head>
+  <file poster="a@b.com" date="1600000000" subject="test (1/1)">
+    <groups><group>alt.binaries.test</group></groups>
+    <segments><segment bytes="1000" number="1">part1@example.com</segment></segments>
+  </file>
+</nzb>
+`)
+
+	doc, err := Parse(strings.NewReader(string(raw)))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if want := "Café.Movie.2020"; doc.Title() != want {
+		t.Errorf("Title() = %q, want %q", doc.Title(), want)
+	}
+}
+
 func TestSubjectFilename(t *testing.T) {
 	got := SubjectFilename(`"some.movie.2020.1080p.mkv" yEnc (1/2)`)
 	if got != "some.movie.2020.1080p.mkv" {
