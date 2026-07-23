@@ -178,6 +178,20 @@ Admin > Network (`GET`/`PUT /api/admin/server-settings`) configures:
   itself a genuine Cloudflare edge IP (checked against ranges refreshed every 24h from Cloudflare's
   own public API), so the header can't simply be spoofed by any other client that sets it.
 
+### Admin: self-update
+
+Admin > Network also has a "Check for updates" / "Update to vX.Y.Z" control
+(`GET /api/admin/update/check`, `POST /api/admin/update/apply`), backed by
+[go-selfupdate](https://github.com/creativeprojects/go-selfupdate) checking `VORN_GITHUB_REPO`
+(default this repo) for a newer GitHub Release than the running binary's version (set at build
+time via `-ldflags "-X .../internal/version.Version=v1.2.3"`; a plain `go run`/`go build` reports
+`0.0.0-dev`). Applying downloads and replaces the running executable in place but **does not
+restart the process** — Vorn may have active playback sessions, so that's left to the admin (or
+whatever process supervisor runs it). Checking always works; applying returns 409 under Docker,
+where the container image is the unit of update instead of the binary inside it. Note this
+requires the project to actually publish release binaries following go-selfupdate's naming
+convention (`vornd_{os}_{arch}`) — a release pipeline for that isn't built yet.
+
 ### Running components natively (without Docker)
 
 ```bash

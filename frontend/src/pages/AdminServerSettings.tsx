@@ -1,5 +1,12 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { ApiError, fetchServerSettings, updateServerSettings } from '../api/client'
+import {
+  ApiError,
+  applyUpdate,
+  checkForUpdate,
+  fetchServerSettings,
+  updateServerSettings,
+  type UpdateCheckResult,
+} from '../api/client'
 import './AdminUsers.css'
 
 export function AdminServerSettings() {
@@ -12,6 +19,10 @@ export function AdminServerSettings() {
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  const [updateInfo, setUpdateInfo] = useState<UpdateCheckResult | null>(null)
+  const [updateBusy, setUpdateBusy] = useState(false)
+  const [updateMessage, setUpdateMessage] = useState<string | null>(null)
+
   useEffect(() => {
     fetchServerSettings()
       .then((s) => {
@@ -23,6 +34,36 @@ export function AdminServerSettings() {
       })
       .catch((err) => setError(err instanceof ApiError ? err.message : String(err)))
   }, [])
+
+  async function handleCheckForUpdate() {
+    setUpdateMessage(null)
+    setUpdateBusy(true)
+    try {
+      setUpdateInfo(await checkForUpdate())
+    } catch (err) {
+      setUpdateMessage(err instanceof ApiError ? err.message : 'Failed to check for updates')
+    } finally {
+      setUpdateBusy(false)
+    }
+  }
+
+  async function handleApplyUpdate() {
+    setUpdateMessage(null)
+    setUpdateBusy(true)
+    try {
+      const result = await applyUpdate()
+      setUpdateInfo(result)
+      setUpdateMessage(
+        result.applied
+          ? `Updated to ${result.latestVersion}. Restart the server to run it.`
+          : 'No update was applied (already up to date, or none available).',
+      )
+    } catch (err) {
+      setUpdateMessage(err instanceof ApiError ? err.message : 'Failed to apply update')
+    } finally {
+      setUpdateBusy(false)
+    }
+  }
 
   async function handleSave(e: FormEvent) {
     e.preventDefault()
@@ -89,6 +130,26 @@ export function AdminServerSettings() {
           {saving ? 'Saving…' : 'Save'}
         </button>
       </form>
+
+      <h2>Software update</h2>
+      {updateMessage && <p>{updateMessage}</p>}
+      <p>
+        <button type="button" onClick={handleCheckForUpdate} disabled={updateBusy}>
+          Check for updates
+        </button>{' '}
+        {updateInfo && updateInfo.updateAvailable && !updateInfo.dockerized && (
+          <button type="button" onClick={handleApplyUpdate} disabled={updateBusy}>
+            {updateBusy ? 'Working…' : `Update to ${updateInfo.latestVersion}`}
+          </button>
+        )}
+      </p>
+      {updateInfo && (
+        <p>
+          Running {updateInfo.currentVersion}
+          {updateInfo.latestVersion ? `; latest available is ${updateInfo.latestVersion}` : '; no release found'}.
+          {updateInfo.dockerized && ' Running under Docker: rebuild/pull the image instead of self-updating.'}
+        </p>
+      )}
     </section>
   )
 }

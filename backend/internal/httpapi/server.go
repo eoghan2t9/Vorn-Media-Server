@@ -16,6 +16,7 @@ import (
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/subtitles"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/torrent"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/transcode"
+	"github.com/eoghan2t9/vorn-media-server/backend/internal/update"
 	"github.com/google/uuid"
 )
 
@@ -34,6 +35,7 @@ type Deps struct {
 	NZB          *nzb.Service
 	Debrid       *debrid.Service
 	Subtitles    *subtitles.Service
+	Update       *update.Service
 	LogBuffer    *logging.Buffer
 	CORSOrigin   string
 	DevMode      bool
@@ -48,6 +50,7 @@ type Server struct {
 	nzbSvc       *nzb.Service
 	debridSvc    *debrid.Service
 	subtitlesSvc *subtitles.Service
+	updateSvc    *update.Service
 	logBuffer    *logging.Buffer
 	devMode      bool
 	// serverID identifies this server to client-API-compatibility clients
@@ -71,6 +74,7 @@ func NewServer(deps Deps) *Server {
 		nzbSvc:       deps.NZB,
 		debridSvc:    deps.Debrid,
 		subtitlesSvc: deps.Subtitles,
+		updateSvc:    deps.Update,
 		logBuffer:    deps.LogBuffer,
 		devMode:      deps.DevMode,
 		serverID:     uuid.NewString(),
@@ -240,6 +244,9 @@ func NewRouter(deps Deps) http.Handler {
 
 	mux.HandleFunc("GET /api/admin/server-settings", s.withAdmin(s.handleGetServerSettings))
 	mux.HandleFunc("PUT /api/admin/server-settings", s.withAdmin(s.handleUpdateServerSettings))
+
+	mux.HandleFunc("GET /api/admin/update/check", s.withAdmin(s.handleCheckForUpdate))
+	mux.HandleFunc("POST /api/admin/update/apply", s.withAdmin(s.handleApplyUpdate))
 
 	return s.accessLog(withCORS(mux, deps.CORSOrigin))
 }

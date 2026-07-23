@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"time"
+
+	"github.com/eoghan2t9/vorn-media-server/backend/internal/version"
 )
 
 var startedAt = time.Now()
@@ -19,7 +21,7 @@ func handleHealthz(w http.ResponseWriter, r *http.Request) {
 	resp := healthResponse{
 		Status:  "ok",
 		Uptime:  time.Since(startedAt).Round(time.Second).String(),
-		Version: "0.0.0-dev",
+		Version: version.Version,
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)

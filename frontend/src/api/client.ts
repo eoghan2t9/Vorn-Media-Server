@@ -247,6 +247,16 @@ export interface UpdateServerSettingsInput {
 export const updateServerSettings = (input: UpdateServerSettingsInput) =>
   request<ServerSettings>('/api/admin/server-settings', { method: 'PUT', body: JSON.stringify(input) })
 
+export interface UpdateCheckResult {
+  currentVersion: string
+  latestVersion?: string
+  updateAvailable: boolean
+  applied: boolean
+  dockerized: boolean
+}
+export const checkForUpdate = () => request<UpdateCheckResult>('/api/admin/update/check')
+export const applyUpdate = () => request<UpdateCheckResult>('/api/admin/update/apply', { method: 'POST' })
+
 export const getProgress = (id: string) =>
   request<{ positionSeconds: number; durationSeconds: number }>(`/api/items/${id}/progress`)
 

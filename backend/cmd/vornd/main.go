@@ -20,6 +20,8 @@ import (
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/subtitles"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/torrent"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/transcode"
+	"github.com/eoghan2t9/vorn-media-server/backend/internal/update"
+	"github.com/eoghan2t9/vorn-media-server/backend/internal/version"
 )
 
 // logBufferLines caps how much log history the admin live-logs viewer can
@@ -111,6 +113,11 @@ func main() {
 		log.Print("VORN_OPENSUBTITLES_API_KEY/VORN_OPENSUBTITLES_USERNAME not set: subtitle integration is disabled")
 	}
 
+	if update.IsDockerized() {
+		log.Print("running under Docker: self-update is a no-op (rebuild/pull the image instead)")
+	}
+	updateSvc := update.NewService(cfg.GitHubRepo, version.Version)
+
 	router := httpapi.NewRouter(httpapi.Deps{
 		Store:        st,
 		Scanner:      scanSvc,
@@ -120,6 +127,7 @@ func main() {
 		NZB:          nzbSvc,
 		Debrid:       debridSvc,
 		Subtitles:    subtitlesSvc,
+		Update:       updateSvc,
 		LogBuffer:    logBuffer,
 		CORSOrigin:   cfg.CORSOrigin,
 		DevMode:      cfg.DevMode,
