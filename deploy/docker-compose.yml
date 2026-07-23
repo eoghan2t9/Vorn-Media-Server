@@ -8,8 +8,12 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-vorn}
     volumes:
       - vorn_postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
+    # No host port published: only the backend container needs to reach
+    # Postgres, over the internal compose network (service name "postgres").
+    # Uncomment if you want host-side psql access, adjusting the host port
+    # if 5432 is already taken there:
+    # ports:
+    #   - "5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-vorn}"]
       interval: 5s
@@ -21,8 +25,11 @@ services:
     restart: unless-stopped
     ulimits:
       memlock: -1
-    ports:
-      - "6379:6379"
+    # No host port published (same reasoning as postgres above, and it also
+    # avoids colliding with any other Redis-protocol service already using
+    # 6379 on the host). Uncomment to expose it directly:
+    # ports:
+    #   - "6379:6379"
     volumes:
       - vorn_dragonfly_data:/data
 
@@ -40,6 +47,10 @@ services:
       VORN_HTTP_ADDR: ":8080"
       VORN_POSTGRES_DSN: "postgres://${POSTGRES_USER:-vorn}:${POSTGRES_PASSWORD:-vorn}@postgres:5432/${POSTGRES_DB:-vorn}?sslmode=disable"
       VORN_DRAGONFLY_ADDR: "dragonfly:6379"
+      # Must match the origin the browser actually loads the frontend from
+      # (see VORN_API_BASE below, on the frontend service) -- CORS requires
+      # an exact match for credentialed (cookie-based) requests.
+      VORN_CORS_ORIGIN: "${VORN_FRONTEND_ORIGIN:-http://localhost:5173}"
       VORN_TORRENT_ENABLED: "${VORN_TORRENT_ENABLED:-false}"
       VORN_TORRENT_DOWNLOAD_DIR: "/downloads"
       VORN_NZB_ENABLED: "${VORN_NZB_ENABLED:-false}"
@@ -85,7 +96,10 @@ services:
     depends_on:
       - backend
     environment:
-      VITE_VORN_API_BASE: "http://localhost:8080"
+      # Override with the address your browser will actually reach the
+      # backend at (e.g. a server's public IP/domain) if it's not the same
+      # machine you're browsing from.
+      VITE_VORN_API_BASE: "${VORN_API_BASE:-http://localhost:8080}"
     ports:
       - "5173:5173"
 
