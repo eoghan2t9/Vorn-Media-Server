@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS scan_files;
+DROP TABLE IF EXISTS scan_jobs;

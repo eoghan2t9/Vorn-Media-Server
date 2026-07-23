@@ -30,5 +30,8 @@ Thumbs.db
 # Logs
 *.log
 
+# Local Redis/Dragonfly dump (created when testing against a local instance)
+dump.rdb
+
 # Data volumes (if bind-mounted locally during dev)
 /deploy/data/
