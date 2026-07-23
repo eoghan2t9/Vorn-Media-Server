@@ -24,3 +24,13 @@
   margin-top: 1.5rem;
   max-width: 32rem;
 }
+
+.vorn-play-button {
+  display: inline-block;
+  padding: 0.5rem 1.1rem;
+  border-radius: 0.4rem;
+  background: var(--vorn-accent);
+  color: white;
+  text-decoration: none;
+  font-weight: 600;
+}

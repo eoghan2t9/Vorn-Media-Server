@@ -213,3 +213,23 @@ export interface PlayResponse {
   playlistUrl?: string
 }
 export const playItem = (id: string) => request<PlayResponse>(`/api/items/${id}/play`, { method: 'POST' })
+
+export const stopStreamSession = (sessionId: string) =>
+  request<void>(`/api/stream/session/${sessionId}`, { method: 'DELETE' })
+
+export const getProgress = (id: string) =>
+  request<{ positionSeconds: number; durationSeconds: number }>(`/api/items/${id}/progress`)
+
+export interface CurrentlyWatchingEntry {
+  username: string
+  item: MediaItem
+  positionSeconds: number
+  durationSeconds: number
+  updatedAt: string
+}
+export const listCurrentlyWatching = () => request<CurrentlyWatchingEntry[]>('/api/admin/currently-watching')
+
+// API_BASE is exported so components that need an absolute stream URL
+// (e.g. the HLS player, which hands the URL to hls.js/a <video> element
+// rather than fetching it themselves) can build one.
+export { API_BASE }

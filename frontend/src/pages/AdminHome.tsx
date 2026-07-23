@@ -21,6 +21,9 @@ export function AdminHome() {
       <p>
         <Link to="/admin/users">Manage users →</Link>
       </p>
+      <p>
+        <Link to="/admin/currently-watching">Currently watching →</Link>
+      </p>
 
       <h2>Transcoder</h2>
       {backends === null ? (

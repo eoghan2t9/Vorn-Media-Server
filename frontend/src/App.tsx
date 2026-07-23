@@ -7,6 +7,8 @@ import { AdminHome } from './pages/AdminHome'
 import { AdminUsers } from './pages/AdminUsers'
 import { AdminLibraries } from './pages/AdminLibraries'
 import { ItemDetail } from './pages/ItemDetail'
+import { WatchPage } from './pages/WatchPage'
+import { AdminCurrentlyWatching } from './pages/AdminCurrentlyWatching'
 import { SetupWizard } from './pages/SetupWizard'
 import { Login } from './pages/Login'
 
@@ -40,11 +42,13 @@ function AppRoutes() {
       <Route element={<ProtectedLayout />}>
         <Route path="/" element={<ViewerHome />} />
         <Route path="/items/:id" element={<ItemDetail />} />
+        <Route path="/watch/:id" element={<WatchPage />} />
 
         <Route element={<AdminLayout />}>
           <Route path="/admin" element={<AdminHome />} />
           <Route path="/admin/users" element={<AdminUsers />} />
           <Route path="/admin/libraries" element={<AdminLibraries />} />
+          <Route path="/admin/currently-watching" element={<AdminCurrentlyWatching />} />
         </Route>
       </Route>
 

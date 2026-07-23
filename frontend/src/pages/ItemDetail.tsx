@@ -74,6 +74,14 @@ export function ItemDetail() {
       {item.releaseDate && <p>{item.releaseDate.slice(0, 4)}</p>}
       {item.overview && <p>{item.overview}</p>}
 
+      {(item.kind === 'movie' || item.kind === 'episode') && (
+        <p>
+          <Link to={`/watch/${item.id}`} className="vorn-play-button">
+            ▶ Play
+          </Link>
+        </p>
+      )}
+
       {item.children && item.children.length > 0 && (
         <ul className="vorn-children-list">
           {item.children.map((c) => (

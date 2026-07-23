@@ -1,0 +1,46 @@
+.vorn-watch-page {
+  max-width: 60rem;
+  margin: 0 auto;
+}
+
+.vorn-video {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: black;
+  border-radius: 0.5rem;
+}
+
+.vorn-watch-title {
+  margin-top: 1rem;
+  font-size: 1.2rem;
+}
+
+.vorn-up-next {
+  position: fixed;
+  bottom: 2rem;
+  right: 2rem;
+  background: var(--vorn-bg-elevated);
+  border: 1px solid var(--vorn-border);
+  border-radius: 0.5rem;
+  padding: 0.9rem 1.1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.9rem;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+}
+
+.vorn-up-next button {
+  padding: 0.4rem 0.7rem;
+  border-radius: 0.35rem;
+  border: 1px solid var(--vorn-border);
+  background: var(--vorn-accent);
+  color: white;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.vorn-up-next button:last-child {
+  background: transparent;
+  color: var(--vorn-text-muted);
+}
