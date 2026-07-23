@@ -216,6 +216,22 @@ func (s *Store) GetMediaItem(id string) (*MediaItem, error) {
 	return m, nil
 }
 
+// GetMediaItemImageURLs returns the poster/backdrop URLs a metadata sync (or
+// manual override) wrote into an item's metadata blob, if any. Used by
+// client-API compatibility layers (Jellyfin, Emby, Plex) whose image
+// endpoints redirect straight to the provider-hosted art rather than Vorn
+// caching it locally.
+func (s *Store) GetMediaItemImageURLs(id string) (posterURL, backdropURL string, err error) {
+	err = s.db.QueryRow(
+		`SELECT coalesce(metadata->>'posterUrl', ''), coalesce(metadata->>'backdropUrl', '') FROM media_items WHERE id = $1`,
+		id,
+	).Scan(&posterURL, &backdropURL)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", "", ErrNotFound
+	}
+	return posterURL, backdropURL, err
+}
+
 // ListChildren returns the direct children of a media item (e.g. seasons of
 // a series, or episodes of a season), ordered by season/episode number.
 func (s *Store) ListChildren(parentID string) ([]*MediaItem, error) {

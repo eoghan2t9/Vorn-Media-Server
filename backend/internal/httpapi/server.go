@@ -12,6 +12,7 @@ import (
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/store"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/torrent"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/transcode"
+	"github.com/google/uuid"
 )
 
 const sessionCookieName = "vorn_session"
@@ -41,6 +42,11 @@ type Server struct {
 	nzbSvc       *nzb.Service
 	debridSvc    *debrid.Service
 	devMode      bool
+	// serverID identifies this server to client-API-compatibility clients
+	// (Jellyfin/Emby/Plex). It's regenerated on every restart, which is fine:
+	// nothing depends on it surviving a restart except cosmetic "same
+	// server?" UI checks in some clients.
+	serverID string
 }
 
 func NewServer(deps Deps) *Server {
@@ -53,6 +59,7 @@ func NewServer(deps Deps) *Server {
 		nzbSvc:       deps.NZB,
 		debridSvc:    deps.Debrid,
 		devMode:      deps.DevMode,
+		serverID:     uuid.NewString(),
 	}
 }
 
@@ -130,6 +137,24 @@ func NewRouter(deps Deps) http.Handler {
 	mux.HandleFunc("POST /api/debrid", s.withAdmin(s.handleAddDebridLink))
 	mux.HandleFunc("DELETE /api/debrid/{id}", s.withAdmin(s.handleRemoveDebridItem))
 	mux.HandleFunc("GET /api/debrid/{id}/files", s.withAdmin(s.handleListDebridFiles))
+
+	// Jellyfin-compatible client API (see internal/jellyfin's doc comment for
+	// scope). These paths are dictated by the Jellyfin protocol itself, not
+	// Vorn's own conventions, so they intentionally don't live under /api.
+	mux.HandleFunc("GET /System/Info/Public", s.handleJfPublicSystemInfo)
+	mux.HandleFunc("POST /Users/AuthenticateByName", s.handleJfAuthenticateByName)
+	mux.HandleFunc("GET /Users/{userId}/Views", s.withJellyfinAuth(s.handleJfUserViews))
+	mux.HandleFunc("GET /Users/{userId}/Items", s.withJellyfinAuth(s.handleJfItems))
+	mux.HandleFunc("GET /Items", s.withJellyfinAuth(s.handleJfItems))
+	mux.HandleFunc("GET /Users/{userId}/Items/{id}", s.withJellyfinAuth(s.handleJfItem))
+	mux.HandleFunc("GET /Items/{id}", s.withJellyfinAuth(s.handleJfItem))
+	mux.HandleFunc("GET /Items/{id}/Images/{type}", s.handleJfItemImage)
+	mux.HandleFunc("GET /Items/{id}/PlaybackInfo", s.withJellyfinAuth(s.handleJfPlaybackInfo))
+	mux.HandleFunc("POST /Items/{id}/PlaybackInfo", s.withJellyfinAuth(s.handleJfPlaybackInfo))
+	mux.HandleFunc("GET /Videos/{id}/{filename}", s.withJellyfinAuth(s.handleJfVideoStream))
+	mux.HandleFunc("POST /Sessions/Playing", s.withJellyfinAuth(s.jfUpdateProgress))
+	mux.HandleFunc("POST /Sessions/Playing/Progress", s.withJellyfinAuth(s.jfUpdateProgress))
+	mux.HandleFunc("POST /Sessions/Playing/Stopped", s.withJellyfinAuth(s.jfUpdateProgress))
 
 	return withCORS(mux, deps.CORSOrigin)
 }

@@ -110,6 +110,18 @@ account (with its API key) via the admin UI. Resolving a magnet/hash produces di
 stream URLs with no local download step, so playback of debrid content requires no download disk
 space.
 
+### Client API compatibility
+
+Vorn also speaks a compatibility subset of the Jellyfin REST API directly (no env var, always on,
+using the same admin/user accounts as Vorn's own UI): server discovery, `AuthenticateByName`,
+library views, item browsing, poster/backdrop images, `PlaybackInfo`, direct-play video streaming,
+and play-progress reporting. Point a Jellyfin client (official apps, Infuse, Findroid,
+jellyfin-web) at Vorn's own base URL and it should authenticate and browse libraries as if talking
+to a real Jellyfin server. Out of scope for now: Jellyfin's own HLS transcode-session protocol
+(Vorn always offers a direct-play source; transcoding is handled by Vorn's own player instead),
+search, collections/playlists/favorites, and user/library management (use Vorn's `/api` admin
+surface for that). Emby and Plex compatibility are planned next (see the roadmap).
+
 ### Running components natively (without Docker)
 
 ```bash
