@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/debrid"
+	"github.com/eoghan2t9/vorn-media-server/backend/internal/logging"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/metadata"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/nzb"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/scanner"
@@ -29,6 +30,7 @@ type Deps struct {
 	Torrent      *torrent.Service
 	NZB          *nzb.Service
 	Debrid       *debrid.Service
+	LogBuffer    *logging.Buffer
 	CORSOrigin   string
 	DevMode      bool
 }
@@ -41,6 +43,7 @@ type Server struct {
 	torrentSvc   *torrent.Service
 	nzbSvc       *nzb.Service
 	debridSvc    *debrid.Service
+	logBuffer    *logging.Buffer
 	devMode      bool
 	// serverID identifies this server to client-API-compatibility clients
 	// (Jellyfin/Emby/Plex). It's regenerated on every restart, which is fine:
@@ -58,6 +61,7 @@ func NewServer(deps Deps) *Server {
 		torrentSvc:   deps.Torrent,
 		nzbSvc:       deps.NZB,
 		debridSvc:    deps.Debrid,
+		logBuffer:    deps.LogBuffer,
 		devMode:      deps.DevMode,
 		serverID:     uuid.NewString(),
 	}
@@ -187,6 +191,10 @@ func NewRouter(deps Deps) http.Handler {
 	mux.HandleFunc("GET /library/parts/{id}/{filename}", s.withPlexAuth(s.handlePlexPartFile))
 	mux.HandleFunc("GET /:/timeline", s.withPlexAuth(s.handlePlexTimeline))
 	mux.HandleFunc("POST /:/timeline", s.withPlexAuth(s.handlePlexTimeline))
+
+	mux.HandleFunc("GET /api/admin/logs/stream", s.withAdmin(s.handleAdminLogsStream))
+	mux.HandleFunc("POST /api/admin/maintenance/clear-scan-cache", s.withAdmin(s.handleClearScanCache))
+	mux.HandleFunc("POST /api/admin/maintenance/clear-transcode-cache", s.withAdmin(s.handleClearTranscodeCache))
 
 	return withCORS(mux, deps.CORSOrigin)
 }

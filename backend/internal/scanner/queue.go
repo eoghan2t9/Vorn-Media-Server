@@ -77,3 +77,32 @@ func (q *Queue) Len(ctx context.Context, jobID string) (int64, error) {
 func (q *Queue) Delete(ctx context.Context, jobID string) error {
 	return q.rdb.Del(ctx, queueKey(jobID)).Err()
 }
+
+// FlushStaging deletes every scan-staging key currently in DragonflyDB,
+// regardless of which job created it. It's what the admin "clear cache"
+// maintenance action calls to reclaim memory a crashed scan job left behind
+// (one whose staging queue was never flushed into Postgres or explicitly
+// deleted). Scoped by the "vorn:scan:" prefix (via SCAN, not KEYS/FLUSHDB)
+// rather than touching the whole keyspace, even though today Vorn owns the
+// entire Dragonfly instance.
+func (q *Queue) FlushStaging(ctx context.Context) (int64, error) {
+	var cursor uint64
+	var deleted int64
+	for {
+		keys, next, err := q.rdb.Scan(ctx, cursor, "vorn:scan:*", 100).Result()
+		if err != nil {
+			return deleted, err
+		}
+		if len(keys) > 0 {
+			n, err := q.rdb.Del(ctx, keys...).Result()
+			if err != nil {
+				return deleted, err
+			}
+			deleted += n
+		}
+		cursor = next
+		if cursor == 0 {
+			return deleted, nil
+		}
+	}
+}

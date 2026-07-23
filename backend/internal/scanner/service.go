@@ -27,6 +27,12 @@ func NewService(st *store.Store, q *Queue) *Service {
 	return &Service{store: st, queue: q}
 }
 
+// FlushStagingCache clears every scan-staging key in DragonflyDB. See
+// Queue.FlushStaging.
+func (svc *Service) FlushStagingCache(ctx context.Context) (int64, error) {
+	return svc.queue.FlushStaging(ctx)
+}
+
 // StartLibraryScan kicks off a real filesystem scan of a library's folders
 // in the background and returns immediately with the created job.
 func (svc *Service) StartLibraryScan(library *store.Library) (*store.ScanJob, error) {

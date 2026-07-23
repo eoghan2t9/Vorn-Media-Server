@@ -32,6 +32,9 @@ export function AdminHome() {
       <p>
         <Link to="/admin/debrid">Debrid →</Link>
       </p>
+      <p>
+        <Link to="/admin/logs">Logs →</Link>
+      </p>
 
       <h2>Transcoder</h2>
       {backends === null ? (

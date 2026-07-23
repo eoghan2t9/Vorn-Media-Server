@@ -142,6 +142,17 @@ classic form params) so such tooling can authenticate directly against Vorn inst
 Out of scope for now: Plex's transcode-decision/session protocol (same direct-play-only stance as
 Jellyfin/Emby above), hubs, search, and collections.
 
+### Admin: live logs and maintenance
+
+Admin > Logs streams the server's own log output live over a WebSocket (`GET /api/admin/logs/stream`,
+admin-only) — on connect it replays a scrollback buffer (last 2000 lines, in memory only, no log
+file involved), then forwards new lines as they're logged. This works identically under Docker,
+systemd, or a bare terminal. The same page exposes two maintenance actions: clearing stale
+DragonflyDB scan-staging keys left behind by a crashed scan job (`POST
+/api/admin/maintenance/clear-scan-cache`), and clearing finished transcode sessions whose tracking
+and on-disk HLS output would otherwise leak forever once a session ends without an explicit stop
+(`POST /api/admin/maintenance/clear-transcode-cache`).
+
 ### Running components natively (without Docker)
 
 ```bash

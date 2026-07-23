@@ -10,6 +10,7 @@ import (
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/config"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/debrid"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/httpapi"
+	"github.com/eoghan2t9/vorn-media-server/backend/internal/logging"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/metadata"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/migrate"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/nzb"
@@ -19,7 +20,14 @@ import (
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/transcode"
 )
 
+// logBufferLines caps how much log history the admin live-logs viewer can
+// show on connect; older lines are simply dropped, not persisted anywhere.
+const logBufferLines = 2000
+
 func main() {
+	logBuffer := logging.NewBuffer(os.Stdout, logBufferLines)
+	log.SetOutput(logBuffer)
+
 	cfg := config.Load()
 	log.Printf("vornd starting: %s", cfg)
 
@@ -99,6 +107,7 @@ func main() {
 		Torrent:      torrentSvc,
 		NZB:          nzbSvc,
 		Debrid:       debridSvc,
+		LogBuffer:    logBuffer,
 		CORSOrigin:   cfg.CORSOrigin,
 		DevMode:      cfg.DevMode,
 	})

@@ -177,3 +177,31 @@ func (m *Manager) Stop(id string) error {
 	sess.cancel()
 	return os.RemoveAll(sess.OutputDir)
 }
+
+// ClearFinished removes tracking and on-disk output for every session that
+// is no longer running. A session that finishes on its own (the client just
+// stops requesting playlist segments, say) rather than via an explicit Stop
+// otherwise leaks both its map entry and its output directory forever; this
+// is what the admin "clear cache" maintenance action calls.
+func (m *Manager) ClearFinished() (cleared int, err error) {
+	m.mu.Lock()
+	var finished []*Session
+	for id, sess := range m.sessions {
+		if s := sess.Status(); s == StatusStopped || s == StatusFailed {
+			finished = append(finished, sess)
+			delete(m.sessions, id)
+		}
+	}
+	m.mu.Unlock()
+
+	for _, sess := range finished {
+		if rmErr := os.RemoveAll(sess.OutputDir); rmErr != nil {
+			if err == nil {
+				err = rmErr
+			}
+			continue
+		}
+		cleared++
+	}
+	return cleared, err
+}

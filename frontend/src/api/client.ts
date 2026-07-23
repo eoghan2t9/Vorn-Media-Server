@@ -402,6 +402,20 @@ export interface DebridFile {
 }
 export const listDebridFiles = (itemId: string) => request<DebridFile[]>(`/api/debrid/${itemId}/files`)
 
+export interface MaintenanceResult {
+  cleared: number
+  detail?: string
+}
+export const clearScanCache = () =>
+  request<MaintenanceResult>('/api/admin/maintenance/clear-scan-cache', { method: 'POST' })
+export const clearTranscodeCache = () =>
+  request<MaintenanceResult>('/api/admin/maintenance/clear-transcode-cache', { method: 'POST' })
+
+// logsStreamUrl builds the WebSocket URL for the live admin log viewer,
+// carrying API_BASE's scheme (ws/wss mirrors http/https) since the log
+// stream is a WebSocket, not a plain fetch.
+export const logsStreamUrl = () => `${API_BASE.replace(/^http/, 'ws')}/api/admin/logs/stream`
+
 // API_BASE is exported so components that need an absolute stream URL
 // (e.g. the HLS player, which hands the URL to hls.js/a <video> element
 // rather than fetching it themselves) can build one.
