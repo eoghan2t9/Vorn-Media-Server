@@ -36,7 +36,7 @@ Tracked in phases; each phase is delivered as a runnable increment with its own 
       files in ~3.6s locally).
 - [x] **Phase 3 — Library management & dashboard UI**: folder mapping, admin header
       (profile/stats/search), continue-watching, per-library filters.
-- [ ] **Phase 4 — Metadata sync**: TMDb-backed art/trailers, manual metadata override.
+- [x] **Phase 4 — Metadata sync**: TMDb-backed art/trailers, manual metadata override.
 - [ ] **Phase 5 — Transcoder**: ffmpeg/ffprobe wrapper, GPU capability probing, on-the-fly HLS.
 - [ ] **Phase 6 — Player**: resume playback, autoplay-next-episode, currently-watching admin view.
 - [ ] **Phase 7 — Torrent acquisition**: streaming-while-downloading torrent client, auto-add.
@@ -76,6 +76,13 @@ docker compose -f deploy/docker-compose.yml up --build
 
 - Backend API: http://localhost:8080 (health check at `/healthz`)
 - Frontend dev server: http://localhost:5173
+
+### Optional environment variables
+
+- `VORN_DEV_MODE=true` — enables the synthetic scan-benchmarking endpoint (`POST /api/dev/synthetic-scan`).
+- `VORN_TMDB_API_KEY` — enables metadata sync (`POST /api/libraries/{id}/sync-metadata`). Without
+  it, metadata sync is simply unavailable (503) rather than the server failing to start; get a
+  free key at https://www.themoviedb.org/settings/api.
 
 ### Running components natively (without Docker)
 
