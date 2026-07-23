@@ -297,6 +297,65 @@ export const createTorrentIndexer = (input: { name: string; baseUrl: string; api
 export const deleteTorrentIndexer = (id: string) =>
   request<void>(`/api/torrent-indexers/${id}`, { method: 'DELETE' })
 
+export interface NZBDownload {
+  id: string
+  libraryId?: string
+  name: string
+  status: 'downloading' | 'repairing' | 'completed' | 'error' | 'removed'
+  bytesTotal: number
+  bytesDone: number
+  error?: string
+  promoted: boolean
+  addedAt: string
+  completedAt?: string
+}
+export const listNZBDownloads = () => request<NZBDownload[]>('/api/nzb')
+
+export const addNZBFile = async (file: File, opts?: { libraryId?: string }) => {
+  const params = new URLSearchParams()
+  if (opts?.libraryId) params.set('libraryId', opts.libraryId)
+  const qs = params.toString()
+  const res = await fetch(`${API_BASE}/api/nzb${qs ? `?${qs}` : ''}`, {
+    method: 'POST',
+    credentials: 'include',
+    body: await file.arrayBuffer(),
+  })
+  const body = await res.json().catch(() => ({}))
+  if (!res.ok) throw new ApiError(res.status, body.error ?? `request failed with ${res.status}`)
+  return body as NZBDownload
+}
+
+export const removeNZBDownload = (id: string, deleteFiles = false) =>
+  request<void>(`/api/nzb/${id}?deleteFiles=${deleteFiles}`, { method: 'DELETE' })
+
+export interface UsenetServer {
+  id: string
+  name: string
+  host: string
+  port: number
+  useTls: boolean
+  username: string
+  maxConnections: number
+  enabled: boolean
+  createdAt: string
+}
+export const listUsenetServers = () => request<UsenetServer[]>('/api/usenet-servers')
+
+export interface CreateUsenetServerInput {
+  name: string
+  host: string
+  port: number
+  useTls?: boolean
+  username?: string
+  password?: string
+  maxConnections?: number
+}
+export const createUsenetServer = (input: CreateUsenetServerInput) =>
+  request<UsenetServer>('/api/usenet-servers', { method: 'POST', body: JSON.stringify(input) })
+
+export const deleteUsenetServer = (id: string) =>
+  request<void>(`/api/usenet-servers/${id}`, { method: 'DELETE' })
+
 // API_BASE is exported so components that need an absolute stream URL
 // (e.g. the HLS player, which hands the URL to hls.js/a <video> element
 // rather than fetching it themselves) can build one.

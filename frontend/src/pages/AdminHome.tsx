@@ -26,6 +26,9 @@ export function AdminHome() {
       <p>
         <Link to="/admin/torrents">Torrents →</Link>
       </p>
+      <p>
+        <Link to="/admin/nzb">NZB / Usenet →</Link>
+      </p>
 
       <h2>Transcoder</h2>
       {backends === null ? (
