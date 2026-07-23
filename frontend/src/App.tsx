@@ -17,10 +17,25 @@ import { AdminServerSettings } from './pages/AdminServerSettings'
 import { SetupWizard } from './pages/SetupWizard'
 import { Login } from './pages/Login'
 
+function ConnectionError({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div className="vorn-form-page">
+      <div className="vorn-form">
+        <h1>Can't reach Vorn</h1>
+        <p className="vorn-form-error">{message}</p>
+        <button type="button" onClick={onRetry}>
+          Retry
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function ProtectedLayout() {
-  const { loading, setupCompleted, user } = useAuth()
+  const { loading, setupCompleted, bootstrapError, user, retryBootstrap } = useAuth()
 
   if (loading) return null
+  if (bootstrapError) return <ConnectionError message={bootstrapError} onRetry={retryBootstrap} />
   if (!setupCompleted) return <Navigate to="/setup" replace />
   if (!user) return <Navigate to="/login" replace />
   return (
