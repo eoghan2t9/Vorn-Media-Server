@@ -8,6 +8,7 @@ import {
   getProgress,
   playItem,
   stopStreamSession,
+  subtitlesUrl,
   updateProgress,
   type MediaItem,
 } from '../api/client'
@@ -16,6 +17,18 @@ import './WatchPage.css'
 
 const PROGRESS_REPORT_INTERVAL_MS = 5000
 const NEAR_END_THRESHOLD_SECONDS = 30
+
+const SUBTITLE_LANGUAGES = [
+  { code: 'off', label: 'Off' },
+  { code: 'en', label: 'English' },
+  { code: 'es', label: 'Spanish' },
+  { code: 'fr', label: 'French' },
+  { code: 'de', label: 'German' },
+  { code: 'it', label: 'Italian' },
+  { code: 'pt', label: 'Portuguese' },
+  { code: 'ru', label: 'Russian' },
+  { code: 'ja', label: 'Japanese' },
+]
 
 export function WatchPage() {
   const { id } = useParams<{ id: string }>()
@@ -28,6 +41,7 @@ export function WatchPage() {
   const [nextEpisode, setNextEpisode] = useState<MediaItem | null>(null)
   const [showUpNext, setShowUpNext] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [subtitleLanguage, setSubtitleLanguage] = useState('off')
 
   useEffect(() => {
     if (!id) return
@@ -115,8 +129,23 @@ export function WatchPage() {
         controls
         onTimeUpdate={handleTimeUpdate}
         onEnded={goToNextEpisode}
-      />
+      >
+        {id && subtitleLanguage !== 'off' && (
+          <track key={subtitleLanguage} kind="subtitles" src={subtitlesUrl(id, subtitleLanguage)} srcLang={subtitleLanguage} default />
+        )}
+      </video>
       {item && <h1 className="vorn-watch-title">{item.title}</h1>}
+
+      <label className="vorn-subtitle-picker">
+        Subtitles:{' '}
+        <select value={subtitleLanguage} onChange={(e) => setSubtitleLanguage(e.target.value)}>
+          {SUBTITLE_LANGUAGES.map((l) => (
+            <option key={l.code} value={l.code}>
+              {l.label}
+            </option>
+          ))}
+        </select>
+      </label>
 
       {showUpNext && nextEpisode && (
         <div className="vorn-up-next">

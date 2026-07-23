@@ -16,6 +16,7 @@ import (
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/nzb"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/scanner"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/store"
+	"github.com/eoghan2t9/vorn-media-server/backend/internal/subtitles"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/torrent"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/transcode"
 )
@@ -99,6 +100,16 @@ func main() {
 	// configures at least one account.
 	debridSvc := debrid.NewService(st)
 
+	var subtitlesSvc *subtitles.Service
+	if cfg.OpenSubtitlesAPIKey != "" && cfg.OpenSubtitlesUser != "" {
+		subtitlesSvc, err = subtitles.NewService(cfg.OpenSubtitlesAPIKey, cfg.OpenSubtitlesUser, cfg.OpenSubtitlesPass, cfg.SubtitlesCacheDir)
+		if err != nil {
+			log.Fatalf("starting subtitles service: %v", err)
+		}
+	} else {
+		log.Print("VORN_OPENSUBTITLES_API_KEY/VORN_OPENSUBTITLES_USERNAME not set: subtitle integration is disabled")
+	}
+
 	router := httpapi.NewRouter(httpapi.Deps{
 		Store:        st,
 		Scanner:      scanSvc,
@@ -107,6 +118,7 @@ func main() {
 		Torrent:      torrentSvc,
 		NZB:          nzbSvc,
 		Debrid:       debridSvc,
+		Subtitles:    subtitlesSvc,
 		LogBuffer:    logBuffer,
 		CORSOrigin:   cfg.CORSOrigin,
 		DevMode:      cfg.DevMode,

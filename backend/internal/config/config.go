@@ -22,6 +22,10 @@ type Config struct {
 	TorrentPeerPort      int
 	NZBEnabled           bool
 	NZBDownloadDir       string
+	OpenSubtitlesAPIKey  string
+	OpenSubtitlesUser    string
+	OpenSubtitlesPass    string
+	SubtitlesCacheDir    string
 }
 
 func Load() Config {
@@ -39,6 +43,10 @@ func Load() Config {
 		TorrentPeerPort:      getIntEnv("VORN_TORRENT_PEER_PORT", 0),
 		NZBEnabled:           getBoolEnv("VORN_NZB_ENABLED", false),
 		NZBDownloadDir:       getEnv("VORN_NZB_DOWNLOAD_DIR", "./data/nzb-downloads"),
+		OpenSubtitlesAPIKey:  getEnv("VORN_OPENSUBTITLES_API_KEY", ""),
+		OpenSubtitlesUser:    getEnv("VORN_OPENSUBTITLES_USERNAME", ""),
+		OpenSubtitlesPass:    getEnv("VORN_OPENSUBTITLES_PASSWORD", ""),
+		SubtitlesCacheDir:    getEnv("VORN_SUBTITLES_CACHE_DIR", "./data/subtitles-cache"),
 	}
 }
 
@@ -74,6 +82,6 @@ func getIntEnv(key string, fallback int) int {
 }
 
 func (c Config) String() string {
-	return fmt.Sprintf("http_addr=%s postgres=<redacted> dragonfly=%s cors_origin=%s dev_mode=%v tmdb_configured=%v transcode_max_sessions=%d torrent_enabled=%v nzb_enabled=%v",
-		c.HTTPAddr, c.DragonflyAddr, c.CORSOrigin, c.DevMode, c.TMDbAPIKey != "", c.TranscodeMaxSessions, c.TorrentEnabled, c.NZBEnabled)
+	return fmt.Sprintf("http_addr=%s postgres=<redacted> dragonfly=%s cors_origin=%s dev_mode=%v tmdb_configured=%v transcode_max_sessions=%d torrent_enabled=%v nzb_enabled=%v opensubtitles_configured=%v",
+		c.HTTPAddr, c.DragonflyAddr, c.CORSOrigin, c.DevMode, c.TMDbAPIKey != "", c.TranscodeMaxSessions, c.TorrentEnabled, c.NZBEnabled, c.OpenSubtitlesAPIKey != "")
 }

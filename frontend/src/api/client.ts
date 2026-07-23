@@ -217,6 +217,18 @@ export const playItem = (id: string) => request<PlayResponse>(`/api/items/${id}/
 export const stopStreamSession = (sessionId: string) =>
   request<void>(`/api/stream/session/${sessionId}`, { method: 'DELETE' })
 
+// subtitlesUrl builds the URL for a WebVTT subtitle track suitable for a
+// <track src="..."> element -- the endpoint fetches (and caches) on demand,
+// so this can be pointed at directly rather than pre-fetched with `request`.
+export const subtitlesUrl = (itemId: string, language: string) =>
+  `${API_BASE}/api/items/${itemId}/subtitles?language=${encodeURIComponent(language)}`
+
+export interface SubtitlesQuota {
+  remaining: number
+  resetTime?: string
+}
+export const fetchSubtitlesQuota = () => request<SubtitlesQuota>('/api/admin/subtitles/quota')
+
 export const getProgress = (id: string) =>
   request<{ positionSeconds: number; durationSeconds: number }>(`/api/items/${id}/progress`)
 

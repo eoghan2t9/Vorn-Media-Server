@@ -105,6 +105,15 @@ docker compose -f deploy/docker-compose.yml up --build
 - `VORN_NZB_DOWNLOAD_DIR` — where NZB downloads are saved and par2-repaired (default:
   `./data/nzb-downloads`; the Docker Compose backend service always uses `/nzb-downloads`, backed
   by the `VORN_NZB_DOWNLOAD_PATH` host bind mount).
+- `VORN_OPENSUBTITLES_API_KEY` / `VORN_OPENSUBTITLES_USERNAME` / `VORN_OPENSUBTITLES_PASSWORD` —
+  enables subtitle integration (`GET /api/items/{id}/subtitles`, `GET /api/admin/subtitles/quota`).
+  Requires a free OpenSubtitles.com API consumer key (https://www.opensubtitles.com/en/consumers)
+  plus an account username/password (downloads need a logged-in account, not just the key). Without
+  these, subtitle fetching is simply unavailable (503) rather than the server failing to start.
+- `VORN_SUBTITLES_CACHE_DIR` — where downloaded subtitles are cached, keyed by the video file's
+  content hash so a repeat request never touches the (metered) OpenSubtitles quota again (default:
+  `./data/subtitles-cache`; the Docker Compose backend service always uses `/subtitles-cache`,
+  backed by the `VORN_SUBTITLES_CACHE_PATH` host bind mount).
 
 Debrid (Real-Debrid/TorBox) acquisition (`/api/debrid-accounts`, `/api/debrid`) has no env var and
 is always available — it opens no listening port and holds no local state until the admin adds an

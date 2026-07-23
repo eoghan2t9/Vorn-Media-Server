@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ApiError, clearScanCache, clearTranscodeCache, logsStreamUrl } from '../api/client'
+import { ApiError, clearScanCache, clearTranscodeCache, fetchSubtitlesQuota, logsStreamUrl, type SubtitlesQuota } from '../api/client'
 import './AdminUsers.css'
 
 const MAX_LINES = 2000
@@ -9,6 +9,7 @@ export function AdminLogs() {
   const [connected, setConnected] = useState(false)
   const [maintenanceMsg, setMaintenanceMsg] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [quota, setQuota] = useState<SubtitlesQuota | null>(null)
   const logRef = useRef<HTMLPreElement>(null)
   const autoScroll = useRef(true)
 
@@ -24,6 +25,12 @@ export function AdminLogs() {
       })
     }
     return () => ws.close()
+  }, [])
+
+  useEffect(() => {
+    fetchSubtitlesQuota()
+      .then(setQuota)
+      .catch(() => setQuota(null))
   }, [])
 
   useEffect(() => {
@@ -94,6 +101,17 @@ export function AdminLogs() {
           Clear finished transcode sessions
         </button>
       </p>
+
+      <h2>OpenSubtitles quota</h2>
+      {quota === null ? (
+        <p>Checking…</p>
+      ) : quota.remaining < 0 ? (
+        <p>Not configured (set VORN_OPENSUBTITLES_API_KEY and VORN_OPENSUBTITLES_USERNAME).</p>
+      ) : (
+        <p>
+          {quota.remaining} download(s) remaining today{quota.resetTime ? ` (resets in ${quota.resetTime})` : ''}.
+        </p>
+      )}
     </section>
   )
 }

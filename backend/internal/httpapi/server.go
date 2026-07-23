@@ -11,6 +11,7 @@ import (
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/nzb"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/scanner"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/store"
+	"github.com/eoghan2t9/vorn-media-server/backend/internal/subtitles"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/torrent"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/transcode"
 	"github.com/google/uuid"
@@ -30,6 +31,7 @@ type Deps struct {
 	Torrent      *torrent.Service
 	NZB          *nzb.Service
 	Debrid       *debrid.Service
+	Subtitles    *subtitles.Service
 	LogBuffer    *logging.Buffer
 	CORSOrigin   string
 	DevMode      bool
@@ -43,6 +45,7 @@ type Server struct {
 	torrentSvc   *torrent.Service
 	nzbSvc       *nzb.Service
 	debridSvc    *debrid.Service
+	subtitlesSvc *subtitles.Service
 	logBuffer    *logging.Buffer
 	devMode      bool
 	// serverID identifies this server to client-API-compatibility clients
@@ -61,6 +64,7 @@ func NewServer(deps Deps) *Server {
 		torrentSvc:   deps.Torrent,
 		nzbSvc:       deps.NZB,
 		debridSvc:    deps.Debrid,
+		subtitlesSvc: deps.Subtitles,
 		logBuffer:    deps.LogBuffer,
 		devMode:      deps.DevMode,
 		serverID:     uuid.NewString(),
@@ -195,6 +199,9 @@ func NewRouter(deps Deps) http.Handler {
 	mux.HandleFunc("GET /api/admin/logs/stream", s.withAdmin(s.handleAdminLogsStream))
 	mux.HandleFunc("POST /api/admin/maintenance/clear-scan-cache", s.withAdmin(s.handleClearScanCache))
 	mux.HandleFunc("POST /api/admin/maintenance/clear-transcode-cache", s.withAdmin(s.handleClearTranscodeCache))
+
+	mux.HandleFunc("GET /api/items/{id}/subtitles", s.withAuth(s.handleGetSubtitles))
+	mux.HandleFunc("GET /api/admin/subtitles/quota", s.withAdmin(s.handleSubtitlesQuota))
 
 	return withCORS(mux, deps.CORSOrigin)
 }
