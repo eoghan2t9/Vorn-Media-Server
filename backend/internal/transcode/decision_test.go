@@ -13,6 +13,8 @@ func TestDecide(t *testing.T) {
 		{"hevc needs transcode", MediaInfo{VideoCodec: "hevc", AudioCodec: "aac"}, ModeTranscode},
 		{"h264 with dts audio needs transcode", MediaInfo{VideoCodec: "h264", AudioCodec: "dts"}, ModeTranscode},
 		{"unknown codecs need transcode", MediaInfo{}, ModeTranscode},
+		{"audio-only mp3 direct plays (no video stream at all)", MediaInfo{AudioCodec: "mp3"}, ModeDirect},
+		{"audio-only with incompatible codec needs transcode", MediaInfo{AudioCodec: "flac"}, ModeTranscode},
 	}
 
 	for _, c := range cases {
