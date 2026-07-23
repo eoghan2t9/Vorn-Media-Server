@@ -1,16 +1,42 @@
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { fetchTranscodeCapabilities } from '../api/client'
 
 export function AdminHome() {
+  const [backends, setBackends] = useState<string[] | null>(null)
+
+  useEffect(() => {
+    fetchTranscodeCapabilities()
+      .then((c) => setBackends(c.backends ?? []))
+      .catch(() => setBackends([]))
+  }, [])
+
   return (
     <section>
       <h1>Admin</h1>
-      <p>Transcoding, downloads, and other server tools land here in later phases.</p>
+      <p>Downloads and other server tools land here in later phases.</p>
       <p>
         <Link to="/admin/libraries">Manage libraries →</Link>
       </p>
       <p>
         <Link to="/admin/users">Manage users →</Link>
       </p>
+
+      <h2>Transcoder</h2>
+      {backends === null ? (
+        <p>Checking…</p>
+      ) : backends.length === 0 ? (
+        <p>No working encoder detected (ffmpeg missing, or no hardware/software backend probed successfully).</p>
+      ) : (
+        <p>
+          Detected, real-probe-verified backends:{' '}
+          {backends.map((b) => (
+            <code key={b} style={{ marginRight: '0.5rem' }}>
+              {b}
+            </code>
+          ))}
+        </p>
+      )}
     </section>
   )
 }

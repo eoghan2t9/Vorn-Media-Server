@@ -200,3 +200,16 @@ export interface UpdateMetadataInput {
 }
 export const updateItemMetadata = (id: string, input: UpdateMetadataInput) =>
   request<MediaItem>(`/api/items/${id}/metadata`, { method: 'PATCH', body: JSON.stringify(input) })
+
+export interface TranscodeCapabilities {
+  backends: string[] | null
+}
+export const fetchTranscodeCapabilities = () => request<TranscodeCapabilities>('/api/transcode/capabilities')
+
+export interface PlayResponse {
+  mode: 'direct' | 'transcode'
+  directUrl?: string
+  sessionId?: string
+  playlistUrl?: string
+}
+export const playItem = (id: string) => request<PlayResponse>(`/api/items/${id}/play`, { method: 'POST' })
