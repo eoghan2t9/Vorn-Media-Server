@@ -9,6 +9,7 @@ import {
   type Library,
   type User,
 } from '../api/client'
+import { MultiSelect } from '../components/Select'
 import './AdminUsers.css'
 
 export function AdminUsers() {
@@ -98,22 +99,12 @@ export function AdminUsers() {
                 <td>{u.isAdmin ? 'Admin (all libraries)' : 'Standard'}</td>
                 <td>
                   {!u.isAdmin && (
-                    <select
-                      multiple
+                    <MultiSelect
                       value={permissions[u.id] ?? []}
-                      onChange={(e) =>
-                        handlePermissionsChange(
-                          u.id,
-                          Array.from(e.target.selectedOptions).map((o) => o.value),
-                        )
-                      }
-                    >
-                      {libraries.map((l) => (
-                        <option key={l.id} value={l.id}>
-                          {l.name}
-                        </option>
-                      ))}
-                    </select>
+                      onChange={(ids) => handlePermissionsChange(u.id, ids)}
+                      options={libraries.map((l) => ({ value: l.id, label: l.name }))}
+                      placeholder="No access"
+                    />
                   )}
                 </td>
                 <td>
@@ -147,17 +138,12 @@ export function AdminUsers() {
             Admin
           </label>
           {!isAdmin && (
-            <select
-              multiple
+            <MultiSelect
               value={newUserLibraries}
-              onChange={(e) => setNewUserLibraries(Array.from(e.target.selectedOptions).map((o) => o.value))}
-            >
-              {libraries.map((l) => (
-                <option key={l.id} value={l.id}>
-                  {l.name}
-                </option>
-              ))}
-            </select>
+              onChange={setNewUserLibraries}
+              options={libraries.map((l) => ({ value: l.id, label: l.name }))}
+              placeholder="Library access"
+            />
           )}
           <button type="submit" disabled={submitting}>
             {submitting ? 'Adding…' : 'Add user'}

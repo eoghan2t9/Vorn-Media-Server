@@ -12,6 +12,9 @@ import {
   type MetadataJob,
   type ScanJob,
 } from '../api/client'
+import { DirectoryBrowser } from '../components/DirectoryBrowser'
+import { Select } from '../components/Select'
+import { FolderIcon } from '../components/icons'
 import './AdminUsers.css'
 
 export function AdminLibraries() {
@@ -24,6 +27,7 @@ export function AdminLibraries() {
   const [type, setType] = useState<'movie' | 'series'>('movie')
   const [folder, setFolder] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [browserOpen, setBrowserOpen] = useState(false)
 
   async function refresh() {
     setLibraries(await listLibraries())
@@ -160,21 +164,41 @@ export function AdminLibraries() {
         </div>
         <form className="vorn-inline-form" onSubmit={handleCreate}>
           <input placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} required />
-          <select value={type} onChange={(e) => setType(e.target.value as 'movie' | 'series')}>
-            <option value="movie">Movies</option>
-            <option value="series">Series</option>
-          </select>
+          <Select
+            value={type}
+            onChange={(v) => setType(v as 'movie' | 'series')}
+            options={[
+              { value: 'movie', label: 'Movies' },
+              { value: 'series', label: 'Series' },
+            ]}
+          />
           <input
             placeholder="Folder path on the server"
             value={folder}
             onChange={(e) => setFolder(e.target.value)}
+            style={{ minWidth: '16rem' }}
             required
           />
+          <button type="button" onClick={() => setBrowserOpen(true)}>
+            <FolderIcon style={{ verticalAlign: '-0.15em', marginRight: '0.35rem' }} />
+            Browse…
+          </button>
           <button type="submit" disabled={submitting}>
             {submitting ? 'Adding…' : 'Add library'}
           </button>
         </form>
       </div>
+
+      {browserOpen && (
+        <DirectoryBrowser
+          initialPath={folder || undefined}
+          onClose={() => setBrowserOpen(false)}
+          onSelect={(path) => {
+            setFolder(path)
+            setBrowserOpen(false)
+          }}
+        />
+      )}
     </section>
   )
 }

@@ -12,6 +12,8 @@ import {
   type NZBDownload,
   type UsenetServer,
 } from '../api/client'
+import { FileDropzone, type FileDropzoneHandle } from '../components/FileDropzone'
+import { Select } from '../components/Select'
 import './AdminUsers.css'
 
 function formatBytes(n: number) {
@@ -29,7 +31,7 @@ export function AdminNzb() {
 
   const [libraryId, setLibraryId] = useState('')
   const [submitting, setSubmitting] = useState(false)
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  const dropzoneRef = useRef<FileDropzoneHandle>(null)
 
   const [serverName, setServerName] = useState('')
   const [serverHost, setServerHost] = useState('')
@@ -53,9 +55,7 @@ export function AdminNzb() {
     return () => clearInterval(interval)
   }, [])
 
-  async function handleFileChange() {
-    const file = fileInputRef.current?.files?.[0]
-    if (!file) return
+  async function handleFileSelected(file: File) {
     setError(null)
     setSubmitting(true)
     try {
@@ -65,7 +65,7 @@ export function AdminNzb() {
       setError(err instanceof ApiError ? err.message : 'Failed to add nzb file')
     } finally {
       setSubmitting(false)
-      if (fileInputRef.current) fileInputRef.current.value = ''
+      dropzoneRef.current?.reset()
     }
   }
 
@@ -164,18 +164,21 @@ export function AdminNzb() {
         <div className="vorn-panel-header">
           <h2>Add NZB</h2>
         </div>
-        <div className="vorn-inline-form">
-          <select value={libraryId} onChange={(e) => setLibraryId(e.target.value)}>
-            <option value="">No destination library (won't auto-add)</option>
-            {libraries.map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.name}
-              </option>
-            ))}
-          </select>
-          <span>Upload a .nzb file:</span>
-          <input ref={fileInputRef} type="file" accept=".nzb" onChange={handleFileChange} disabled={submitting} />
+        <div className="vorn-inline-form" style={{ marginBottom: '0.75rem' }}>
+          <Select
+            value={libraryId}
+            onChange={setLibraryId}
+            placeholder="No destination library"
+            options={libraries.map((l) => ({ value: l.id, label: l.name }))}
+          />
         </div>
+        <FileDropzone
+          ref={dropzoneRef}
+          accept=".nzb"
+          hint=".nzb files"
+          disabled={submitting}
+          onFile={handleFileSelected}
+        />
       </div>
 
       <div className="vorn-panel">

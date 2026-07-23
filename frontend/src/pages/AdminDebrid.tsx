@@ -12,6 +12,7 @@ import {
   type DebridItem,
   type Library,
 } from '../api/client'
+import { Select } from '../components/Select'
 import './AdminUsers.css'
 
 export function AdminDebrid() {
@@ -139,14 +140,15 @@ export function AdminDebrid() {
           <h2>Add magnet / hash</h2>
         </div>
         <form className="vorn-inline-form" onSubmit={handleAddLink}>
-          <select value={accountId} onChange={(e) => setAccountId(e.target.value)} required>
-            <option value="">Select account…</option>
-            {accounts.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.provider} {!a.enabled ? '(disabled)' : ''}
-              </option>
-            ))}
-          </select>
+          <Select
+            value={accountId}
+            onChange={setAccountId}
+            placeholder="Select account…"
+            options={accounts.map((a) => ({
+              value: a.id,
+              label: `${a.provider}${!a.enabled ? ' (disabled)' : ''}`,
+            }))}
+          />
           <input
             placeholder="Magnet URI or info-hash"
             value={sourceRef}
@@ -155,14 +157,12 @@ export function AdminDebrid() {
             required
           />
           <input placeholder="Name (optional)" value={name} onChange={(e) => setName(e.target.value)} />
-          <select value={libraryId} onChange={(e) => setLibraryId(e.target.value)}>
-            <option value="">No destination library (won't auto-add)</option>
-            {libraries.map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.name}
-              </option>
-            ))}
-          </select>
+          <Select
+            value={libraryId}
+            onChange={setLibraryId}
+            placeholder="No destination library"
+            options={libraries.map((l) => ({ value: l.id, label: l.name }))}
+          />
           <button type="submit" disabled={submitting || !accountId}>
             {submitting ? 'Adding…' : 'Resolve'}
           </button>
@@ -198,10 +198,14 @@ export function AdminDebrid() {
         </table>
         </div>
         <form className="vorn-inline-form" onSubmit={handleAddAccount} style={{ marginTop: '1rem' }}>
-          <select value={newProvider} onChange={(e) => setNewProvider(e.target.value as 'realdebrid' | 'torbox')}>
-            <option value="realdebrid">Real-Debrid</option>
-            <option value="torbox">TorBox</option>
-          </select>
+          <Select
+            value={newProvider}
+            onChange={(v) => setNewProvider(v as 'realdebrid' | 'torbox')}
+            options={[
+              { value: 'realdebrid', label: 'Real-Debrid' },
+              { value: 'torbox', label: 'TorBox' },
+            ]}
+          />
           <input
             placeholder="API key"
             type="password"

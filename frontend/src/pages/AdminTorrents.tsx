@@ -15,6 +15,8 @@ import {
   type TorrentIndexer,
   type TorrentSearchResult,
 } from '../api/client'
+import { FileDropzone, type FileDropzoneHandle } from '../components/FileDropzone'
+import { Select } from '../components/Select'
 import './AdminUsers.css'
 
 function formatBytes(n: number) {
@@ -34,7 +36,7 @@ export function AdminTorrents() {
   const [libraryId, setLibraryId] = useState('')
   const [sequential, setSequential] = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  const dropzoneRef = useRef<FileDropzoneHandle>(null)
 
   const [indexerName, setIndexerName] = useState('')
   const [indexerBaseUrl, setIndexerBaseUrl] = useState('')
@@ -73,9 +75,7 @@ export function AdminTorrents() {
     }
   }
 
-  async function handleFileChange() {
-    const file = fileInputRef.current?.files?.[0]
-    if (!file) return
+  async function handleFileSelected(file: File) {
     setError(null)
     setSubmitting(true)
     try {
@@ -85,7 +85,7 @@ export function AdminTorrents() {
       setError(err instanceof ApiError ? err.message : 'Failed to add torrent file')
     } finally {
       setSubmitting(false)
-      if (fileInputRef.current) fileInputRef.current.value = ''
+      dropzoneRef.current?.reset()
     }
   }
 
@@ -210,14 +210,12 @@ export function AdminTorrents() {
             style={{ minWidth: '20rem' }}
             required
           />
-          <select value={libraryId} onChange={(e) => setLibraryId(e.target.value)}>
-            <option value="">No destination library (won't auto-add)</option>
-            {libraries.map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.name}
-              </option>
-            ))}
-          </select>
+          <Select
+            value={libraryId}
+            onChange={setLibraryId}
+            placeholder="No destination library"
+            options={libraries.map((l) => ({ value: l.id, label: l.name }))}
+          />
           <label>
             <input type="checkbox" checked={sequential} onChange={(e) => setSequential(e.target.checked)} /> Sequential
           </label>
@@ -225,9 +223,16 @@ export function AdminTorrents() {
             {submitting ? 'Adding…' : 'Add magnet'}
           </button>
         </form>
-        <p className="vorn-panel-subtitle" style={{ margin: '1rem 0 0' }}>
-          Or upload a .torrent file: <input ref={fileInputRef} type="file" accept=".torrent" onChange={handleFileChange} />
+        <p className="vorn-panel-subtitle" style={{ margin: '1rem 0 0.5rem' }}>
+          Or upload a .torrent file:
         </p>
+        <FileDropzone
+          ref={dropzoneRef}
+          accept=".torrent"
+          hint=".torrent files"
+          disabled={submitting}
+          onFile={handleFileSelected}
+        />
       </div>
 
       <div className="vorn-panel">
