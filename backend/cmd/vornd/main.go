@@ -70,9 +70,11 @@ func main() {
 	// who configures a key through the UI doesn't need to also edit compose
 	// files -- but existing env-var-only deployments keep working unchanged
 	// since these only override fields that were actually saved.
-	if intSettings, err := st.GetIntegrationSettings(); err != nil {
+	var intSettings *store.IntegrationSettings
+	if s, err := st.GetIntegrationSettings(); err != nil {
 		log.Printf("loading integration settings: %v", err)
 	} else {
+		intSettings = s
 		if intSettings.TMDbAPIKey != "" {
 			cfg.TMDbAPIKey = intSettings.TMDbAPIKey
 		}
@@ -87,13 +89,34 @@ func main() {
 		}
 	}
 
-	scanSvc := scanner.NewService(st, queue)
+	scanSvc, err := scanner.NewService(st, queue, cfg.ArtworkCacheDir)
+	if err != nil {
+		log.Fatalf("starting scanner service: %v", err)
+	}
 
+	// MusicBrainz/Open Library need no credentials at all (unlike TMDb), so
+	// they're gated purely by their own admin toggle in Admin > Integrations
+	// -- either can be enabled even with no TMDb key configured, which is why
+	// metadataSvc's nil-ness can't just mirror cfg.TMDbAPIKey any more.
 	var metadataSvc *metadata.Service
 	if cfg.TMDbAPIKey != "" {
 		metadataSvc = metadata.NewService(st, metadata.NewTMDbProvider(cfg.TMDbAPIKey))
 	} else {
-		log.Print("VORN_TMDB_API_KEY not set: metadata sync is disabled")
+		log.Print("VORN_TMDB_API_KEY not set: movie/series metadata sync is disabled")
+	}
+	if intSettings != nil && intSettings.MusicMetadataEnabled {
+		if metadataSvc == nil {
+			metadataSvc = metadata.NewService(st, nil)
+		}
+		metadataSvc.WithMusicProvider(metadata.NewMusicBrainzProvider())
+		log.Print("music metadata (MusicBrainz + Cover Art Archive) enabled")
+	}
+	if intSettings != nil && intSettings.AudiobookMetadataEnabled {
+		if metadataSvc == nil {
+			metadataSvc = metadata.NewService(st, nil)
+		}
+		metadataSvc.WithAudiobookProvider(metadata.NewOpenLibraryProvider())
+		log.Print("audiobook metadata (Open Library) enabled")
 	}
 
 	var transcodeMgr *transcode.Manager

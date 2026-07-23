@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ApiError, getItem, updateItemMetadata, type MediaItemDetail } from '../api/client'
+import { ApiError, getItem, resolveMediaUrl, updateItemMetadata, type MediaItemDetail } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
 import { Poster } from '../components/Poster'
 import './ItemDetail.css'
@@ -73,13 +73,14 @@ export function ItemDetail() {
     <section>
       <div
         className="vorn-detail-hero"
-        style={item.backdropUrl ? { backgroundImage: `url(${item.backdropUrl})` } : undefined}
+        style={item.backdropUrl ? { backgroundImage: `url(${resolveMediaUrl(item.backdropUrl)})` } : undefined}
       >
         <div className="vorn-detail-hero-scrim" />
         <div className="vorn-detail-hero-content">
           <Poster title={item.title} posterUrl={item.posterUrl} className="vorn-detail-poster" />
           <div className="vorn-detail-info">
             <h1>{item.title}</h1>
+            {item.author && <p className="vorn-detail-year">by {item.author}</p>}
             {item.releaseDate && <p className="vorn-detail-year">{item.releaseDate.slice(0, 4)}</p>}
             {(item.kind === 'movie' ||
               item.kind === 'episode' ||

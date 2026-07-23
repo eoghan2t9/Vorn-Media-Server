@@ -18,14 +18,24 @@ type IntegrationSettings struct {
 	OpenSubtitlesAPIKey   string
 	OpenSubtitlesUsername string
 	OpenSubtitlesPassword string
-	UpdatedAt             time.Time
+	// MusicMetadataEnabled/AudiobookMetadataEnabled gate outbound calls to
+	// MusicBrainz+Cover Art Archive / Open Library. Unlike TMDb/OpenSubtitles
+	// these providers need no credentials at all, so a boolean opt-in (default
+	// off) is the only thing standing between a fresh install and Vorn
+	// silently calling out to third-party APIs -- admins should choose that,
+	// not have it happen by default.
+	MusicMetadataEnabled     bool
+	AudiobookMetadataEnabled bool
+	UpdatedAt                time.Time
 }
 
 type integrationSettingsValue struct {
-	TMDbAPIKey            string `json:"tmdbApiKey"`
-	OpenSubtitlesAPIKey   string `json:"openSubtitlesApiKey"`
-	OpenSubtitlesUsername string `json:"openSubtitlesUsername"`
-	OpenSubtitlesPassword string `json:"openSubtitlesPassword"`
+	TMDbAPIKey               string `json:"tmdbApiKey"`
+	OpenSubtitlesAPIKey      string `json:"openSubtitlesApiKey"`
+	OpenSubtitlesUsername    string `json:"openSubtitlesUsername"`
+	OpenSubtitlesPassword    string `json:"openSubtitlesPassword"`
+	MusicMetadataEnabled     bool   `json:"musicMetadataEnabled"`
+	AudiobookMetadataEnabled bool   `json:"audiobookMetadataEnabled"`
 }
 
 // GetIntegrationSettings returns the current settings, or their zero value
@@ -41,10 +51,12 @@ func (s *Store) GetIntegrationSettings() (*IntegrationSettings, error) {
 	}
 
 	is := &IntegrationSettings{
-		TMDbAPIKey:            v.TMDbAPIKey,
-		OpenSubtitlesAPIKey:   v.OpenSubtitlesAPIKey,
-		OpenSubtitlesUsername: v.OpenSubtitlesUsername,
-		OpenSubtitlesPassword: v.OpenSubtitlesPassword,
+		TMDbAPIKey:               v.TMDbAPIKey,
+		OpenSubtitlesAPIKey:      v.OpenSubtitlesAPIKey,
+		OpenSubtitlesUsername:    v.OpenSubtitlesUsername,
+		OpenSubtitlesPassword:    v.OpenSubtitlesPassword,
+		MusicMetadataEnabled:     v.MusicMetadataEnabled,
+		AudiobookMetadataEnabled: v.AudiobookMetadataEnabled,
 	}
 	// SetSetting's ON CONFLICT upsert always stamps updated_at, so this
 	// extra lookup is just to surface it -- GetSetting itself doesn't.
@@ -58,10 +70,12 @@ func (s *Store) GetIntegrationSettings() (*IntegrationSettings, error) {
 // to resend in the first place. A non-nil empty string explicitly clears
 // the field.
 type UpdateIntegrationSettingsInput struct {
-	TMDbAPIKey            *string
-	OpenSubtitlesAPIKey   *string
-	OpenSubtitlesUsername *string
-	OpenSubtitlesPassword *string
+	TMDbAPIKey               *string
+	OpenSubtitlesAPIKey      *string
+	OpenSubtitlesUsername    *string
+	OpenSubtitlesPassword    *string
+	MusicMetadataEnabled     *bool
+	AudiobookMetadataEnabled *bool
 }
 
 func (s *Store) UpdateIntegrationSettings(in UpdateIntegrationSettingsInput) (*IntegrationSettings, error) {
@@ -71,10 +85,12 @@ func (s *Store) UpdateIntegrationSettings(in UpdateIntegrationSettingsInput) (*I
 	}
 
 	v := integrationSettingsValue{
-		TMDbAPIKey:            current.TMDbAPIKey,
-		OpenSubtitlesAPIKey:   current.OpenSubtitlesAPIKey,
-		OpenSubtitlesUsername: current.OpenSubtitlesUsername,
-		OpenSubtitlesPassword: current.OpenSubtitlesPassword,
+		TMDbAPIKey:               current.TMDbAPIKey,
+		OpenSubtitlesAPIKey:      current.OpenSubtitlesAPIKey,
+		OpenSubtitlesUsername:    current.OpenSubtitlesUsername,
+		OpenSubtitlesPassword:    current.OpenSubtitlesPassword,
+		MusicMetadataEnabled:     current.MusicMetadataEnabled,
+		AudiobookMetadataEnabled: current.AudiobookMetadataEnabled,
 	}
 	if in.TMDbAPIKey != nil {
 		v.TMDbAPIKey = *in.TMDbAPIKey
@@ -87,6 +103,12 @@ func (s *Store) UpdateIntegrationSettings(in UpdateIntegrationSettingsInput) (*I
 	}
 	if in.OpenSubtitlesPassword != nil {
 		v.OpenSubtitlesPassword = *in.OpenSubtitlesPassword
+	}
+	if in.MusicMetadataEnabled != nil {
+		v.MusicMetadataEnabled = *in.MusicMetadataEnabled
+	}
+	if in.AudiobookMetadataEnabled != nil {
+		v.AudiobookMetadataEnabled = *in.AudiobookMetadataEnabled
 	}
 
 	if err := s.SetSetting(integrationSettingsKey, v); err != nil {

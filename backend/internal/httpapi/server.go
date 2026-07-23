@@ -160,6 +160,7 @@ func NewRouter(deps Deps) http.Handler {
 	mux.HandleFunc("POST /api/items/{id}/play", s.withAuth(s.handlePlayItem))
 	mux.HandleFunc("GET /api/stream/direct/{id}", s.withAuth(s.handleDirectStream))
 	mux.HandleFunc("GET /api/stream/session/{sessionId}/{file}", s.withAuth(s.handleSessionFile))
+	mux.HandleFunc("GET /api/artwork/{key}", s.withAuth(s.handleArtwork))
 	mux.HandleFunc("DELETE /api/stream/session/{sessionId}", s.withAuth(s.handleStopSession))
 
 	mux.HandleFunc("GET /api/torrents", s.withAdmin(s.handleListTorrents))

@@ -14,7 +14,8 @@ import (
 // 4's metadata matching enriches movie/series rows with real titles/art from
 // TMDb rather than creating new ones (there's no equivalent enrichment step
 // for music/audiobooks yet).
-func promoteScanFiles(st *store.Store, libraryID string) error {
+func (svc *Service) promoteScanFiles(libraryID string) error {
+	st := svc.store
 	pending, err := st.ListUnmatchedScanFiles(libraryID)
 	if err != nil {
 		return err
@@ -63,6 +64,7 @@ func promoteScanFiles(st *store.Store, libraryID string) error {
 				Title:       f.GuessedTitle,
 				TrackNumber: derefOrZero(f.EpisodeNumber),
 				Path:        f.Path,
+				PosterURL:   svc.artworkURL(f.Path),
 			})
 		default:
 			continue
@@ -77,8 +79,21 @@ func promoteScanFiles(st *store.Store, libraryID string) error {
 		}
 	}
 
-	promoteAudiobookChapters(st, libraryID, chapterFiles)
+	svc.promoteAudiobookChapters(libraryID, chapterFiles)
 	return nil
+}
+
+// artworkURL extracts+caches path's embedded cover art and returns the URL
+// the frontend should load it from, or "" if the file has no usable
+// embedded art. The returned path is backend-relative (see
+// handleArtwork) -- the frontend resolves it against its configured API
+// base the same way it already does for streaming/subtitle URLs.
+func (svc *Service) artworkURL(path string) string {
+	key := svc.extractAndCacheArtwork(path)
+	if key == "" {
+		return ""
+	}
+	return "/api/artwork/" + key
 }
 
 // promoteAudiobookChapters groups pending audiobook files by their guessed
@@ -94,7 +109,8 @@ func promoteScanFiles(st *store.Store, libraryID string) error {
 // two-chapter book -- audiobooks are typically added as a complete folder
 // before the first scan, so this is treated as an acceptable gap rather than
 // building full retroactive re-grouping.
-func promoteAudiobookChapters(st *store.Store, libraryID string, files []*store.UnmatchedScanFile) {
+func (svc *Service) promoteAudiobookChapters(libraryID string, files []*store.UnmatchedScanFile) {
+	st := svc.store
 	groups := make(map[string][]*store.UnmatchedScanFile)
 	for _, f := range files {
 		groups[f.GuessedAlbum] = append(groups[f.GuessedAlbum], f)
@@ -115,7 +131,13 @@ func promoteAudiobookChapters(st *store.Store, libraryID string, files []*store.
 			if title == "" {
 				title = bookTitle
 			}
-			id, err := st.PromoteAudiobook(store.PromoteAudiobookInput{LibraryID: libraryID, Title: title, Path: f.Path})
+			id, err := st.PromoteAudiobook(store.PromoteAudiobookInput{
+				LibraryID: libraryID,
+				Title:     title,
+				Author:    f.GuessedArtist,
+				Path:      f.Path,
+				PosterURL: svc.artworkURL(f.Path),
+			})
 			if err != nil {
 				log.Printf("scanner: promoting audiobook %s: %v", f.ID, err)
 				continue
@@ -134,9 +156,11 @@ func promoteAudiobookChapters(st *store.Store, libraryID string, files []*store.
 			id, err := st.PromoteChapter(store.PromoteChapterInput{
 				LibraryID:     libraryID,
 				BookTitle:     bookTitle,
+				Author:        f.GuessedArtist,
 				ChapterNumber: num,
 				ChapterTitle:  f.GuessedTitle,
 				Path:          f.Path,
+				PosterURL:     svc.artworkURL(f.Path),
 			})
 			if err != nil {
 				log.Printf("scanner: promoting chapter %s: %v", f.ID, err)

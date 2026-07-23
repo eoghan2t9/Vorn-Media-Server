@@ -20,6 +20,7 @@ type mediaItemResponse struct {
 	AddedAt       string  `json:"addedAt"`
 	PosterURL     string  `json:"posterUrl,omitempty"`
 	BackdropURL   string  `json:"backdropUrl,omitempty"`
+	Author        string  `json:"author,omitempty"`
 }
 
 func toMediaItemResponse(m *store.MediaItem) mediaItemResponse {
@@ -35,6 +36,7 @@ func toMediaItemResponse(m *store.MediaItem) mediaItemResponse {
 		AddedAt:       m.AddedAt.Format(time.RFC3339),
 		PosterURL:     m.PosterURL,
 		BackdropURL:   m.BackdropURL,
+		Author:        m.Author,
 	}
 	if m.ReleaseDate != nil {
 		d := m.ReleaseDate.Format("2006-01-02")

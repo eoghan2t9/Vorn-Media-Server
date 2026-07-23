@@ -12,18 +12,22 @@ import (
 // the OpenSubtitles username (not itself a secret, and useful for an admin
 // to confirm which account is wired up).
 type integrationSettingsResponse struct {
-	TMDbConfigured          bool   `json:"tmdbConfigured"`
-	OpenSubtitlesConfigured bool   `json:"openSubtitlesConfigured"`
-	OpenSubtitlesUsername   string `json:"openSubtitlesUsername,omitempty"`
-	UpdatedAt               string `json:"updatedAt"`
+	TMDbConfigured           bool   `json:"tmdbConfigured"`
+	OpenSubtitlesConfigured  bool   `json:"openSubtitlesConfigured"`
+	OpenSubtitlesUsername    string `json:"openSubtitlesUsername,omitempty"`
+	MusicMetadataEnabled     bool   `json:"musicMetadataEnabled"`
+	AudiobookMetadataEnabled bool   `json:"audiobookMetadataEnabled"`
+	UpdatedAt                string `json:"updatedAt"`
 }
 
 func toIntegrationSettingsResponse(is *store.IntegrationSettings) integrationSettingsResponse {
 	return integrationSettingsResponse{
-		TMDbConfigured:          is.TMDbAPIKey != "",
-		OpenSubtitlesConfigured: is.OpenSubtitlesAPIKey != "" && is.OpenSubtitlesUsername != "",
-		OpenSubtitlesUsername:   is.OpenSubtitlesUsername,
-		UpdatedAt:               is.UpdatedAt.Format(time.RFC3339),
+		TMDbConfigured:           is.TMDbAPIKey != "",
+		OpenSubtitlesConfigured:  is.OpenSubtitlesAPIKey != "" && is.OpenSubtitlesUsername != "",
+		OpenSubtitlesUsername:    is.OpenSubtitlesUsername,
+		MusicMetadataEnabled:     is.MusicMetadataEnabled,
+		AudiobookMetadataEnabled: is.AudiobookMetadataEnabled,
+		UpdatedAt:                is.UpdatedAt.Format(time.RFC3339),
 	}
 }
 
@@ -42,10 +46,12 @@ func (s *Server) handleGetIntegrationSettings(w http.ResponseWriter, r *http.Req
 // admin never intended to touch (the API never sends secrets back for the
 // frontend to round-trip). Send an empty string explicitly to clear a field.
 type updateIntegrationSettingsRequest struct {
-	TMDbAPIKey            *string `json:"tmdbApiKey"`
-	OpenSubtitlesAPIKey   *string `json:"openSubtitlesApiKey"`
-	OpenSubtitlesUsername *string `json:"openSubtitlesUsername"`
-	OpenSubtitlesPassword *string `json:"openSubtitlesPassword"`
+	TMDbAPIKey               *string `json:"tmdbApiKey"`
+	OpenSubtitlesAPIKey      *string `json:"openSubtitlesApiKey"`
+	OpenSubtitlesUsername    *string `json:"openSubtitlesUsername"`
+	OpenSubtitlesPassword    *string `json:"openSubtitlesPassword"`
+	MusicMetadataEnabled     *bool   `json:"musicMetadataEnabled"`
+	AudiobookMetadataEnabled *bool   `json:"audiobookMetadataEnabled"`
 }
 
 func (s *Server) handleUpdateIntegrationSettings(w http.ResponseWriter, r *http.Request) {
@@ -56,10 +62,12 @@ func (s *Server) handleUpdateIntegrationSettings(w http.ResponseWriter, r *http.
 	}
 
 	settings, err := s.store.UpdateIntegrationSettings(store.UpdateIntegrationSettingsInput{
-		TMDbAPIKey:            req.TMDbAPIKey,
-		OpenSubtitlesAPIKey:   req.OpenSubtitlesAPIKey,
-		OpenSubtitlesUsername: req.OpenSubtitlesUsername,
-		OpenSubtitlesPassword: req.OpenSubtitlesPassword,
+		TMDbAPIKey:               req.TMDbAPIKey,
+		OpenSubtitlesAPIKey:      req.OpenSubtitlesAPIKey,
+		OpenSubtitlesUsername:    req.OpenSubtitlesUsername,
+		OpenSubtitlesPassword:    req.OpenSubtitlesPassword,
+		MusicMetadataEnabled:     req.MusicMetadataEnabled,
+		AudiobookMetadataEnabled: req.AudiobookMetadataEnabled,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "saving integration settings")

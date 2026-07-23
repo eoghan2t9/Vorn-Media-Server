@@ -59,6 +59,7 @@ services:
       VORN_OPENSUBTITLES_USERNAME: "${VORN_OPENSUBTITLES_USERNAME:-}"
       VORN_OPENSUBTITLES_PASSWORD: "${VORN_OPENSUBTITLES_PASSWORD:-}"
       VORN_SUBTITLES_CACHE_DIR: "/subtitles-cache"
+      VORN_ARTWORK_CACHE_DIR: "/artwork-cache"
     ports:
       - "8080:8080"
       - "${VORN_TORRENT_PEER_PORT:-42069}:42069/tcp"
@@ -73,6 +74,7 @@ services:
       - ${VORN_TORRENT_DOWNLOAD_PATH:-./data/downloads}:/downloads
       - ${VORN_NZB_DOWNLOAD_PATH:-./data/nzb-downloads}:/nzb-downloads
       - ${VORN_SUBTITLES_CACHE_PATH:-./data/subtitles-cache}:/subtitles-cache
+      - ${VORN_ARTWORK_CACHE_PATH:-./data/artwork-cache}:/artwork-cache
     # --- GPU passthrough (uncomment the block matching your hardware) ---
     #
     # Nvidia (requires the NVIDIA Container Toolkit on the host):

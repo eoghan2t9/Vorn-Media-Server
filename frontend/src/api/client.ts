@@ -152,6 +152,7 @@ export interface MediaItem {
   addedAt: string
   posterUrl?: string
   backdropUrl?: string
+  author?: string
 }
 
 export interface MediaItemDetail extends MediaItem {
@@ -267,6 +268,8 @@ export interface IntegrationSettings {
   tmdbConfigured: boolean
   openSubtitlesConfigured: boolean
   openSubtitlesUsername?: string
+  musicMetadataEnabled: boolean
+  audiobookMetadataEnabled: boolean
   updatedAt: string
 }
 export const fetchIntegrationSettings = () => request<IntegrationSettings>('/api/admin/integrations')
@@ -279,6 +282,8 @@ export interface UpdateIntegrationSettingsInput {
   openSubtitlesApiKey?: string
   openSubtitlesUsername?: string
   openSubtitlesPassword?: string
+  musicMetadataEnabled?: boolean
+  audiobookMetadataEnabled?: boolean
 }
 export const updateIntegrationSettings = (input: UpdateIntegrationSettingsInput) =>
   request<IntegrationSettings>('/api/admin/integrations', { method: 'PUT', body: JSON.stringify(input) })
@@ -496,3 +501,13 @@ export const logsStreamUrl = () => `${API_BASE.replace(/^http/, 'ws')}/api/admin
 // (e.g. the HLS player, which hands the URL to hls.js/a <video> element
 // rather than fetching it themselves) can build one.
 export { API_BASE }
+
+// resolveMediaUrl normalizes a poster/backdrop URL for use as an <img src>.
+// TMDb-sourced art is already an absolute CDN URL and passes through
+// unchanged; locally-extracted embedded cover art (see GET /api/artwork/*)
+// comes back as a backend-relative path, which the browser would otherwise
+// resolve against the frontend's own origin instead of the backend's.
+export function resolveMediaUrl(url?: string): string | undefined {
+  if (!url) return undefined
+  return url.startsWith('/') ? `${API_BASE}${url}` : url
+}

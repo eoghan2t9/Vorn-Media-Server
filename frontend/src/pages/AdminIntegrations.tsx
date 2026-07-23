@@ -29,6 +29,9 @@ export function AdminIntegrations() {
   const [osSaving, setOsSaving] = useState(false)
   const [osMessage, setOsMessage] = useState<string | null>(null)
 
+  const [musicSaving, setMusicSaving] = useState(false)
+  const [audiobookSaving, setAudiobookSaving] = useState(false)
+
   function load() {
     fetchIntegrationSettings()
       .then((s) => {
@@ -111,6 +114,28 @@ export function AdminIntegrations() {
       setOsMessage(err instanceof ApiError ? err.message : 'Failed to clear')
     } finally {
       setOsSaving(false)
+    }
+  }
+
+  async function handleToggleMusic(enabled: boolean) {
+    setMusicSaving(true)
+    try {
+      setSettings(await updateIntegrationSettings({ musicMetadataEnabled: enabled }))
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to save')
+    } finally {
+      setMusicSaving(false)
+    }
+  }
+
+  async function handleToggleAudiobook(enabled: boolean) {
+    setAudiobookSaving(true)
+    try {
+      setSettings(await updateIntegrationSettings({ audiobookMetadataEnabled: enabled }))
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to save')
+    } finally {
+      setAudiobookSaving(false)
     }
   }
 
@@ -205,6 +230,53 @@ export function AdminIntegrations() {
           </div>
         </form>
         {osMessage && <p>{osMessage}</p>}
+      </div>
+
+      <div className="vorn-panel">
+        <div className="vorn-panel-header">
+          <h2>Music metadata</h2>
+          <span className={`vorn-status-badge ${settings.musicMetadataEnabled ? 'vorn-status-badge-on' : 'vorn-status-badge-off'}`}>
+            {settings.musicMetadataEnabled ? 'Enabled' : 'Disabled'}
+          </span>
+        </div>
+        <p className="vorn-panel-subtitle">
+          Matches albums against MusicBrainz and fetches cover art from Cover Art Archive. Free, no API key or
+          account needed — this toggle exists because it's still an outbound call to a third party, and that should
+          be your choice, not the default. Takes effect after restarting the server.
+        </p>
+        <label>
+          <input
+            type="checkbox"
+            checked={settings.musicMetadataEnabled}
+            disabled={musicSaving}
+            onChange={(e) => handleToggleMusic(e.target.checked)}
+          />{' '}
+          Enable MusicBrainz + Cover Art Archive
+        </label>
+      </div>
+
+      <div className="vorn-panel">
+        <div className="vorn-panel-header">
+          <h2>Audiobook metadata</h2>
+          <span
+            className={`vorn-status-badge ${settings.audiobookMetadataEnabled ? 'vorn-status-badge-on' : 'vorn-status-badge-off'}`}
+          >
+            {settings.audiobookMetadataEnabled ? 'Enabled' : 'Disabled'}
+          </span>
+        </div>
+        <p className="vorn-panel-subtitle">
+          Matches books against Open Library and fetches cover art from its covers API. Free, no API key or account
+          needed (Audible has no public API). Takes effect after restarting the server.
+        </p>
+        <label>
+          <input
+            type="checkbox"
+            checked={settings.audiobookMetadataEnabled}
+            disabled={audiobookSaving}
+            onChange={(e) => handleToggleAudiobook(e.target.checked)}
+          />{' '}
+          Enable Open Library
+        </label>
       </div>
     </section>
   )

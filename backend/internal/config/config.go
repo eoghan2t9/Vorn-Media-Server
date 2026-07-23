@@ -26,6 +26,7 @@ type Config struct {
 	OpenSubtitlesUser    string
 	OpenSubtitlesPass    string
 	SubtitlesCacheDir    string
+	ArtworkCacheDir      string
 	GitHubRepo           string
 }
 
@@ -48,6 +49,7 @@ func Load() Config {
 		OpenSubtitlesUser:    getEnv("VORN_OPENSUBTITLES_USERNAME", ""),
 		OpenSubtitlesPass:    getEnv("VORN_OPENSUBTITLES_PASSWORD", ""),
 		SubtitlesCacheDir:    getEnv("VORN_SUBTITLES_CACHE_DIR", "./data/subtitles-cache"),
+		ArtworkCacheDir:      getEnv("VORN_ARTWORK_CACHE_DIR", "./data/artwork-cache"),
 		GitHubRepo:           getEnv("VORN_GITHUB_REPO", "eoghan2t9/Vorn-Media-Server"),
 	}
 }

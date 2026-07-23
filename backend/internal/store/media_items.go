@@ -25,16 +25,17 @@ type MediaItem struct {
 	UpdatedAt      time.Time
 	PosterURL      string
 	BackdropURL    string
+	Author         string // audiobook/book only, from metadata->>'author'
 }
 
 const mediaItemColumns = `id, library_id, parent_id, kind, title, sort_title, overview, season_number, episode_number,
 	release_date, path, tmdb_id, metadata_locked, added_at, updated_at,
-	coalesce(metadata->>'posterUrl', ''), coalesce(metadata->>'backdropUrl', '')`
+	coalesce(metadata->>'posterUrl', ''), coalesce(metadata->>'backdropUrl', ''), coalesce(metadata->>'author', '')`
 
 func scanMediaItem(row interface{ Scan(...any) error }, m *MediaItem) error {
 	return row.Scan(&m.ID, &m.LibraryID, &m.ParentID, &m.Kind, &m.Title, &m.SortTitle, &m.Overview,
 		&m.SeasonNumber, &m.EpisodeNumber, &m.ReleaseDate, &m.Path, &m.TmdbID, &m.MetadataLocked, &m.AddedAt, &m.UpdatedAt,
-		&m.PosterURL, &m.BackdropURL)
+		&m.PosterURL, &m.BackdropURL, &m.Author)
 }
 
 // findOrCreateMediaItem looks up a media item by its natural identity
@@ -142,6 +143,7 @@ type PromoteTrackInput struct {
 	Title       string
 	TrackNumber int // 0 if unknown
 	Path        string
+	PosterURL   string // embedded cover art URL, "" if the file has none
 }
 
 // PromoteTrack finds-or-creates an artist -> album -> track chain, mirroring
@@ -177,6 +179,15 @@ func (s *Store) PromoteTrack(in PromoteTrackInput) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if err := setMetadataIfEmpty(tx, trackID, "posterUrl", in.PosterURL); err != nil {
+		return "", err
+	}
+	// Opportunistic: most rips embed the same cover art in every track, so
+	// the album can usually get a poster immediately from its first
+	// promoted track rather than waiting on a MusicBrainz sync.
+	if err := setMetadataIfEmpty(tx, albumID, "posterUrl", in.PosterURL); err != nil {
+		return "", err
+	}
 
 	return trackID, tx.Commit()
 }
@@ -184,7 +195,9 @@ func (s *Store) PromoteTrack(in PromoteTrackInput) (string, error) {
 type PromoteAudiobookInput struct {
 	LibraryID string
 	Title     string
+	Author    string
 	Path      string
+	PosterURL string
 }
 
 // PromoteAudiobook creates a flat, directly-playable item for a single-file
@@ -201,15 +214,23 @@ func (s *Store) PromoteAudiobook(in PromoteAudiobookInput) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if err := setMetadataIfEmpty(tx, id, "posterUrl", in.PosterURL); err != nil {
+		return "", err
+	}
+	if err := setMetadataIfEmpty(tx, id, "author", in.Author); err != nil {
+		return "", err
+	}
 	return id, tx.Commit()
 }
 
 type PromoteChapterInput struct {
 	LibraryID     string
 	BookTitle     string
+	Author        string
 	ChapterNumber int
 	ChapterTitle  string
 	Path          string
+	PosterURL     string
 }
 
 // PromoteChapter finds-or-creates a "book" parent (used only for multi-file
@@ -226,6 +247,9 @@ func (s *Store) PromoteChapter(in PromoteChapterInput) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if err := setMetadataIfEmpty(tx, bookID, "author", in.Author); err != nil {
+		return "", err
+	}
 
 	num := in.ChapterNumber
 	title := in.ChapterTitle
@@ -236,8 +260,33 @@ func (s *Store) PromoteChapter(in PromoteChapterInput) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if err := setMetadataIfEmpty(tx, chapterID, "posterUrl", in.PosterURL); err != nil {
+		return "", err
+	}
+	// Opportunistic, same reasoning as PromoteTrack -> album: the book gets
+	// a cover from its first chapter's embedded art rather than waiting on
+	// an Open Library sync.
+	if err := setMetadataIfEmpty(tx, bookID, "posterUrl", in.PosterURL); err != nil {
+		return "", err
+	}
 
 	return chapterID, tx.Commit()
+}
+
+// setMetadataIfEmpty merges {key: value} into a media item's metadata jsonb,
+// but only if it doesn't already have that key -- so promotion (which may
+// run repeatedly as new files are found) never clobbers a value a later
+// metadata sync or manual admin edit has since set.
+func setMetadataIfEmpty(tx *sql.Tx, itemID, key, value string) error {
+	if value == "" {
+		return nil
+	}
+	_, err := tx.Exec(
+		`UPDATE media_items SET metadata = metadata || jsonb_build_object($1::text, $2::text)
+		 WHERE id = $3 AND NOT (metadata ? $1)`,
+		key, value, itemID,
+	)
+	return err
 }
 
 func seasonDisplayTitle(season int) string {

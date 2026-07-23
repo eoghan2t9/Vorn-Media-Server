@@ -5,7 +5,9 @@ package scanner
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"os"
 	"runtime"
 	"sync/atomic"
 	"time"
@@ -19,12 +21,26 @@ const (
 )
 
 type Service struct {
-	store *store.Store
-	queue *Queue
+	store           *store.Store
+	queue           *Queue
+	artworkCacheDir string
 }
 
-func NewService(st *store.Store, q *Queue) *Service {
-	return &Service{store: st, queue: q}
+// NewService also ensures artworkCacheDir exists -- embedded cover art
+// extracted from audio files during promotion (see artwork.go) is cached
+// there and served back by GET /api/artwork/{key}.
+func NewService(st *store.Store, q *Queue, artworkCacheDir string) (*Service, error) {
+	if err := os.MkdirAll(artworkCacheDir, 0o755); err != nil {
+		return nil, fmt.Errorf("scanner: creating artwork cache dir: %w", err)
+	}
+	return &Service{store: st, queue: q, artworkCacheDir: artworkCacheDir}, nil
+}
+
+// ArtworkCacheDir is where extractAndCacheArtwork writes embedded cover art
+// -- exposed so httpapi's artwork-serving handler can read back out of the
+// same directory without duplicating the path in config wiring.
+func (svc *Service) ArtworkCacheDir() string {
+	return svc.artworkCacheDir
 }
 
 // FlushStagingCache clears every scan-staging key in DragonflyDB. See
@@ -110,7 +126,7 @@ waitForProducer:
 	// Synthetic scans exist only to benchmark the staging pipeline; promoting
 	// them would flood the real catalog with fabricated titles.
 	if job.Kind == "real" {
-		if err := promoteScanFiles(svc.store, job.LibraryID); err != nil {
+		if err := svc.promoteScanFiles(job.LibraryID); err != nil {
 			log.Printf("scanner: promoting scan files for job %s: %v", job.ID, err)
 		}
 	}

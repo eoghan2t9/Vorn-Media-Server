@@ -65,16 +65,23 @@ func (s *Store) GetMetadataSyncJob(id string) (*MetadataSyncJob, error) {
 	return j, nil
 }
 
-// ListItemsNeedingMetadata returns top-level movies/series in a library that
-// haven't been matched to a provider yet and aren't manually locked. Scoped
-// to kind IN ('movie','series') -- there's no metadata provider for
-// artist/album/audiobook/book yet (see metadata.Provider), so those kinds
-// would otherwise show up here forever with no way to ever get matched.
+// ListItemsNeedingMetadata returns items in a library that haven't been
+// matched to a provider yet and aren't manually locked: top-level
+// movies/series (against tmdb_id), plus albums and top-level
+// books/audiobooks (against the metadata->>'externalId' key, since
+// MusicBrainz/Open Library IDs aren't TMDb IDs and don't belong in that
+// column -- see metadata.MusicProvider/AudiobookProvider). Albums aren't
+// top-level (they're children of an artist), so parent_id IS NULL only
+// applies to the movie/series/book/audiobook branch.
 func (s *Store) ListItemsNeedingMetadata(libraryID string) ([]*MediaItem, error) {
 	rows, err := s.db.Query(
 		`SELECT `+mediaItemColumns+` FROM media_items
-		 WHERE library_id = $1 AND parent_id IS NULL AND kind IN ('movie', 'series')
-		   AND tmdb_id IS NULL AND metadata_locked = false`,
+		 WHERE library_id = $1 AND metadata_locked = false
+		   AND (
+		     (parent_id IS NULL AND kind IN ('movie', 'series') AND tmdb_id IS NULL)
+		     OR (parent_id IS NULL AND kind IN ('book', 'audiobook') AND NOT (metadata ? 'externalId'))
+		     OR (kind = 'album' AND NOT (metadata ? 'externalId'))
+		   )`,
 		libraryID,
 	)
 	if err != nil {
@@ -86,12 +93,14 @@ func (s *Store) ListItemsNeedingMetadata(libraryID string) ([]*MediaItem, error)
 
 type MetadataUpdate struct {
 	TmdbID      *int
+	ExternalID  *string // MusicBrainz release MBID / Open Library work key
 	Title       string
 	Overview    string
 	ReleaseDate *time.Time
 	PosterURL   string
 	BackdropURL string
 	TrailerURL  string
+	Author      string // audiobook/book only, stored in metadata jsonb
 }
 
 // ApplyMetadata writes a provider match (or a manual admin correction) onto
@@ -107,6 +116,12 @@ func (s *Store) ApplyMetadata(itemID string, update MetadataUpdate, lock bool) e
 	}
 	if update.TrailerURL != "" {
 		metadataJSON["trailerUrl"] = update.TrailerURL
+	}
+	if update.ExternalID != nil {
+		metadataJSON["externalId"] = *update.ExternalID
+	}
+	if update.Author != "" {
+		metadataJSON["author"] = update.Author
 	}
 
 	_, err := s.db.Exec(
