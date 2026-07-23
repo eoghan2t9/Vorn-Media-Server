@@ -9,13 +9,6 @@ import (
 
 var startedAt = time.Now()
 
-// NewRouter returns the root HTTP handler for the Vorn backend.
-func NewRouter() http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", handleHealthz)
-	return mux
-}
-
 type healthResponse struct {
 	Status  string `json:"status"`
 	Uptime  string `json:"uptime"`

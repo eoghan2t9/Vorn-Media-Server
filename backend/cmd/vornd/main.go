@@ -8,6 +8,7 @@ import (
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/config"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/httpapi"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/migrate"
+	"github.com/eoghan2t9/vorn-media-server/backend/internal/store"
 )
 
 func main() {
@@ -19,7 +20,13 @@ func main() {
 	}
 	log.Print("migrations up to date")
 
-	router := httpapi.NewRouter()
+	st, err := store.Open(cfg.PostgresDSN)
+	if err != nil {
+		log.Fatalf("connecting to database: %v", err)
+	}
+	defer st.Close()
+
+	router := httpapi.NewRouter(st, cfg.CORSOrigin)
 
 	log.Printf("listening on %s", cfg.HTTPAddr)
 	if err := http.ListenAndServe(cfg.HTTPAddr, router); err != nil {
