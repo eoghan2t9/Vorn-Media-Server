@@ -39,7 +39,9 @@ Tracked in phases; each phase is delivered as a runnable increment with its own 
 - [x] **Phase 4 — Metadata sync**: TMDb-backed art/trailers, manual metadata override.
 - [x] **Phase 5 — Transcoder**: ffmpeg/ffprobe wrapper, GPU capability probing, on-the-fly HLS.
 - [x] **Phase 6 — Player**: resume playback, autoplay-next-episode, currently-watching admin view.
-- [ ] **Phase 7 — Torrent acquisition**: streaming-while-downloading torrent client, auto-add.
+- [x] **Phase 7 — Torrent acquisition**: anacrolix/torrent-backed client with sequential
+      (streaming-order) or rarest-first download, a Torznab indexer plugin system for search,
+      and an auto-add-to-library watcher on completion.
 - [ ] **Phase 8 — NZB & debrid acquisition**: Usenet client, Real-Debrid/TorBox direct streaming.
 - [ ] **Phase 9 — Client API compatibility**: Jellyfin, then Emby, then Plex.
 - [ ] **Phase 10 — Operability & distribution**: live logs, subtitles, custom domain/SSL, CDN
@@ -86,6 +88,13 @@ docker compose -f deploy/docker-compose.yml up --build
 - `VORN_TRANSCODE_DIR` — where HLS output for active transcode sessions is written (default: a
   temp directory).
 - `VORN_TRANSCODE_MAX_SESSIONS` — max concurrent transcode sessions (default: number of CPUs).
+- `VORN_TORRENT_ENABLED=true` — enables torrent acquisition (`/api/torrents`, `/api/torrent-indexers`).
+  Off by default since it opens a peer listening port and starts DHT.
+- `VORN_TORRENT_DOWNLOAD_DIR` — where torrent data is saved (default: `./data/downloads`; the
+  Docker Compose backend service always uses `/downloads`, backed by the `VORN_TORRENT_DOWNLOAD_PATH`
+  host bind mount).
+- `VORN_TORRENT_PEER_PORT` — TCP/uTP port for incoming peer connections (default: the
+  anacrolix/torrent library default, 42069).
 
 ### Running components natively (without Docker)
 
