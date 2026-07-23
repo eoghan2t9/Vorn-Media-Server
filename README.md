@@ -45,7 +45,9 @@ Tracked in phases; each phase is delivered as a runnable increment with its own 
 - [x] **Phase 8 — NZB & debrid acquisition**: hand-rolled NNTP/yEnc Usenet client with par2 repair,
       Real-Debrid/TorBox clients behind a shared `Provider.Resolve()` interface, and
       direct-stream-from-debrid playback with no local download step.
-- [ ] **Phase 9 — Client API compatibility**: Jellyfin, then Emby, then Plex.
+- [x] **Phase 9 — Client API compatibility**: Jellyfin (documented spec), Emby (near-free given
+      Jellyfin's wire compatibility with its own fork origin), and Plex (reverse-engineered, no
+      plex.tv integration — see the "Client API compatibility" section above for that limitation).
 - [ ] **Phase 10 — Operability & distribution**: live logs, subtitles, custom domain/SSL, CDN
       support, self-updater, bare-metal installers.
 
@@ -124,8 +126,21 @@ conventionally use, and `/System/Info/Public` reports an Emby-flavored version s
 Jellyfin's `10.x` scheme) when hit that way. Out of scope for now: Jellyfin/Emby's own HLS
 transcode-session protocol (Vorn always offers a direct-play source; transcoding is handled by
 Vorn's own player instead), search, collections/playlists/favorites, and user/library management
-(use Vorn's `/api` admin surface for that). Plex compatibility (reverse-engineered, no official
-spec) is planned next (see the roadmap).
+(use Vorn's `/api` admin surface for that).
+
+Vorn also speaks a compatibility subset of the Plex Media Server API — the highest-risk of the
+three since Plex has no official spec (field names/paths here come from Plex's own published Go
+SDK, generated from Plex's real OpenAPI definitions): `/identity`, library sections, item
+browsing, `/library/metadata/{ratingKey}` (probing the real file for its Media/Part info), direct
+file streaming, and `/:/timeline` progress reporting. **Important limitation**: official Plex apps
+discover servers by signing into plex.tv's cloud, which then tells the app which servers that
+account can reach — Vorn is not a Plex-registered server and can't be, so official Plex mobile/TV
+apps cannot be pointed at Vorn out of the box. What's implemented is the local, server-side
+protocol for tools/clients that support manually configuring a Plex-protocol server + token,
+including a `users/sign_in.json`-shaped auth shim (accepts HTTP Basic auth, a JSON body, or
+classic form params) so such tooling can authenticate directly against Vorn instead of plex.tv.
+Out of scope for now: Plex's transcode-decision/session protocol (same direct-play-only stance as
+Jellyfin/Emby above), hubs, search, and collections.
 
 ### Running components natively (without Docker)
 

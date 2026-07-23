@@ -173,6 +173,21 @@ func NewRouter(deps Deps) http.Handler {
 		mux.HandleFunc(rt.method+" /emby"+rt.path, rt.handler)
 	}
 
+	// Plex-compatible client API (see internal/plex's doc comment for scope
+	// and its one real limitation: no plex.tv integration, so official Plex
+	// apps can't discover Vorn -- this targets tooling that supports
+	// manually configuring a Plex-protocol server + token).
+	mux.HandleFunc("GET /identity", s.handlePlexIdentity)
+	mux.HandleFunc("POST /users/sign_in.json", s.handlePlexSignIn)
+	mux.HandleFunc("POST /users/sign_in", s.handlePlexSignIn)
+	mux.HandleFunc("GET /library/sections", s.withPlexAuth(s.handlePlexSections))
+	mux.HandleFunc("GET /library/sections/{sectionId}/all", s.withPlexAuth(s.handlePlexSectionItems))
+	mux.HandleFunc("GET /library/metadata/{ratingKey}", s.withPlexAuth(s.handlePlexMetadataItem))
+	mux.HandleFunc("GET /library/metadata/{ratingKey}/children", s.withPlexAuth(s.handlePlexMetadataChildren))
+	mux.HandleFunc("GET /library/parts/{id}/{filename}", s.withPlexAuth(s.handlePlexPartFile))
+	mux.HandleFunc("GET /:/timeline", s.withPlexAuth(s.handlePlexTimeline))
+	mux.HandleFunc("POST /:/timeline", s.withPlexAuth(s.handlePlexTimeline))
+
 	return withCORS(mux, deps.CORSOrigin)
 }
 
