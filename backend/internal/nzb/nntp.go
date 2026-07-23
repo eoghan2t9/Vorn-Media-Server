@@ -146,8 +146,12 @@ func (c *Conn) Group(name string) error {
 }
 
 // Body fetches the raw (still yEnc-encoded) body of the article identified
-// by messageID, which must include the surrounding angle brackets.
+// by messageID. NZB segment content never includes the angle brackets
+// NNTP's BODY command requires, so they're added here if missing.
 func (c *Conn) Body(messageID string) ([]byte, error) {
+	if !strings.HasPrefix(messageID, "<") {
+		messageID = "<" + messageID + ">"
+	}
 	if err := c.writeLine("BODY " + messageID); err != nil {
 		return nil, err
 	}
