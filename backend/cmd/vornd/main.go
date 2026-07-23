@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/caddyserver/certmagic"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/config"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/debrid"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/httpapi"
@@ -123,6 +124,28 @@ func main() {
 		CORSOrigin:   cfg.CORSOrigin,
 		DevMode:      cfg.DevMode,
 	})
+
+	settings, err := st.GetServerSettings()
+	if err != nil {
+		log.Fatalf("loading server settings: %v", err)
+	}
+
+	if settings.SSLEnabled && settings.CustomDomain != "" {
+		// certmagic.HTTPS is a blocking call: it binds :80 (ACME HTTP-01
+		// challenge + redirect to HTTPS) and :443 (TLS) itself, replacing
+		// the plain cfg.HTTPAddr listener entirely -- both ports must be
+		// reachable from the internet for the domain for issuance/renewal
+		// to succeed. A custom domain/SSL change only takes effect on the
+		// next restart; this isn't hot-reloaded.
+		if settings.ACMEEmail != "" {
+			certmagic.DefaultACME.Email = settings.ACMEEmail
+		}
+		log.Printf("SSL enabled for %s: serving HTTPS (ports 80/443)", settings.CustomDomain)
+		if err := certmagic.HTTPS([]string{settings.CustomDomain}, router); err != nil {
+			log.Fatalf("certmagic HTTPS: %v", err)
+		}
+		return
+	}
 
 	log.Printf("listening on %s", cfg.HTTPAddr)
 	if err := http.ListenAndServe(cfg.HTTPAddr, router); err != nil {

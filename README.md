@@ -162,6 +162,22 @@ DragonflyDB scan-staging keys left behind by a crashed scan job (`POST
 and on-disk HLS output would otherwise leak forever once a session ends without an explicit stop
 (`POST /api/admin/maintenance/clear-transcode-cache`).
 
+### Admin: custom domain, automatic HTTPS, and Cloudflare
+
+Admin > Network (`GET`/`PUT /api/admin/server-settings`) configures:
+
+- **Custom domain + automatic HTTPS**: set a domain and enable SSL, and on the *next restart* Vorn
+  uses [certmagic](https://github.com/caddyserver/certmagic) to automatically obtain and renew a
+  Let's Encrypt certificate for it, serving HTTPS on port 443 with HTTP (port 80) redirecting to
+  it — replacing the plain `VORN_HTTP_ADDR` listener entirely. Ports 80 and 443 must be reachable
+  from the internet for that domain (ACME's HTTP-01 challenge needs it); this is not hot-reloaded,
+  a domain/SSL change needs a restart to take effect.
+- **Cloudflare-aware real IP**: if Vorn sits behind Cloudflare, enabling "trust Cloudflare" makes
+  the `CF-Connecting-IP` header (visible in the access log line every request produces) reflect the
+  actual visitor's IP instead of Cloudflare's own edge IP — but only when the connecting peer is
+  itself a genuine Cloudflare edge IP (checked against ranges refreshed every 24h from Cloudflare's
+  own public API), so the header can't simply be spoofed by any other client that sets it.
+
 ### Running components natively (without Docker)
 
 ```bash

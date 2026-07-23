@@ -13,6 +13,7 @@ import { AdminTorrents } from './pages/AdminTorrents'
 import { AdminNzb } from './pages/AdminNzb'
 import { AdminDebrid } from './pages/AdminDebrid'
 import { AdminLogs } from './pages/AdminLogs'
+import { AdminServerSettings } from './pages/AdminServerSettings'
 import { SetupWizard } from './pages/SetupWizard'
 import { Login } from './pages/Login'
 
@@ -57,6 +58,7 @@ function AppRoutes() {
           <Route path="/admin/nzb" element={<AdminNzb />} />
           <Route path="/admin/debrid" element={<AdminDebrid />} />
           <Route path="/admin/logs" element={<AdminLogs />} />
+          <Route path="/admin/server-settings" element={<AdminServerSettings />} />
         </Route>
       </Route>
 

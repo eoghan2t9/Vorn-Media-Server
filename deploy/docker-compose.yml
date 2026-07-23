@@ -52,6 +52,11 @@ services:
       - "8080:8080"
       - "${VORN_TORRENT_PEER_PORT:-42069}:42069/tcp"
       - "${VORN_TORRENT_PEER_PORT:-42069}:42069/udp"
+      # If you enable custom-domain SSL via Admin > Network, uncomment these
+      # (and consider removing the 8080 mapping above, since certmagic takes
+      # over serving on 80/443 instead):
+      # - "80:80"
+      # - "443:443"
     volumes:
       - ${VORN_LIBRARY_PATH:-./data/library}:/media:ro
       - ${VORN_TORRENT_DOWNLOAD_PATH:-./data/downloads}:/downloads

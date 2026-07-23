@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"sync/atomic"
+	"time"
 
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/debrid"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/logging"
@@ -53,10 +55,14 @@ type Server struct {
 	// nothing depends on it surviving a restart except cosmetic "same
 	// server?" UI checks in some clients.
 	serverID string
+	// trustCloudflare is read on every request by the access-log middleware,
+	// so it's cached here (refreshed whenever the admin updates server
+	// settings) rather than hitting Postgres per request.
+	trustCloudflare atomic.Bool
 }
 
 func NewServer(deps Deps) *Server {
-	return &Server{
+	s := &Server{
 		store:        deps.Store,
 		scanner:      deps.Scanner,
 		metadataSvc:  deps.Metadata,
@@ -69,6 +75,35 @@ func NewServer(deps Deps) *Server {
 		devMode:      deps.DevMode,
 		serverID:     uuid.NewString(),
 	}
+	if settings, err := s.store.GetServerSettings(); err == nil {
+		s.trustCloudflare.Store(settings.TrustCloudflare)
+	}
+	startCloudflareRangeRefresh()
+	return s
+}
+
+// accessLog logs one line per request (method, path, status, duration, and
+// the request's real client IP -- Cloudflare-aware if the admin has enabled
+// that, see realClientIP) into the same buffer the admin live-logs viewer
+// tails, giving Vorn a basic access log with no separate log file.
+func (s *Server) accessLog(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(rec, r)
+		ip := realClientIP(r, s.trustCloudflare.Load())
+		log.Printf("%s %s %s %d %s", ip, r.Method, r.URL.Path, rec.status, time.Since(start).Round(time.Millisecond))
+	})
+}
+
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (r *statusRecorder) WriteHeader(status int) {
+	r.status = status
+	r.ResponseWriter.WriteHeader(status)
 }
 
 // NewRouter returns the root HTTP handler for the Vorn backend.
@@ -203,7 +238,10 @@ func NewRouter(deps Deps) http.Handler {
 	mux.HandleFunc("GET /api/items/{id}/subtitles", s.withAuth(s.handleGetSubtitles))
 	mux.HandleFunc("GET /api/admin/subtitles/quota", s.withAdmin(s.handleSubtitlesQuota))
 
-	return withCORS(mux, deps.CORSOrigin)
+	mux.HandleFunc("GET /api/admin/server-settings", s.withAdmin(s.handleGetServerSettings))
+	mux.HandleFunc("PUT /api/admin/server-settings", s.withAdmin(s.handleUpdateServerSettings))
+
+	return s.accessLog(withCORS(mux, deps.CORSOrigin))
 }
 
 // withCORS allows the frontend dev server (or, in production, whatever

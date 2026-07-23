@@ -35,6 +35,9 @@ export function AdminHome() {
       <p>
         <Link to="/admin/logs">Logs →</Link>
       </p>
+      <p>
+        <Link to="/admin/server-settings">Network →</Link>
+      </p>
 
       <h2>Transcoder</h2>
       {backends === null ? (

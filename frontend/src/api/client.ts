@@ -229,6 +229,24 @@ export interface SubtitlesQuota {
 }
 export const fetchSubtitlesQuota = () => request<SubtitlesQuota>('/api/admin/subtitles/quota')
 
+export interface ServerSettings {
+  customDomain: string
+  acmeEmail: string
+  sslEnabled: boolean
+  trustCloudflare: boolean
+  updatedAt: string
+}
+export const fetchServerSettings = () => request<ServerSettings>('/api/admin/server-settings')
+
+export interface UpdateServerSettingsInput {
+  customDomain: string
+  acmeEmail: string
+  sslEnabled: boolean
+  trustCloudflare: boolean
+}
+export const updateServerSettings = (input: UpdateServerSettingsInput) =>
+  request<ServerSettings>('/api/admin/server-settings', { method: 'PUT', body: JSON.stringify(input) })
+
 export const getProgress = (id: string) =>
   request<{ positionSeconds: number; durationSeconds: number }>(`/api/items/${id}/progress`)
 
