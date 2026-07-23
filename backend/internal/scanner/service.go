@@ -96,6 +96,15 @@ waitForProducer:
 	if err := svc.queue.Delete(ctx, job.ID); err != nil {
 		log.Printf("scanner: cleaning up queue for job %s: %v", job.ID, err)
 	}
+
+	// Synthetic scans exist only to benchmark the staging pipeline; promoting
+	// them would flood the real catalog with fabricated titles.
+	if job.Kind == "real" {
+		if err := promoteScanFiles(svc.store, job.LibraryID); err != nil {
+			log.Printf("scanner: promoting scan files for job %s: %v", job.ID, err)
+		}
+	}
+
 	if err := svc.store.FinishScanJob(job.ID, nil); err != nil {
 		log.Printf("scanner: finishing job %s: %v", job.ID, err)
 	}
