@@ -1,0 +1,130 @@
+.vorn-admin-shell {
+  display: flex;
+  align-items: flex-start;
+  gap: 2rem;
+  margin: -2rem;
+  min-height: calc(100vh - 4rem);
+}
+
+.vorn-admin-sidebar-toggle {
+  display: none;
+}
+
+.vorn-admin-sidebar {
+  position: sticky;
+  top: 0;
+  flex: 0 0 15rem;
+  width: 15rem;
+  padding: 2rem 1rem 2rem 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  align-self: stretch;
+  border-right: 1px solid var(--vorn-border);
+}
+
+.vorn-admin-nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.vorn-admin-nav-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--vorn-text-muted);
+  padding: 0 0.75rem;
+  margin-bottom: 0.4rem;
+}
+
+.vorn-admin-nav-group nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.vorn-admin-nav-link {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  color: var(--vorn-text-muted);
+  text-decoration: none;
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: color var(--vorn-transition), background-color var(--vorn-transition);
+}
+
+.vorn-admin-nav-icon {
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+
+.vorn-admin-nav-link:hover {
+  color: var(--vorn-text);
+  background: color-mix(in srgb, var(--vorn-accent) 8%, transparent);
+}
+
+.vorn-admin-nav-link-active {
+  color: var(--vorn-text);
+  background: color-mix(in srgb, var(--vorn-accent) 14%, transparent);
+  box-shadow: inset 0 0 0 1px rgba(139, 92, 246, 0.3);
+}
+
+.vorn-admin-nav-link-active::before {
+  content: '';
+  position: absolute;
+  left: -1px;
+  top: 0.35rem;
+  bottom: 0.35rem;
+  width: 0.2rem;
+  border-radius: 999px;
+  background: var(--vorn-gradient);
+  box-shadow: 0 0 10px rgba(139, 92, 246, 0.6);
+}
+
+.vorn-admin-content {
+  flex: 1;
+  min-width: 0;
+  padding: 2rem 2rem 3rem 0;
+}
+
+@media (max-width: 768px) {
+  .vorn-admin-shell {
+    display: block;
+    margin: -1rem;
+    min-height: 0;
+  }
+
+  .vorn-admin-sidebar-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: calc(100% - 2rem);
+    margin: 0 1rem 1rem;
+    justify-content: center;
+  }
+
+  .vorn-admin-sidebar {
+    position: static;
+    display: none;
+    width: auto;
+    flex: none;
+    border-right: none;
+    border-bottom: 1px solid var(--vorn-border);
+    padding: 0 1rem 1rem;
+    margin: 0 0 1rem;
+  }
+
+  .vorn-admin-sidebar-open {
+    display: flex;
+  }
+
+  .vorn-admin-content {
+    padding: 0 1rem 2rem;
+  }
+}

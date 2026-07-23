@@ -118,86 +118,94 @@ export function AdminIntegrations() {
   if (!settings) return <p>Loading…</p>
 
   return (
-    <section className="vorn-admin-users">
-      <h1>Integrations</h1>
-      <p className="vorn-form-subtitle">
-        API credentials for external services. These override the equivalent VORN_* environment variables when set,
-        and only take effect after restarting the server.
-      </p>
+    <section className="vorn-admin-page">
+      <div className="vorn-admin-page-header">
+        <h1>Integrations</h1>
+        <p className="vorn-admin-page-subtitle">
+          API credentials for external services. These override the equivalent VORN_* environment variables when
+          set, and only take effect after restarting the server.
+        </p>
+      </div>
 
-      <h2>
-        TMDb <StatusBadge configured={settings.tmdbConfigured} />
-      </h2>
-      <p className="vorn-form-subtitle">Powers metadata and artwork (posters/backdrops) matching during library sync.</p>
-      <form className="vorn-inline-form" onSubmit={handleSaveTmdb}>
-        <input
-          type="password"
-          placeholder={settings.tmdbConfigured ? '•••••••• (unchanged)' : 'TMDb API key'}
-          value={tmdbKeyInput}
-          onChange={(e) => setTmdbKeyInput(e.target.value)}
-          style={{ minWidth: '20rem' }}
-        />
-        <button type="submit" disabled={tmdbSaving || tmdbKeyInput.trim() === ''}>
-          {tmdbSaving ? 'Saving…' : 'Save'}
-        </button>
-        {settings.tmdbConfigured && (
-          <button type="button" onClick={handleClearTmdb} disabled={tmdbSaving}>
-            Clear
-          </button>
-        )}
-      </form>
-      {tmdbMessage && <p>{tmdbMessage}</p>}
-
-      <h2>
-        OpenSubtitles <StatusBadge configured={settings.openSubtitlesConfigured} />
-      </h2>
-      <p className="vorn-form-subtitle">Powers subtitle search and download from the watch page.</p>
-      <form
-        className="vorn-inline-form"
-        onSubmit={handleSaveOpenSubtitles}
-        style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '0.6rem' }}
-      >
-        <label>
-          API key{' '}
+      <div className="vorn-panel">
+        <div className="vorn-panel-header">
+          <h2>TMDb</h2>
+          <StatusBadge configured={settings.tmdbConfigured} />
+        </div>
+        <p className="vorn-panel-subtitle">Powers metadata and artwork (posters/backdrops) matching during library sync.</p>
+        <form className="vorn-inline-form" onSubmit={handleSaveTmdb}>
           <input
             type="password"
-            placeholder={settings.openSubtitlesConfigured ? '•••••••• (unchanged)' : 'OpenSubtitles API key'}
-            value={osKeyInput}
-            onChange={(e) => setOsKeyInput(e.target.value)}
+            placeholder={settings.tmdbConfigured ? '•••••••• (unchanged)' : 'TMDb API key'}
+            value={tmdbKeyInput}
+            onChange={(e) => setTmdbKeyInput(e.target.value)}
             style={{ minWidth: '20rem' }}
           />
-        </label>
-        <label>
-          Username{' '}
-          <input
-            value={osUsername}
-            onChange={(e) => setOsUsername(e.target.value)}
-            placeholder="OpenSubtitles username"
-            style={{ minWidth: '20rem' }}
-          />
-        </label>
-        <label>
-          Password{' '}
-          <input
-            type="password"
-            placeholder={settings.openSubtitlesConfigured ? '•••••••• (unchanged)' : 'OpenSubtitles password'}
-            value={osPasswordInput}
-            onChange={(e) => setOsPasswordInput(e.target.value)}
-            style={{ minWidth: '20rem' }}
-          />
-        </label>
-        <div className="vorn-button-group">
-          <button type="submit" disabled={osSaving}>
-            {osSaving ? 'Saving…' : 'Save'}
+          <button type="submit" disabled={tmdbSaving || tmdbKeyInput.trim() === ''}>
+            {tmdbSaving ? 'Saving…' : 'Save'}
           </button>
-          {settings.openSubtitlesConfigured && (
-            <button type="button" onClick={handleClearOpenSubtitles} disabled={osSaving}>
+          {settings.tmdbConfigured && (
+            <button type="button" className="vorn-btn-danger" onClick={handleClearTmdb} disabled={tmdbSaving}>
               Clear
             </button>
           )}
+        </form>
+        {tmdbMessage && <p>{tmdbMessage}</p>}
+      </div>
+
+      <div className="vorn-panel">
+        <div className="vorn-panel-header">
+          <h2>OpenSubtitles</h2>
+          <StatusBadge configured={settings.openSubtitlesConfigured} />
         </div>
-      </form>
-      {osMessage && <p>{osMessage}</p>}
+        <p className="vorn-panel-subtitle">Powers subtitle search and download from the watch page.</p>
+        <form
+          className="vorn-inline-form"
+          onSubmit={handleSaveOpenSubtitles}
+          style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '0.6rem' }}
+        >
+          <label>
+            API key{' '}
+            <input
+              type="password"
+              placeholder={settings.openSubtitlesConfigured ? '•••••••• (unchanged)' : 'OpenSubtitles API key'}
+              value={osKeyInput}
+              onChange={(e) => setOsKeyInput(e.target.value)}
+              style={{ minWidth: '20rem' }}
+            />
+          </label>
+          <label>
+            Username{' '}
+            <input
+              value={osUsername}
+              onChange={(e) => setOsUsername(e.target.value)}
+              placeholder="OpenSubtitles username"
+              style={{ minWidth: '20rem' }}
+            />
+          </label>
+          <label>
+            Password{' '}
+            <input
+              type="password"
+              placeholder={settings.openSubtitlesConfigured ? '•••••••• (unchanged)' : 'OpenSubtitles password'}
+              value={osPasswordInput}
+              onChange={(e) => setOsPasswordInput(e.target.value)}
+              style={{ minWidth: '20rem' }}
+            />
+          </label>
+          <div className="vorn-button-group">
+            <button type="submit" disabled={osSaving}>
+              {osSaving ? 'Saving…' : 'Save'}
+            </button>
+            {settings.openSubtitlesConfigured && (
+              <button type="button" className="vorn-btn-danger" onClick={handleClearOpenSubtitles} disabled={osSaving}>
+                Clear
+              </button>
+            )}
+          </div>
+        </form>
+        {osMessage && <p>{osMessage}</p>}
+      </div>
     </section>
   )
 }

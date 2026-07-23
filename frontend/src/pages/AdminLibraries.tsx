@@ -87,12 +87,19 @@ export function AdminLibraries() {
   }
 
   return (
-    <section className="vorn-admin-users">
-      <h1>Libraries</h1>
+    <section className="vorn-admin-page">
+      <div className="vorn-admin-page-header">
+        <h1>Libraries</h1>
+        <p className="vorn-admin-page-subtitle">Scan folders on the server and match them to metadata.</p>
+      </div>
       {error && <p className="vorn-form-error">{error}</p>}
 
-      <div className="vorn-table-wrap">
-      <table className="vorn-table">
+      <div className="vorn-panel">
+        <div className="vorn-panel-header">
+          <h2>All libraries</h2>
+        </div>
+        <div className="vorn-table-wrap">
+        <table className="vorn-table">
         <thead>
           <tr>
             <th>Name</th>
@@ -134,7 +141,7 @@ export function AdminLibraries() {
                     >
                       {metaJob?.status === 'running' ? 'Syncing…' : 'Sync metadata'}
                     </button>
-                    <button type="button" onClick={() => handleDelete(l.id)}>
+                    <button type="button" className="vorn-btn-danger" onClick={() => handleDelete(l.id)}>
                       Delete
                     </button>
                   </div>
@@ -143,26 +150,31 @@ export function AdminLibraries() {
             )
           })}
         </tbody>
-      </table>
+        </table>
+        </div>
       </div>
 
-      <h2>Add library</h2>
-      <form className="vorn-inline-form" onSubmit={handleCreate}>
-        <input placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} required />
-        <select value={type} onChange={(e) => setType(e.target.value as 'movie' | 'series')}>
-          <option value="movie">Movies</option>
-          <option value="series">Series</option>
-        </select>
-        <input
-          placeholder="Folder path on the server"
-          value={folder}
-          onChange={(e) => setFolder(e.target.value)}
-          required
-        />
-        <button type="submit" disabled={submitting}>
-          {submitting ? 'Adding…' : 'Add library'}
-        </button>
-      </form>
+      <div className="vorn-panel">
+        <div className="vorn-panel-header">
+          <h2>Add library</h2>
+        </div>
+        <form className="vorn-inline-form" onSubmit={handleCreate}>
+          <input placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} required />
+          <select value={type} onChange={(e) => setType(e.target.value as 'movie' | 'series')}>
+            <option value="movie">Movies</option>
+            <option value="series">Series</option>
+          </select>
+          <input
+            placeholder="Folder path on the server"
+            value={folder}
+            onChange={(e) => setFolder(e.target.value)}
+            required
+          />
+          <button type="submit" disabled={submitting}>
+            {submitting ? 'Adding…' : 'Add library'}
+          </button>
+        </form>
+      </div>
     </section>
   )
 }

@@ -70,88 +70,100 @@ export function AdminUsers() {
   }
 
   return (
-    <section className="vorn-admin-users">
-      <h1>Users</h1>
+    <section className="vorn-admin-page">
+      <div className="vorn-admin-page-header">
+        <h1>Users</h1>
+        <p className="vorn-admin-page-subtitle">Manage accounts and per-library access.</p>
+      </div>
       {error && <p className="vorn-form-error">{error}</p>}
 
-      <div className="vorn-table-wrap">
-      <table className="vorn-table">
-        <thead>
-          <tr>
-            <th>Username</th>
-            <th>Role</th>
-            <th>Library access</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {users.map((u) => (
-            <tr key={u.id}>
-              <td>{u.username}</td>
-              <td>{u.isAdmin ? 'Admin (all libraries)' : 'Standard'}</td>
-              <td>
-                {!u.isAdmin && (
-                  <select
-                    multiple
-                    value={permissions[u.id] ?? []}
-                    onChange={(e) =>
-                      handlePermissionsChange(
-                        u.id,
-                        Array.from(e.target.selectedOptions).map((o) => o.value),
-                      )
-                    }
-                  >
-                    {libraries.map((l) => (
-                      <option key={l.id} value={l.id}>
-                        {l.name}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </td>
-              <td>
-                <button type="button" onClick={() => handleDelete(u.id)}>
-                  Delete
-                </button>
-              </td>
+      <div className="vorn-panel">
+        <div className="vorn-panel-header">
+          <h2>All users</h2>
+        </div>
+        <div className="vorn-table-wrap">
+        <table className="vorn-table">
+          <thead>
+            <tr>
+              <th>Username</th>
+              <th>Role</th>
+              <th>Library access</th>
+              <th></th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {users.map((u) => (
+              <tr key={u.id}>
+                <td>{u.username}</td>
+                <td>{u.isAdmin ? 'Admin (all libraries)' : 'Standard'}</td>
+                <td>
+                  {!u.isAdmin && (
+                    <select
+                      multiple
+                      value={permissions[u.id] ?? []}
+                      onChange={(e) =>
+                        handlePermissionsChange(
+                          u.id,
+                          Array.from(e.target.selectedOptions).map((o) => o.value),
+                        )
+                      }
+                    >
+                      {libraries.map((l) => (
+                        <option key={l.id} value={l.id}>
+                          {l.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </td>
+                <td>
+                  <button type="button" className="vorn-btn-danger" onClick={() => handleDelete(u.id)}>
+                    Delete
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        </div>
       </div>
 
-      <h2>Add user</h2>
-      <form className="vorn-inline-form" onSubmit={handleCreate}>
-        <input placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} required />
-        <input
-          type="password"
-          placeholder="Password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
-          minLength={8}
-        />
-        <label>
-          <input type="checkbox" checked={isAdmin} onChange={(e) => setIsAdmin(e.target.checked)} />
-          Admin
-        </label>
-        {!isAdmin && (
-          <select
-            multiple
-            value={newUserLibraries}
-            onChange={(e) => setNewUserLibraries(Array.from(e.target.selectedOptions).map((o) => o.value))}
-          >
-            {libraries.map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.name}
-              </option>
-            ))}
-          </select>
-        )}
-        <button type="submit" disabled={submitting}>
-          {submitting ? 'Adding…' : 'Add user'}
-        </button>
-      </form>
+      <div className="vorn-panel">
+        <div className="vorn-panel-header">
+          <h2>Add user</h2>
+        </div>
+        <form className="vorn-inline-form" onSubmit={handleCreate}>
+          <input placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} required />
+          <input
+            type="password"
+            placeholder="Password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            minLength={8}
+          />
+          <label>
+            <input type="checkbox" checked={isAdmin} onChange={(e) => setIsAdmin(e.target.checked)} />
+            Admin
+          </label>
+          {!isAdmin && (
+            <select
+              multiple
+              value={newUserLibraries}
+              onChange={(e) => setNewUserLibraries(Array.from(e.target.selectedOptions).map((o) => o.value))}
+            >
+              {libraries.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.name}
+                </option>
+              ))}
+            </select>
+          )}
+          <button type="submit" disabled={submitting}>
+            {submitting ? 'Adding…' : 'Add user'}
+          </button>
+        </form>
+      </div>
     </section>
   )
 }

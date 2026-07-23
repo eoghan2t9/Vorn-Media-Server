@@ -87,69 +87,81 @@ export function AdminServerSettings() {
   if (!loaded) return <p>Loading…</p>
 
   return (
-    <section className="vorn-admin-users">
-      <h1>Network</h1>
+    <section className="vorn-admin-page">
+      <div className="vorn-admin-page-header">
+        <h1>Network</h1>
+        <p className="vorn-admin-page-subtitle">Custom domain, HTTPS, and reverse-proxy trust settings.</p>
+      </div>
       {error && <p className="vorn-form-error">{error}</p>}
-      {message && <p>{message}</p>}
 
-      <form className="vorn-inline-form" onSubmit={handleSave} style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '0.75rem' }}>
-        <label>
-          Custom domain{' '}
-          <input
-            placeholder="media.example.com"
-            value={customDomain}
-            onChange={(e) => setCustomDomain(e.target.value)}
-            style={{ minWidth: '16rem' }}
-          />
-        </label>
-        <label>
-          ACME contact email{' '}
-          <input
-            type="email"
-            placeholder="admin@example.com"
-            value={acmeEmail}
-            onChange={(e) => setAcmeEmail(e.target.value)}
-            style={{ minWidth: '16rem' }}
-          />
-        </label>
-        <label>
-          <input type="checkbox" checked={sslEnabled} onChange={(e) => setSslEnabled(e.target.checked)} /> Enable
-          automatic HTTPS (Let's Encrypt via the custom domain above; requires ports 80 and 443 reachable
-          from the internet for the domain)
-        </label>
-        <label>
-          <input
-            type="checkbox"
-            checked={trustCloudflare}
-            onChange={(e) => setTrustCloudflare(e.target.checked)}
-          />{' '}
-          Trust CF-Connecting-IP (only honored from requests that genuinely originate at a real Cloudflare
-          edge IP, so it can't be spoofed by other clients)
-        </label>
-        <button type="submit" disabled={saving}>
-          {saving ? 'Saving…' : 'Save'}
-        </button>
-      </form>
-
-      <h2>Software update</h2>
-      {updateMessage && <p>{updateMessage}</p>}
-      <div className="vorn-button-group">
-        <button type="button" onClick={handleCheckForUpdate} disabled={updateBusy}>
-          Check for updates
-        </button>
-        {updateInfo && updateInfo.updateAvailable && !updateInfo.dockerized && (
-          <button type="button" onClick={handleApplyUpdate} disabled={updateBusy}>
-            {updateBusy ? 'Working…' : `Update to ${updateInfo.latestVersion}`}
+      <div className="vorn-panel">
+        <div className="vorn-panel-header">
+          <h2>Domain &amp; HTTPS</h2>
+        </div>
+        {message && <p>{message}</p>}
+        <form className="vorn-inline-form" onSubmit={handleSave} style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '0.75rem' }}>
+          <label>
+            Custom domain{' '}
+            <input
+              placeholder="media.example.com"
+              value={customDomain}
+              onChange={(e) => setCustomDomain(e.target.value)}
+              style={{ minWidth: '16rem' }}
+            />
+          </label>
+          <label>
+            ACME contact email{' '}
+            <input
+              type="email"
+              placeholder="admin@example.com"
+              value={acmeEmail}
+              onChange={(e) => setAcmeEmail(e.target.value)}
+              style={{ minWidth: '16rem' }}
+            />
+          </label>
+          <label>
+            <input type="checkbox" checked={sslEnabled} onChange={(e) => setSslEnabled(e.target.checked)} /> Enable
+            automatic HTTPS (Let's Encrypt via the custom domain above; requires ports 80 and 443 reachable
+            from the internet for the domain)
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={trustCloudflare}
+              onChange={(e) => setTrustCloudflare(e.target.checked)}
+            />{' '}
+            Trust CF-Connecting-IP (only honored from requests that genuinely originate at a real Cloudflare
+            edge IP, so it can't be spoofed by other clients)
+          </label>
+          <button type="submit" disabled={saving}>
+            {saving ? 'Saving…' : 'Save'}
           </button>
+        </form>
+      </div>
+
+      <div className="vorn-panel">
+        <div className="vorn-panel-header">
+          <h2>Software update</h2>
+        </div>
+        {updateMessage && <p>{updateMessage}</p>}
+        <div className="vorn-button-group">
+          <button type="button" onClick={handleCheckForUpdate} disabled={updateBusy}>
+            Check for updates
+          </button>
+          {updateInfo && updateInfo.updateAvailable && !updateInfo.dockerized && (
+            <button type="button" onClick={handleApplyUpdate} disabled={updateBusy}>
+              {updateBusy ? 'Working…' : `Update to ${updateInfo.latestVersion}`}
+            </button>
+          )}
+        </div>
+        {updateInfo && (
+          <p>
+            Running {updateInfo.currentVersion}
+            {updateInfo.latestVersion ? `; latest available is ${updateInfo.latestVersion}` : '; no release found'}.
+            {updateInfo.dockerized && ' Running under Docker: rebuild/pull the image instead of self-updating.'}
+          </p>
         )}
       </div>
-      {updateInfo && (
-        <p>
-          Running {updateInfo.currentVersion}
-          {updateInfo.latestVersion ? `; latest available is ${updateInfo.latestVersion}` : '; no release found'}.
-          {updateInfo.dockerized && ' Running under Docker: rebuild/pull the image instead of self-updating.'}
-        </p>
-      )}
     </section>
   )
 }

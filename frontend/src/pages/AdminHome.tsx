@@ -1,46 +1,97 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { fetchTranscodeCapabilities } from '../api/client'
+import {
+  fetchTranscodeCapabilities,
+  listCurrentlyWatching,
+  listLibraries,
+  listUsers,
+} from '../api/client'
+import {
+  CloudDownloadIcon,
+  CloudIcon,
+  DashboardIcon,
+  EyeIcon,
+  GlobeIcon,
+  LibraryIcon,
+  MagnetIcon,
+  PlugIcon,
+  TerminalIcon,
+  UsersIcon,
+} from '../components/icons'
 import './AdminHome.css'
 
 const TILES = [
-  { to: '/admin/libraries', label: 'Manage libraries' },
-  { to: '/admin/users', label: 'Manage users' },
-  { to: '/admin/currently-watching', label: 'Currently watching' },
-  { to: '/admin/torrents', label: 'Torrents' },
-  { to: '/admin/nzb', label: 'NZB / Usenet' },
-  { to: '/admin/debrid', label: 'Debrid' },
-  { to: '/admin/integrations', label: 'Integrations' },
-  { to: '/admin/logs', label: 'Logs' },
-  { to: '/admin/server-settings', label: 'Network' },
+  { to: '/admin/libraries', label: 'Libraries', desc: 'Folders, scans, metadata sync', icon: LibraryIcon },
+  { to: '/admin/users', label: 'Users', desc: 'Accounts and library access', icon: UsersIcon },
+  { to: '/admin/currently-watching', label: 'Currently watching', desc: 'Live playback sessions', icon: EyeIcon },
+  { to: '/admin/torrents', label: 'Torrents', desc: 'Magnets, files, indexers', icon: MagnetIcon },
+  { to: '/admin/nzb', label: 'NZB / Usenet', desc: 'Usenet servers and downloads', icon: CloudDownloadIcon },
+  { to: '/admin/debrid', label: 'Debrid', desc: 'Real-Debrid / TorBox accounts', icon: CloudIcon },
+  { to: '/admin/integrations', label: 'Integrations', desc: 'TMDb, OpenSubtitles', icon: PlugIcon },
+  { to: '/admin/server-settings', label: 'Network', desc: 'Domain, HTTPS, updates', icon: GlobeIcon },
+  { to: '/admin/logs', label: 'Logs', desc: 'Live tail and maintenance', icon: TerminalIcon },
 ]
 
 export function AdminHome() {
   const [backends, setBackends] = useState<string[] | null>(null)
+  const [userCount, setUserCount] = useState<number | null>(null)
+  const [libraryCount, setLibraryCount] = useState<number | null>(null)
+  const [watchingCount, setWatchingCount] = useState<number | null>(null)
 
   useEffect(() => {
     fetchTranscodeCapabilities()
       .then((c) => setBackends(c.backends ?? []))
       .catch(() => setBackends([]))
+    listUsers()
+      .then((u) => setUserCount(u.length))
+      .catch(() => setUserCount(null))
+    listLibraries()
+      .then((l) => setLibraryCount(l.length))
+      .catch(() => setLibraryCount(null))
+    listCurrentlyWatching()
+      .then((w) => setWatchingCount(w.length))
+      .catch(() => setWatchingCount(null))
   }, [])
 
-  return (
-    <section className="vorn-admin-home">
-      <h1>Admin</h1>
+  const transcoderReady = backends !== null && backends.length > 0
 
-      <div className="vorn-admin-tiles">
-        {TILES.map((tile) => (
-          <Link key={tile.to} to={tile.to} className="vorn-admin-tile">
-            {tile.label}
-            <span className="vorn-admin-tile-arrow" aria-hidden>
-              →
-            </span>
-          </Link>
-        ))}
+  return (
+    <section className="vorn-admin-page">
+      <div className="vorn-admin-page-header">
+        <h1>Dashboard</h1>
+        <p className="vorn-admin-page-subtitle">Overview of your Vorn instance.</p>
       </div>
 
-      <div className="vorn-admin-panel">
-        <h2>Transcoder</h2>
+      <div className="vorn-stat-grid">
+        <div className="vorn-stat-card">
+          <UsersIcon className="vorn-stat-icon" />
+          <div className="vorn-stat-value">{userCount ?? '—'}</div>
+          <div className="vorn-stat-label">Users</div>
+        </div>
+        <div className="vorn-stat-card">
+          <LibraryIcon className="vorn-stat-icon" />
+          <div className="vorn-stat-value">{libraryCount ?? '—'}</div>
+          <div className="vorn-stat-label">Libraries</div>
+        </div>
+        <div className="vorn-stat-card">
+          <EyeIcon className="vorn-stat-icon" />
+          <div className="vorn-stat-value">{watchingCount ?? '—'}</div>
+          <div className="vorn-stat-label">Currently watching</div>
+        </div>
+        <div className="vorn-stat-card">
+          <DashboardIcon className="vorn-stat-icon" />
+          <div className="vorn-stat-value vorn-stat-value-status">
+            <span className={`vorn-status-dot${transcoderReady ? ' vorn-status-dot-on' : ''}`} />
+            {backends === null ? 'Checking…' : transcoderReady ? 'Ready' : 'Not ready'}
+          </div>
+          <div className="vorn-stat-label">Transcoder</div>
+        </div>
+      </div>
+
+      <div className="vorn-panel">
+        <div className="vorn-panel-header">
+          <h2>Transcoder backends</h2>
+        </div>
         {backends === null ? (
           <p>Checking…</p>
         ) : backends.length === 0 ? (
@@ -55,6 +106,24 @@ export function AdminHome() {
             ))}
           </p>
         )}
+      </div>
+
+      <div className="vorn-panel-header" style={{ marginBottom: '0.9rem' }}>
+        <h2>Manage</h2>
+      </div>
+      <div className="vorn-admin-tiles">
+        {TILES.map((tile) => (
+          <Link key={tile.to} to={tile.to} className="vorn-admin-tile">
+            <tile.icon className="vorn-admin-tile-icon" />
+            <div className="vorn-admin-tile-text">
+              <div className="vorn-admin-tile-label">{tile.label}</div>
+              <div className="vorn-admin-tile-desc">{tile.desc}</div>
+            </div>
+            <span className="vorn-admin-tile-arrow" aria-hidden>
+              →
+            </span>
+          </Link>
+        ))}
       </div>
     </section>
   )

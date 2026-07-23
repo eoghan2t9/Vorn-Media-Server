@@ -68,38 +68,55 @@ export function AdminLogs() {
   }
 
   return (
-    <section className="vorn-admin-users">
-      <h1>Logs</h1>
+    <section className="vorn-admin-page">
+      <div className="vorn-admin-page-header">
+        <h1>Logs</h1>
+        <p className="vorn-admin-page-subtitle">Live server output and housekeeping tools.</p>
+      </div>
       {error && <p className="vorn-form-error">{error}</p>}
-      {maintenanceMsg && <p>{maintenanceMsg}</p>}
 
-      <p>
-        Live tail: <strong>{connected ? 'connected' : 'disconnected'}</strong>
-      </p>
-      <pre className="vorn-log-viewer" ref={logRef} onScroll={handleScroll}>
-        {lines.join('\n')}
-      </pre>
-
-      <h2>Maintenance</h2>
-      <div className="vorn-button-group">
-        <button type="button" onClick={handleClearScanCache}>
-          Clear scan cache
-        </button>
-        <button type="button" onClick={handleClearTranscodeCache}>
-          Clear finished transcode sessions
-        </button>
+      <div className="vorn-panel">
+        <div className="vorn-panel-header">
+          <h2>Live tail</h2>
+        </div>
+        <div className="vorn-status-line">
+          <span className={`vorn-status-dot${connected ? ' vorn-status-dot-on' : ''}`} />
+          {connected ? 'Connected' : 'Disconnected'}
+        </div>
+        <pre className="vorn-log-viewer" ref={logRef} onScroll={handleScroll}>
+          {lines.join('\n')}
+        </pre>
       </div>
 
-      <h2>OpenSubtitles quota</h2>
-      {quota === null ? (
-        <p>Checking…</p>
-      ) : quota.remaining < 0 ? (
-        <p>Not configured (set VORN_OPENSUBTITLES_API_KEY and VORN_OPENSUBTITLES_USERNAME).</p>
-      ) : (
-        <p>
-          {quota.remaining} download(s) remaining today{quota.resetTime ? ` (resets in ${quota.resetTime})` : ''}.
-        </p>
-      )}
+      <div className="vorn-panel">
+        <div className="vorn-panel-header">
+          <h2>Maintenance</h2>
+        </div>
+        {maintenanceMsg && <p>{maintenanceMsg}</p>}
+        <div className="vorn-button-group">
+          <button type="button" onClick={handleClearScanCache}>
+            Clear scan cache
+          </button>
+          <button type="button" onClick={handleClearTranscodeCache}>
+            Clear finished transcode sessions
+          </button>
+        </div>
+      </div>
+
+      <div className="vorn-panel">
+        <div className="vorn-panel-header">
+          <h2>OpenSubtitles quota</h2>
+        </div>
+        {quota === null ? (
+          <p>Checking…</p>
+        ) : quota.remaining < 0 ? (
+          <p>Not configured (set VORN_OPENSUBTITLES_API_KEY and VORN_OPENSUBTITLES_USERNAME).</p>
+        ) : (
+          <p>
+            {quota.remaining} download(s) remaining today{quota.resetTime ? ` (resets in ${quota.resetTime})` : ''}.
+          </p>
+        )}
+      </div>
     </section>
   )
 }

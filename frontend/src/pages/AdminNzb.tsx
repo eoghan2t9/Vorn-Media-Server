@@ -111,121 +111,138 @@ export function AdminNzb() {
   }
 
   return (
-    <section className="vorn-admin-users">
-      <h1>NZB / Usenet</h1>
+    <section className="vorn-admin-page">
+      <div className="vorn-admin-page-header">
+        <h1>NZB / Usenet</h1>
+        <p className="vorn-admin-page-subtitle">Download .nzb files through a configured Usenet server.</p>
+      </div>
       {error && <p className="vorn-form-error">{error}</p>}
 
-      <div className="vorn-table-wrap">
-      <table className="vorn-table">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Status</th>
-            <th>Progress</th>
-            <th>Promoted</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {downloads.map((n) => (
-            <tr key={n.id}>
-              <td>{n.name}</td>
-              <td>{n.status === 'error' ? `error: ${n.error}` : n.status}</td>
-              <td>
-                {formatBytes(n.bytesDone)} / {formatBytes(n.bytesTotal)}
-                {n.bytesTotal > 0 ? ` (${Math.floor((100 * n.bytesDone) / n.bytesTotal)}%)` : ''}
-              </td>
-              <td>{n.promoted ? 'yes' : 'no'}</td>
-              <td>
-                <div className="vorn-button-group">
-                  <button type="button" onClick={() => handleRemove(n.id, false)}>
-                    Remove
-                  </button>
-                  <button type="button" onClick={() => handleRemove(n.id, true)}>
-                    Remove + delete files
-                  </button>
-                </div>
-              </td>
+      <div className="vorn-panel">
+        <div className="vorn-panel-header">
+          <h2>Downloads</h2>
+        </div>
+        <div className="vorn-table-wrap">
+        <table className="vorn-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Status</th>
+              <th>Progress</th>
+              <th>Promoted</th>
+              <th></th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {downloads.map((n) => (
+              <tr key={n.id}>
+                <td>{n.name}</td>
+                <td>{n.status === 'error' ? `error: ${n.error}` : n.status}</td>
+                <td>
+                  {formatBytes(n.bytesDone)} / {formatBytes(n.bytesTotal)}
+                  {n.bytesTotal > 0 ? ` (${Math.floor((100 * n.bytesDone) / n.bytesTotal)}%)` : ''}
+                </td>
+                <td>{n.promoted ? 'yes' : 'no'}</td>
+                <td>
+                  <div className="vorn-button-group">
+                    <button type="button" className="vorn-btn-danger" onClick={() => handleRemove(n.id, false)}>
+                      Remove
+                    </button>
+                    <button type="button" className="vorn-btn-danger" onClick={() => handleRemove(n.id, true)}>
+                      Remove + delete files
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        </div>
       </div>
 
-      <h2>Add NZB</h2>
-      <p>
-        <select value={libraryId} onChange={(e) => setLibraryId(e.target.value)}>
-          <option value="">No destination library (won't auto-add)</option>
-          {libraries.map((l) => (
-            <option key={l.id} value={l.id}>
-              {l.name}
-            </option>
-          ))}
-        </select>{' '}
-        Upload a .nzb file: <input ref={fileInputRef} type="file" accept=".nzb" onChange={handleFileChange} disabled={submitting} />
-      </p>
-
-      <h2>Usenet servers</h2>
-      <div className="vorn-table-wrap">
-      <table className="vorn-table">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Host</th>
-            <th>Port</th>
-            <th>TLS</th>
-            <th>Max conns</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {servers.map((s) => (
-            <tr key={s.id}>
-              <td>{s.name}</td>
-              <td>{s.host}</td>
-              <td>{s.port}</td>
-              <td>{s.useTls ? 'yes' : 'no'}</td>
-              <td>{s.maxConnections}</td>
-              <td>
-                <button type="button" onClick={() => handleDeleteServer(s.id)}>
-                  Delete
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <div className="vorn-panel">
+        <div className="vorn-panel-header">
+          <h2>Add NZB</h2>
+        </div>
+        <div className="vorn-inline-form">
+          <select value={libraryId} onChange={(e) => setLibraryId(e.target.value)}>
+            <option value="">No destination library (won't auto-add)</option>
+            {libraries.map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.name}
+              </option>
+            ))}
+          </select>
+          <span>Upload a .nzb file:</span>
+          <input ref={fileInputRef} type="file" accept=".nzb" onChange={handleFileChange} disabled={submitting} />
+        </div>
       </div>
-      <form className="vorn-inline-form" onSubmit={handleAddServer}>
-        <input placeholder="Name" value={serverName} onChange={(e) => setServerName(e.target.value)} required />
-        <input placeholder="Host" value={serverHost} onChange={(e) => setServerHost(e.target.value)} required />
-        <input
-          placeholder="Port"
-          type="number"
-          value={serverPort}
-          onChange={(e) => setServerPort(e.target.value)}
-          style={{ width: '6rem' }}
-          required
-        />
-        <label>
-          <input type="checkbox" checked={serverUseTls} onChange={(e) => setServerUseTls(e.target.checked)} /> TLS
-        </label>
-        <input placeholder="Username (optional)" value={serverUsername} onChange={(e) => setServerUsername(e.target.value)} />
-        <input
-          placeholder="Password (optional)"
-          type="password"
-          value={serverPassword}
-          onChange={(e) => setServerPassword(e.target.value)}
-        />
-        <input
-          placeholder="Max connections"
-          type="number"
-          value={serverMaxConnections}
-          onChange={(e) => setServerMaxConnections(e.target.value)}
-          style={{ width: '8rem' }}
-        />
-        <button type="submit">Add server</button>
-      </form>
+
+      <div className="vorn-panel">
+        <div className="vorn-panel-header">
+          <h2>Usenet servers</h2>
+        </div>
+        <div className="vorn-table-wrap">
+        <table className="vorn-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Host</th>
+              <th>Port</th>
+              <th>TLS</th>
+              <th>Max conns</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {servers.map((s) => (
+              <tr key={s.id}>
+                <td>{s.name}</td>
+                <td>{s.host}</td>
+                <td>{s.port}</td>
+                <td>{s.useTls ? 'yes' : 'no'}</td>
+                <td>{s.maxConnections}</td>
+                <td>
+                  <button type="button" className="vorn-btn-danger" onClick={() => handleDeleteServer(s.id)}>
+                    Delete
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        </div>
+        <form className="vorn-inline-form" onSubmit={handleAddServer} style={{ marginTop: '1rem' }}>
+          <input placeholder="Name" value={serverName} onChange={(e) => setServerName(e.target.value)} required />
+          <input placeholder="Host" value={serverHost} onChange={(e) => setServerHost(e.target.value)} required />
+          <input
+            placeholder="Port"
+            type="number"
+            value={serverPort}
+            onChange={(e) => setServerPort(e.target.value)}
+            style={{ width: '6rem' }}
+            required
+          />
+          <label>
+            <input type="checkbox" checked={serverUseTls} onChange={(e) => setServerUseTls(e.target.checked)} /> TLS
+          </label>
+          <input placeholder="Username (optional)" value={serverUsername} onChange={(e) => setServerUsername(e.target.value)} />
+          <input
+            placeholder="Password (optional)"
+            type="password"
+            value={serverPassword}
+            onChange={(e) => setServerPassword(e.target.value)}
+          />
+          <input
+            placeholder="Max connections"
+            type="number"
+            value={serverMaxConnections}
+            onChange={(e) => setServerMaxConnections(e.target.value)}
+            style={{ width: '8rem' }}
+          />
+          <button type="submit">Add server</button>
+        </form>
+      </div>
     </section>
   )
 }

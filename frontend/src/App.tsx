@@ -2,6 +2,7 @@ import { Navigate, Outlet, Route, Routes } from 'react-router-dom'
 import { ThemeProvider } from './theme/ThemeContext'
 import { AuthProvider, useAuth } from './auth/AuthContext'
 import { AppShell } from './layout/AppShell'
+import { AdminShell } from './layout/AdminShell'
 import { ViewerHome } from './pages/ViewerHome'
 import { AdminHome } from './pages/AdminHome'
 import { AdminUsers } from './pages/AdminUsers'
@@ -49,7 +50,11 @@ function ProtectedLayout() {
 function AdminLayout() {
   const { user } = useAuth()
   if (!user?.isAdmin) return <Navigate to="/" replace />
-  return <Outlet />
+  return (
+    <AdminShell>
+      <Outlet />
+    </AdminShell>
+  )
 }
 
 function AppRoutes() {

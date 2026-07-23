@@ -149,104 +149,150 @@ export function AdminTorrents() {
   }
 
   return (
-    <section className="vorn-admin-users">
-      <h1>Torrents</h1>
+    <section className="vorn-admin-page">
+      <div className="vorn-admin-page-header">
+        <h1>Torrents</h1>
+        <p className="vorn-admin-page-subtitle">Add magnets/files directly, or search configured Torznab indexers.</p>
+      </div>
       {error && <p className="vorn-form-error">{error}</p>}
 
-      <div className="vorn-table-wrap">
-      <table className="vorn-table">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Status</th>
-            <th>Progress</th>
-            <th>Sequential</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {torrents.map((t) => (
-            <tr key={t.id}>
-              <td>{t.name || t.infoHash}</td>
-              <td>{t.status === 'error' ? `error: ${t.error}` : t.status}</td>
-              <td>
-                {formatBytes(t.bytesDone)} / {formatBytes(t.bytesTotal)}
-                {t.bytesTotal > 0 ? ` (${Math.floor((100 * t.bytesDone) / t.bytesTotal)}%)` : ''}
-              </td>
-              <td>{t.sequential ? 'yes' : 'no'}</td>
-              <td>
-                <div className="vorn-button-group">
-                  <button type="button" onClick={() => handleRemove(t.id, false)}>
-                    Remove
-                  </button>
-                  <button type="button" onClick={() => handleRemove(t.id, true)}>
-                    Remove + delete files
-                  </button>
-                </div>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      </div>
-
-      <h2>Add torrent</h2>
-      <form className="vorn-inline-form" onSubmit={handleAddMagnet}>
-        <input
-          placeholder="Magnet URI"
-          value={magnetUri}
-          onChange={(e) => setMagnetUri(e.target.value)}
-          style={{ minWidth: '20rem' }}
-          required
-        />
-        <select value={libraryId} onChange={(e) => setLibraryId(e.target.value)}>
-          <option value="">No destination library (won't auto-add)</option>
-          {libraries.map((l) => (
-            <option key={l.id} value={l.id}>
-              {l.name}
-            </option>
-          ))}
-        </select>
-        <label>
-          <input type="checkbox" checked={sequential} onChange={(e) => setSequential(e.target.checked)} /> Sequential
-        </label>
-        <button type="submit" disabled={submitting}>
-          {submitting ? 'Adding…' : 'Add magnet'}
-        </button>
-      </form>
-      <p>
-        Or upload a .torrent file: <input ref={fileInputRef} type="file" accept=".torrent" onChange={handleFileChange} />
-      </p>
-
-      <h2>Search indexers</h2>
-      <form className="vorn-inline-form" onSubmit={handleSearch}>
-        <input placeholder="Search query" value={query} onChange={(e) => setQuery(e.target.value)} required />
-        <button type="submit" disabled={searching}>
-          {searching ? 'Searching…' : 'Search'}
-        </button>
-      </form>
-      {results && (
+      <div className="vorn-panel">
+        <div className="vorn-panel-header">
+          <h2>Active torrents</h2>
+        </div>
         <div className="vorn-table-wrap">
         <table className="vorn-table">
           <thead>
             <tr>
-              <th>Title</th>
-              <th>Indexer</th>
-              <th>Size</th>
-              <th>Seeders</th>
+              <th>Name</th>
+              <th>Status</th>
+              <th>Progress</th>
+              <th>Sequential</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
-            {results.map((r, i) => (
-              <tr key={i}>
-                <td>{r.title}</td>
-                <td>{r.indexerName}</td>
-                <td>{formatBytes(r.sizeBytes)}</td>
-                <td>{r.seeders}</td>
+            {torrents.map((t) => (
+              <tr key={t.id}>
+                <td>{t.name || t.infoHash}</td>
+                <td>{t.status === 'error' ? `error: ${t.error}` : t.status}</td>
                 <td>
-                  <button type="button" onClick={() => handleDownloadResult(r)}>
-                    Download
+                  {formatBytes(t.bytesDone)} / {formatBytes(t.bytesTotal)}
+                  {t.bytesTotal > 0 ? ` (${Math.floor((100 * t.bytesDone) / t.bytesTotal)}%)` : ''}
+                </td>
+                <td>{t.sequential ? 'yes' : 'no'}</td>
+                <td>
+                  <div className="vorn-button-group">
+                    <button type="button" className="vorn-btn-danger" onClick={() => handleRemove(t.id, false)}>
+                      Remove
+                    </button>
+                    <button type="button" className="vorn-btn-danger" onClick={() => handleRemove(t.id, true)}>
+                      Remove + delete files
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        </div>
+      </div>
+
+      <div className="vorn-panel">
+        <div className="vorn-panel-header">
+          <h2>Add torrent</h2>
+        </div>
+        <form className="vorn-inline-form" onSubmit={handleAddMagnet}>
+          <input
+            placeholder="Magnet URI"
+            value={magnetUri}
+            onChange={(e) => setMagnetUri(e.target.value)}
+            style={{ minWidth: '20rem' }}
+            required
+          />
+          <select value={libraryId} onChange={(e) => setLibraryId(e.target.value)}>
+            <option value="">No destination library (won't auto-add)</option>
+            {libraries.map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.name}
+              </option>
+            ))}
+          </select>
+          <label>
+            <input type="checkbox" checked={sequential} onChange={(e) => setSequential(e.target.checked)} /> Sequential
+          </label>
+          <button type="submit" disabled={submitting}>
+            {submitting ? 'Adding…' : 'Add magnet'}
+          </button>
+        </form>
+        <p className="vorn-panel-subtitle" style={{ margin: '1rem 0 0' }}>
+          Or upload a .torrent file: <input ref={fileInputRef} type="file" accept=".torrent" onChange={handleFileChange} />
+        </p>
+      </div>
+
+      <div className="vorn-panel">
+        <div className="vorn-panel-header">
+          <h2>Search indexers</h2>
+        </div>
+        <form className="vorn-inline-form" onSubmit={handleSearch}>
+          <input placeholder="Search query" value={query} onChange={(e) => setQuery(e.target.value)} required />
+          <button type="submit" disabled={searching}>
+            {searching ? 'Searching…' : 'Search'}
+          </button>
+        </form>
+        {results && (
+          <div className="vorn-table-wrap">
+          <table className="vorn-table">
+            <thead>
+              <tr>
+                <th>Title</th>
+                <th>Indexer</th>
+                <th>Size</th>
+                <th>Seeders</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {results.map((r, i) => (
+                <tr key={i}>
+                  <td>{r.title}</td>
+                  <td>{r.indexerName}</td>
+                  <td>{formatBytes(r.sizeBytes)}</td>
+                  <td>{r.seeders}</td>
+                  <td>
+                    <button type="button" onClick={() => handleDownloadResult(r)}>
+                      Download
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          </div>
+        )}
+      </div>
+
+      <div className="vorn-panel">
+        <div className="vorn-panel-header">
+          <h2>Indexers</h2>
+        </div>
+        <div className="vorn-table-wrap">
+        <table className="vorn-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Base URL</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {indexers.map((idx) => (
+              <tr key={idx.id}>
+                <td>{idx.name}</td>
+                <td>{idx.baseUrl}</td>
+                <td>
+                  <button type="button" className="vorn-btn-danger" onClick={() => handleDeleteIndexer(idx.id)}>
+                    Delete
                   </button>
                 </td>
               </tr>
@@ -254,45 +300,19 @@ export function AdminTorrents() {
           </tbody>
         </table>
         </div>
-      )}
-
-      <h2>Indexers</h2>
-      <div className="vorn-table-wrap">
-      <table className="vorn-table">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Base URL</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {indexers.map((idx) => (
-            <tr key={idx.id}>
-              <td>{idx.name}</td>
-              <td>{idx.baseUrl}</td>
-              <td>
-                <button type="button" onClick={() => handleDeleteIndexer(idx.id)}>
-                  Delete
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+        <form className="vorn-inline-form" onSubmit={handleAddIndexer} style={{ marginTop: '1rem' }}>
+          <input placeholder="Name" value={indexerName} onChange={(e) => setIndexerName(e.target.value)} required />
+          <input
+            placeholder="Torznab base URL"
+            value={indexerBaseUrl}
+            onChange={(e) => setIndexerBaseUrl(e.target.value)}
+            style={{ minWidth: '16rem' }}
+            required
+          />
+          <input placeholder="API key (optional)" value={indexerApiKey} onChange={(e) => setIndexerApiKey(e.target.value)} />
+          <button type="submit">Add indexer</button>
+        </form>
       </div>
-      <form className="vorn-inline-form" onSubmit={handleAddIndexer}>
-        <input placeholder="Name" value={indexerName} onChange={(e) => setIndexerName(e.target.value)} required />
-        <input
-          placeholder="Torznab base URL"
-          value={indexerBaseUrl}
-          onChange={(e) => setIndexerBaseUrl(e.target.value)}
-          style={{ minWidth: '16rem' }}
-          required
-        />
-        <input placeholder="API key (optional)" value={indexerApiKey} onChange={(e) => setIndexerApiKey(e.target.value)} />
-        <button type="submit">Add indexer</button>
-      </form>
     </section>
   )
 }

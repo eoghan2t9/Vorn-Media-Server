@@ -95,108 +95,124 @@ export function AdminDebrid() {
   }
 
   return (
-    <section className="vorn-admin-users">
-      <h1>Debrid</h1>
+    <section className="vorn-admin-page">
+      <div className="vorn-admin-page-header">
+        <h1>Debrid</h1>
+        <p className="vorn-admin-page-subtitle">Resolve magnets/hashes through a debrid provider instead of downloading torrents locally.</p>
+      </div>
       {error && <p className="vorn-form-error">{error}</p>}
 
-      <div className="vorn-table-wrap">
-      <table className="vorn-table">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Status</th>
-            <th>Promoted</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((it) => (
-            <tr key={it.id}>
-              <td>{it.name || it.sourceRef}</td>
-              <td>{it.status === 'error' ? `error: ${it.error}` : it.status}</td>
-              <td>{it.promoted ? 'yes' : 'no'}</td>
-              <td>
-                <button type="button" onClick={() => handleRemove(it.id)}>
-                  Remove
-                </button>
-              </td>
+      <div className="vorn-panel">
+        <div className="vorn-panel-header">
+          <h2>Resolved links</h2>
+        </div>
+        <div className="vorn-table-wrap">
+        <table className="vorn-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Status</th>
+              <th>Promoted</th>
+              <th></th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {items.map((it) => (
+              <tr key={it.id}>
+                <td>{it.name || it.sourceRef}</td>
+                <td>{it.status === 'error' ? `error: ${it.error}` : it.status}</td>
+                <td>{it.promoted ? 'yes' : 'no'}</td>
+                <td>
+                  <button type="button" className="vorn-btn-danger" onClick={() => handleRemove(it.id)}>
+                    Remove
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        </div>
       </div>
 
-      <h2>Add magnet / hash</h2>
-      <form className="vorn-inline-form" onSubmit={handleAddLink}>
-        <select value={accountId} onChange={(e) => setAccountId(e.target.value)} required>
-          <option value="">Select account…</option>
-          {accounts.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.provider} {!a.enabled ? '(disabled)' : ''}
-            </option>
-          ))}
-        </select>
-        <input
-          placeholder="Magnet URI or info-hash"
-          value={sourceRef}
-          onChange={(e) => setSourceRef(e.target.value)}
-          style={{ minWidth: '20rem' }}
-          required
-        />
-        <input placeholder="Name (optional)" value={name} onChange={(e) => setName(e.target.value)} />
-        <select value={libraryId} onChange={(e) => setLibraryId(e.target.value)}>
-          <option value="">No destination library (won't auto-add)</option>
-          {libraries.map((l) => (
-            <option key={l.id} value={l.id}>
-              {l.name}
-            </option>
-          ))}
-        </select>
-        <button type="submit" disabled={submitting || !accountId}>
-          {submitting ? 'Adding…' : 'Resolve'}
-        </button>
-      </form>
-
-      <h2>Debrid accounts</h2>
-      <div className="vorn-table-wrap">
-      <table className="vorn-table">
-        <thead>
-          <tr>
-            <th>Provider</th>
-            <th>Enabled</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {accounts.map((a) => (
-            <tr key={a.id}>
-              <td>{a.provider}</td>
-              <td>{a.enabled ? 'yes' : 'no'}</td>
-              <td>
-                <button type="button" onClick={() => handleDeleteAccount(a.id)}>
-                  Delete
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <div className="vorn-panel">
+        <div className="vorn-panel-header">
+          <h2>Add magnet / hash</h2>
+        </div>
+        <form className="vorn-inline-form" onSubmit={handleAddLink}>
+          <select value={accountId} onChange={(e) => setAccountId(e.target.value)} required>
+            <option value="">Select account…</option>
+            {accounts.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.provider} {!a.enabled ? '(disabled)' : ''}
+              </option>
+            ))}
+          </select>
+          <input
+            placeholder="Magnet URI or info-hash"
+            value={sourceRef}
+            onChange={(e) => setSourceRef(e.target.value)}
+            style={{ minWidth: '20rem' }}
+            required
+          />
+          <input placeholder="Name (optional)" value={name} onChange={(e) => setName(e.target.value)} />
+          <select value={libraryId} onChange={(e) => setLibraryId(e.target.value)}>
+            <option value="">No destination library (won't auto-add)</option>
+            {libraries.map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.name}
+              </option>
+            ))}
+          </select>
+          <button type="submit" disabled={submitting || !accountId}>
+            {submitting ? 'Adding…' : 'Resolve'}
+          </button>
+        </form>
       </div>
-      <form className="vorn-inline-form" onSubmit={handleAddAccount}>
-        <select value={newProvider} onChange={(e) => setNewProvider(e.target.value as 'realdebrid' | 'torbox')}>
-          <option value="realdebrid">Real-Debrid</option>
-          <option value="torbox">TorBox</option>
-        </select>
-        <input
-          placeholder="API key"
-          type="password"
-          value={newApiKey}
-          onChange={(e) => setNewApiKey(e.target.value)}
-          style={{ minWidth: '16rem' }}
-          required
-        />
-        <button type="submit">Add account</button>
-      </form>
+
+      <div className="vorn-panel">
+        <div className="vorn-panel-header">
+          <h2>Debrid accounts</h2>
+        </div>
+        <div className="vorn-table-wrap">
+        <table className="vorn-table">
+          <thead>
+            <tr>
+              <th>Provider</th>
+              <th>Enabled</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {accounts.map((a) => (
+              <tr key={a.id}>
+                <td>{a.provider}</td>
+                <td>{a.enabled ? 'yes' : 'no'}</td>
+                <td>
+                  <button type="button" className="vorn-btn-danger" onClick={() => handleDeleteAccount(a.id)}>
+                    Delete
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        </div>
+        <form className="vorn-inline-form" onSubmit={handleAddAccount} style={{ marginTop: '1rem' }}>
+          <select value={newProvider} onChange={(e) => setNewProvider(e.target.value as 'realdebrid' | 'torbox')}>
+            <option value="realdebrid">Real-Debrid</option>
+            <option value="torbox">TorBox</option>
+          </select>
+          <input
+            placeholder="API key"
+            type="password"
+            value={newApiKey}
+            onChange={(e) => setNewApiKey(e.target.value)}
+            style={{ minWidth: '16rem' }}
+            required
+          />
+          <button type="submit">Add account</button>
+        </form>
+      </div>
     </section>
   )
 }

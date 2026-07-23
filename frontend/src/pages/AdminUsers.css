@@ -1,3 +1,67 @@
+.vorn-admin-page-header {
+  margin-bottom: 1.75rem;
+}
+
+.vorn-admin-page-header h1 {
+  margin: 0 0 0.35rem;
+  font-size: 1.7rem;
+}
+
+.vorn-admin-page-subtitle {
+  margin: 0;
+  color: var(--vorn-text-muted);
+  font-size: 0.92rem;
+  max-width: 44rem;
+  line-height: 1.5;
+}
+
+.vorn-panel {
+  background: var(--vorn-bg-elevated);
+  border: 1px solid var(--vorn-border);
+  border-radius: var(--vorn-radius-lg);
+  padding: 1.35rem 1.5rem 1.5rem;
+  margin-bottom: 1.5rem;
+  box-shadow: var(--vorn-shadow);
+}
+
+.vorn-panel-header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  margin-bottom: 0.35rem;
+}
+
+.vorn-panel-header h2 {
+  position: relative;
+  margin: 0;
+  padding-left: 0.75rem;
+  font-size: 1.05rem;
+}
+
+.vorn-panel-header h2::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.1rem;
+  bottom: 0.1rem;
+  width: 0.22rem;
+  border-radius: 999px;
+  background: var(--vorn-gradient);
+}
+
+.vorn-panel-subtitle {
+  margin: 0 0 1rem;
+  color: var(--vorn-text-muted);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.vorn-panel + .vorn-panel {
+  margin-top: -0.5rem;
+}
+
 /* Tables have too many columns to reflow on a phone screen, so they get
    their own horizontal scroll container instead of forcing the whole page
    to scroll sideways. */
@@ -7,7 +71,15 @@
   margin: 1rem 0 2rem;
 }
 
-.vorn-admin-users .vorn-table {
+.vorn-panel .vorn-table-wrap {
+  margin: 0.9rem 0 0;
+}
+
+.vorn-panel .vorn-inline-form {
+  margin: 0;
+}
+
+.vorn-table {
   width: 100%;
   border-collapse: collapse;
   margin: 0;
@@ -16,9 +88,25 @@
 .vorn-table th,
 .vorn-table td {
   text-align: left;
-  padding: 0.5rem 0.75rem;
+  padding: 0.55rem 0.75rem;
   border-bottom: 1px solid var(--vorn-border);
   font-size: 0.9rem;
+}
+
+.vorn-table th {
+  color: var(--vorn-text-muted);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+}
+
+.vorn-table tbody tr {
+  transition: background-color var(--vorn-transition);
+}
+
+.vorn-table tbody tr:hover {
+  background: color-mix(in srgb, var(--vorn-accent) 6%, transparent);
 }
 
 .vorn-inline-form {
@@ -32,20 +120,32 @@
 .vorn-inline-form input[type='text'],
 .vorn-inline-form input:not([type='checkbox']) {
   padding: 0.5rem 0.6rem;
-  border-radius: 0.4rem;
+  border-radius: 0.5rem;
   border: 1px solid var(--vorn-border);
   background: var(--vorn-bg-elevated);
   color: var(--vorn-text);
+  transition: border-color var(--vorn-transition), box-shadow var(--vorn-transition);
+}
+
+.vorn-inline-form input:focus {
+  border-color: var(--vorn-accent);
+  box-shadow: var(--vorn-glow);
 }
 
 .vorn-inline-form button {
   padding: 0.5rem 0.9rem;
-  border-radius: 0.4rem;
+  border-radius: 0.5rem;
   border: none;
-  background: var(--vorn-accent);
+  background: var(--vorn-gradient);
   color: white;
   cursor: pointer;
   font-weight: 600;
+  transition: box-shadow var(--vorn-transition), transform var(--vorn-transition);
+}
+
+.vorn-inline-form button:hover:not(:disabled) {
+  box-shadow: 0 8px 22px rgba(139, 92, 246, 0.35);
+  transform: translateY(-1px);
 }
 
 /* Groups of action buttons that used to rely on a literal text space
@@ -71,8 +171,9 @@
 }
 
 .vorn-status-badge-on {
-  background: var(--vorn-accent);
+  background: var(--vorn-gradient);
   color: white;
+  box-shadow: 0 0 12px rgba(139, 92, 246, 0.4);
 }
 
 .vorn-status-badge-off {
@@ -81,18 +182,63 @@
   color: var(--vorn-text-muted);
 }
 
+.vorn-inline-form button.vorn-btn-danger,
+.vorn-btn-danger {
+  border-color: rgba(248, 113, 113, 0.35);
+  color: #f87171;
+  background: transparent;
+  box-shadow: none;
+}
+
+.vorn-inline-form button.vorn-btn-danger:hover:not(:disabled),
+.vorn-btn-danger:hover:not(:disabled) {
+  border-color: #f87171;
+  background: rgba(248, 113, 113, 0.1);
+  box-shadow: 0 0 20px rgba(248, 113, 113, 0.18);
+  transform: none;
+}
+
+.vorn-panel > p:first-child,
+.vorn-panel > .vorn-form-error:first-child {
+  margin-top: 0;
+}
+
+.vorn-status-line {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  color: var(--vorn-text-muted);
+  margin: 0 0 1rem;
+}
+
+.vorn-status-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 999px;
+  background: var(--vorn-text-muted);
+  flex-shrink: 0;
+}
+
+.vorn-status-dot-on {
+  background: #34d399;
+  box-shadow: 0 0 8px rgba(52, 211, 153, 0.6);
+}
+
 .vorn-log-viewer {
   background: var(--vorn-bg);
   color: var(--vorn-text);
   border: 1px solid var(--vorn-border);
-  border-radius: 0.5rem;
+  border-radius: var(--vorn-radius);
   padding: 0.75rem;
   height: 24rem;
   margin: 0 0 1rem;
   overflow-y: auto;
   font-size: 0.8rem;
+  font-family: 'SF Mono', 'Fira Code', ui-monospace, monospace;
   white-space: pre-wrap;
   word-break: break-word;
+  box-shadow: inset 0 0 0 1px rgba(139, 92, 246, 0.08);
 }
 
 @media (max-width: 480px) {
