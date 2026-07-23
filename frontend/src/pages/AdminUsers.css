@@ -182,6 +182,23 @@
   color: var(--vorn-text-muted);
 }
 
+.vorn-btn-primary {
+  border: none;
+  background: var(--vorn-gradient);
+  background-size: 160% auto;
+  background-position: left center;
+  color: white;
+  font-weight: 600;
+  box-shadow: 0 8px 24px rgba(139, 92, 246, 0.3);
+  transition: background-position var(--vorn-transition), box-shadow var(--vorn-transition), transform var(--vorn-transition);
+}
+
+.vorn-btn-primary:hover:not(:disabled) {
+  background-position: right center;
+  box-shadow: 0 10px 30px rgba(139, 92, 246, 0.45);
+  transform: translateY(-1px);
+}
+
 .vorn-inline-form button.vorn-btn-danger,
 .vorn-btn-danger {
   border-color: rgba(248, 113, 113, 0.35);

@@ -106,6 +106,18 @@ export const updateLibrary = (id: string, input: { name?: string; folders?: stri
 
 export const deleteLibrary = (id: string) => request<void>(`/api/libraries/${id}`, { method: 'DELETE' })
 
+export interface BrowseEntry {
+  name: string
+  path: string
+}
+export interface BrowseResult {
+  path: string
+  parent?: string
+  directories: BrowseEntry[]
+}
+export const browseFilesystem = (path?: string) =>
+  request<BrowseResult>(`/api/admin/browse${path ? `?path=${encodeURIComponent(path)}` : ''}`)
+
 export interface ScanJob {
   id: string
   libraryId: string
