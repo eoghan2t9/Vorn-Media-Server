@@ -29,7 +29,7 @@ Tracked in phases; each phase is delivered as a runnable increment with its own 
 - [x] **Phase 0 — Foundations**: repo scaffolding, Docker Compose dev environment (Postgres +
       DragonflyDB + backend + frontend), Go backend skeleton, React/TS frontend skeleton with
       light/dark theme.
-- [ ] **Phase 1 — Core data model & auth**: schema, login/sessions, user management with
+- [x] **Phase 1 — Core data model & auth**: schema, login/sessions, user management with
       per-library permissions, first-launch setup wizard.
 - [ ] **Phase 2 — Library scanner**: fast concurrent scanner with DragonflyDB staging, plus a
       dev-mode synthetic file generator for benchmarking scan speed at scale.
