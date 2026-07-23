@@ -112,15 +112,20 @@ space.
 
 ### Client API compatibility
 
-Vorn also speaks a compatibility subset of the Jellyfin REST API directly (no env var, always on,
-using the same admin/user accounts as Vorn's own UI): server discovery, `AuthenticateByName`,
+Vorn also speaks a compatibility subset of the Jellyfin/Emby REST API directly (no env var, always
+on, using the same admin/user accounts as Vorn's own UI): server discovery, `AuthenticateByName`,
 library views, item browsing, poster/backdrop images, `PlaybackInfo`, direct-play video streaming,
-and play-progress reporting. Point a Jellyfin client (official apps, Infuse, Findroid,
+and play-progress reporting. Point a Jellyfin *or* Emby client (official apps, Infuse, Findroid,
 jellyfin-web) at Vorn's own base URL and it should authenticate and browse libraries as if talking
-to a real Jellyfin server. Out of scope for now: Jellyfin's own HLS transcode-session protocol
-(Vorn always offers a direct-play source; transcoding is handled by Vorn's own player instead),
-search, collections/playlists/favorites, and user/library management (use Vorn's `/api` admin
-surface for that). Emby and Plex compatibility are planned next (see the roadmap).
+to a real server of that type. Emby is largely "free" here since Jellyfin is itself a fork of Emby
+and kept wire compatibility (same paths, same `MediaBrowser ...` auth header, same JSON field
+names) — every route is also registered under the `/emby` prefix real Emby clients/reverse proxies
+conventionally use, and `/System/Info/Public` reports an Emby-flavored version string (`4.x`, not
+Jellyfin's `10.x` scheme) when hit that way. Out of scope for now: Jellyfin/Emby's own HLS
+transcode-session protocol (Vorn always offers a direct-play source; transcoding is handled by
+Vorn's own player instead), search, collections/playlists/favorites, and user/library management
+(use Vorn's `/api` admin surface for that). Plex compatibility (reverse-engineered, no official
+spec) is planned next (see the roadmap).
 
 ### Running components natively (without Docker)
 

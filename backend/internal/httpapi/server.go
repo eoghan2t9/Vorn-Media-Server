@@ -138,23 +138,40 @@ func NewRouter(deps Deps) http.Handler {
 	mux.HandleFunc("DELETE /api/debrid/{id}", s.withAdmin(s.handleRemoveDebridItem))
 	mux.HandleFunc("GET /api/debrid/{id}/files", s.withAdmin(s.handleListDebridFiles))
 
-	// Jellyfin-compatible client API (see internal/jellyfin's doc comment for
-	// scope). These paths are dictated by the Jellyfin protocol itself, not
-	// Vorn's own conventions, so they intentionally don't live under /api.
-	mux.HandleFunc("GET /System/Info/Public", s.handleJfPublicSystemInfo)
-	mux.HandleFunc("POST /Users/AuthenticateByName", s.handleJfAuthenticateByName)
-	mux.HandleFunc("GET /Users/{userId}/Views", s.withJellyfinAuth(s.handleJfUserViews))
-	mux.HandleFunc("GET /Users/{userId}/Items", s.withJellyfinAuth(s.handleJfItems))
-	mux.HandleFunc("GET /Items", s.withJellyfinAuth(s.handleJfItems))
-	mux.HandleFunc("GET /Users/{userId}/Items/{id}", s.withJellyfinAuth(s.handleJfItem))
-	mux.HandleFunc("GET /Items/{id}", s.withJellyfinAuth(s.handleJfItem))
-	mux.HandleFunc("GET /Items/{id}/Images/{type}", s.handleJfItemImage)
-	mux.HandleFunc("GET /Items/{id}/PlaybackInfo", s.withJellyfinAuth(s.handleJfPlaybackInfo))
-	mux.HandleFunc("POST /Items/{id}/PlaybackInfo", s.withJellyfinAuth(s.handleJfPlaybackInfo))
-	mux.HandleFunc("GET /Videos/{id}/{filename}", s.withJellyfinAuth(s.handleJfVideoStream))
-	mux.HandleFunc("POST /Sessions/Playing", s.withJellyfinAuth(s.jfUpdateProgress))
-	mux.HandleFunc("POST /Sessions/Playing/Progress", s.withJellyfinAuth(s.jfUpdateProgress))
-	mux.HandleFunc("POST /Sessions/Playing/Stopped", s.withJellyfinAuth(s.jfUpdateProgress))
+	// Jellyfin/Emby-compatible client API (see internal/jellyfin's doc
+	// comment for scope). These paths are dictated by the MediaBrowser
+	// protocol Jellyfin and Emby both speak (Jellyfin is a fork of Emby and
+	// kept wire compatibility: same paths, same "MediaBrowser ..." auth
+	// header, same JSON field names), not Vorn's own conventions, so they
+	// intentionally don't live under /api. Real Emby clients and reverse
+	// proxies conventionally address the same server under an "/emby"
+	// prefix, so every route is registered both ways; handleJfPublicSystemInfo
+	// inspects which prefix was used to report Emby- vs Jellyfin-flavored
+	// server identity (some clients gate features on the version scheme).
+	jfRoutes := []struct {
+		method  string
+		path    string
+		handler http.HandlerFunc
+	}{
+		{"GET", "/System/Info/Public", s.handleJfPublicSystemInfo},
+		{"POST", "/Users/AuthenticateByName", s.handleJfAuthenticateByName},
+		{"GET", "/Users/{userId}/Views", s.withJellyfinAuth(s.handleJfUserViews)},
+		{"GET", "/Users/{userId}/Items", s.withJellyfinAuth(s.handleJfItems)},
+		{"GET", "/Items", s.withJellyfinAuth(s.handleJfItems)},
+		{"GET", "/Users/{userId}/Items/{id}", s.withJellyfinAuth(s.handleJfItem)},
+		{"GET", "/Items/{id}", s.withJellyfinAuth(s.handleJfItem)},
+		{"GET", "/Items/{id}/Images/{type}", s.handleJfItemImage},
+		{"GET", "/Items/{id}/PlaybackInfo", s.withJellyfinAuth(s.handleJfPlaybackInfo)},
+		{"POST", "/Items/{id}/PlaybackInfo", s.withJellyfinAuth(s.handleJfPlaybackInfo)},
+		{"GET", "/Videos/{id}/{filename}", s.withJellyfinAuth(s.handleJfVideoStream)},
+		{"POST", "/Sessions/Playing", s.withJellyfinAuth(s.jfUpdateProgress)},
+		{"POST", "/Sessions/Playing/Progress", s.withJellyfinAuth(s.jfUpdateProgress)},
+		{"POST", "/Sessions/Playing/Stopped", s.withJellyfinAuth(s.jfUpdateProgress)},
+	}
+	for _, rt := range jfRoutes {
+		mux.HandleFunc(rt.method+" "+rt.path, rt.handler)
+		mux.HandleFunc(rt.method+" /emby"+rt.path, rt.handler)
+	}
 
 	return withCORS(mux, deps.CORSOrigin)
 }

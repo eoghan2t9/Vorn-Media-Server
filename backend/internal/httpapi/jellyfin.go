@@ -14,11 +14,17 @@ import (
 	"github.com/google/uuid"
 )
 
-// jellyfinCompatVersion is reported so clients that gate features on server
-// version see something recent; it does not imply Vorn implements every
-// endpoint that Jellyfin version actually shipped (see package jellyfin's
-// doc comment for what's actually covered).
-const jellyfinCompatVersion = "10.9.0"
+// jellyfinCompatVersion/embyCompatVersion are reported so clients that gate
+// features on server version see something recent; they do not imply Vorn
+// implements every endpoint that version actually shipped (see package
+// jellyfin's doc comment for what's actually covered). Jellyfin deliberately
+// uses a "10.x" scheme so it can never collide with Emby's "4.x" one, so a
+// client speaking to Vorn under the /emby prefix needs the latter or it may
+// misinterpret the server's capabilities.
+const (
+	jellyfinCompatVersion = "10.9.0"
+	embyCompatVersion     = "4.8.8.0"
+)
 
 // decodeJSONLenient decodes a JSON body without decodeJSON's
 // DisallowUnknownFields: Jellyfin clients send many fields Vorn doesn't
@@ -29,10 +35,14 @@ func decodeJSONLenient(r *http.Request, v any) error {
 }
 
 func (s *Server) handleJfPublicSystemInfo(w http.ResponseWriter, r *http.Request) {
+	version, productName := jellyfinCompatVersion, "Jellyfin Server"
+	if strings.HasPrefix(r.URL.Path, "/emby/") {
+		version, productName = embyCompatVersion, "Emby Server"
+	}
 	writeJSON(w, http.StatusOK, jellyfin.PublicSystemInfo{
 		ServerName:             "Vorn",
-		Version:                jellyfinCompatVersion,
-		ProductName:            "Jellyfin Server",
+		Version:                version,
+		ProductName:            productName,
 		OperatingSystem:        "Linux",
 		Id:                     s.serverID,
 		StartupWizardCompleted: true,
