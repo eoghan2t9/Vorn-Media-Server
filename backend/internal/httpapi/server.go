@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/eoghan2t9/vorn-media-server/backend/internal/debrid"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/metadata"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/nzb"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/scanner"
@@ -26,6 +27,7 @@ type Deps struct {
 	TranscodeMgr *transcode.Manager
 	Torrent      *torrent.Service
 	NZB          *nzb.Service
+	Debrid       *debrid.Service
 	CORSOrigin   string
 	DevMode      bool
 }
@@ -37,6 +39,7 @@ type Server struct {
 	transcodeMgr *transcode.Manager
 	torrentSvc   *torrent.Service
 	nzbSvc       *nzb.Service
+	debridSvc    *debrid.Service
 	devMode      bool
 }
 
@@ -48,6 +51,7 @@ func NewServer(deps Deps) *Server {
 		transcodeMgr: deps.TranscodeMgr,
 		torrentSvc:   deps.Torrent,
 		nzbSvc:       deps.NZB,
+		debridSvc:    deps.Debrid,
 		devMode:      deps.DevMode,
 	}
 }
@@ -118,6 +122,14 @@ func NewRouter(deps Deps) http.Handler {
 	mux.HandleFunc("GET /api/usenet-servers", s.withAdmin(s.handleListUsenetServers))
 	mux.HandleFunc("POST /api/usenet-servers", s.withAdmin(s.handleCreateUsenetServer))
 	mux.HandleFunc("DELETE /api/usenet-servers/{id}", s.withAdmin(s.handleDeleteUsenetServer))
+
+	mux.HandleFunc("GET /api/debrid-accounts", s.withAdmin(s.handleListDebridAccounts))
+	mux.HandleFunc("POST /api/debrid-accounts", s.withAdmin(s.handleCreateDebridAccount))
+	mux.HandleFunc("DELETE /api/debrid-accounts/{id}", s.withAdmin(s.handleDeleteDebridAccount))
+	mux.HandleFunc("GET /api/debrid", s.withAdmin(s.handleListDebridItems))
+	mux.HandleFunc("POST /api/debrid", s.withAdmin(s.handleAddDebridLink))
+	mux.HandleFunc("DELETE /api/debrid/{id}", s.withAdmin(s.handleRemoveDebridItem))
+	mux.HandleFunc("GET /api/debrid/{id}/files", s.withAdmin(s.handleListDebridFiles))
 
 	return withCORS(mux, deps.CORSOrigin)
 }

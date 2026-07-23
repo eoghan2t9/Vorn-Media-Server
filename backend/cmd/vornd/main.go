@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/config"
+	"github.com/eoghan2t9/vorn-media-server/backend/internal/debrid"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/httpapi"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/metadata"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/migrate"
@@ -85,6 +86,11 @@ func main() {
 		log.Print("VORN_NZB_ENABLED not set: NZB acquisition is disabled")
 	}
 
+	// Debrid (Real-Debrid/TorBox) has no listening port or background
+	// resources to gate behind an enable flag; it's a no-op until the admin
+	// configures at least one account.
+	debridSvc := debrid.NewService(st)
+
 	router := httpapi.NewRouter(httpapi.Deps{
 		Store:        st,
 		Scanner:      scanSvc,
@@ -92,6 +98,7 @@ func main() {
 		TranscodeMgr: transcodeMgr,
 		Torrent:      torrentSvc,
 		NZB:          nzbSvc,
+		Debrid:       debridSvc,
 		CORSOrigin:   cfg.CORSOrigin,
 		DevMode:      cfg.DevMode,
 	})

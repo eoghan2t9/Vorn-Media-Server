@@ -105,7 +105,19 @@ func (s *Server) handleDirectStream(w http.ResponseWriter, r *http.Request) {
 	if item == nil {
 		return
 	}
+	// Debrid-backed items store a provider CDN URL as their path rather than
+	// a local file: redirect the player straight to it instead of trying to
+	// serve it off local disk (there is none -- that's the point of
+	// direct-stream-from-debrid).
+	if isRemoteURL(*item.Path) {
+		http.Redirect(w, r, *item.Path, http.StatusFound)
+		return
+	}
 	http.ServeFile(w, r, *item.Path)
+}
+
+func isRemoteURL(path string) bool {
+	return strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://")
 }
 
 // handleSessionFile serves playlist/segment files out of a transcode
