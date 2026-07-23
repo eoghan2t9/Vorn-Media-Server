@@ -78,9 +78,11 @@ func NewRouter(deps Deps) http.Handler {
 
 	mux.HandleFunc("GET /api/items/{id}", s.withAuth(s.handleGetItem))
 	mux.HandleFunc("PUT /api/items/{id}/progress", s.withAuth(s.handleUpdateProgress))
+	mux.HandleFunc("GET /api/items/{id}/progress", s.withAuth(s.handleGetProgress))
 	mux.HandleFunc("GET /api/continue-watching", s.withAuth(s.handleContinueWatching))
 
 	mux.HandleFunc("GET /api/admin/stats", s.withAdmin(s.handleServerStats))
+	mux.HandleFunc("GET /api/admin/currently-watching", s.withAdmin(s.handleCurrentlyWatching))
 	mux.HandleFunc("GET /api/search", s.withAuth(s.handleSearch))
 
 	mux.HandleFunc("POST /api/libraries/{id}/sync-metadata", s.withAdmin(s.handleStartMetadataSync))

@@ -131,6 +131,24 @@ func (s *Server) handleUpdateProgress(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+type progressResponse struct {
+	PositionSeconds float64 `json:"positionSeconds"`
+	DurationSeconds float64 `json:"durationSeconds"`
+}
+
+func (s *Server) handleGetProgress(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	user := userFromContext(r.Context())
+
+	p, err := s.store.GetPlaybackState(user.ID, id)
+	if err != nil {
+		// No progress yet is a normal "starting fresh" state, not an error.
+		writeJSON(w, http.StatusOK, progressResponse{})
+		return
+	}
+	writeJSON(w, http.StatusOK, progressResponse{PositionSeconds: p.PositionSeconds, DurationSeconds: p.DurationSeconds})
+}
+
 type continueWatchingResponse struct {
 	Item            mediaItemResponse `json:"item"`
 	PositionSeconds float64           `json:"positionSeconds"`
