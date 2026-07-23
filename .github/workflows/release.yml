@@ -1,0 +1,82 @@
+name: Release
+
+# Builds bare-metal vornd binaries for Linux/macOS/Windows on every version
+# tag push and publishes them as GitHub Release assets, named to match
+# go-selfupdate's convention ({cmd}_{goos}_{goarch}{.ext}) so that the
+# Admin > Network self-update feature can actually find and apply them.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+
+      - name: Build
+        working-directory: backend
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          OUT="vornd"
+          if [ "$GOOS" = "windows" ]; then OUT="vornd.exe"; fi
+          go build -trimpath \
+            -ldflags "-s -w -X github.com/eoghan2t9/vorn-media-server/backend/internal/version.Version=${VERSION}" \
+            -o "$OUT" ./cmd/vornd
+
+      - name: Package
+        working-directory: backend
+        run: |
+          NAME="vornd_${{ matrix.goos }}_${{ matrix.goarch }}"
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            zip "${NAME}.zip" vornd.exe
+          else
+            tar -czf "${NAME}.tar.gz" vornd
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vornd_${{ matrix.goos }}_${{ matrix.goarch }}
+          path: |
+            backend/*.tar.gz
+            backend/*.zip
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"log"
 	"net/http"
 	"os"
@@ -31,6 +32,18 @@ const logBufferLines = 2000
 func main() {
 	logBuffer := logging.NewBuffer(os.Stdout, logBufferLines)
 	log.SetOutput(logBuffer)
+
+	// -envfile exists for platforms with no native "load an env file into
+	// this service" mechanism of their own (systemd has EnvironmentFile=,
+	// Docker Compose has env_file:, but a native Windows service has
+	// neither) -- see install.ps1.
+	envFile := flag.String("envfile", "", "path to a KEY=VALUE env file to load before reading configuration")
+	flag.Parse()
+	if *envFile != "" {
+		if err := config.LoadEnvFile(*envFile); err != nil {
+			log.Fatalf("loading -envfile: %v", err)
+		}
+	}
 
 	cfg := config.Load()
 	log.Printf("vornd starting: %s", cfg)

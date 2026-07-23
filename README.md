@@ -48,8 +48,13 @@ Tracked in phases; each phase is delivered as a runnable increment with its own 
 - [x] **Phase 9 — Client API compatibility**: Jellyfin (documented spec), Emby (near-free given
       Jellyfin's wire compatibility with its own fork origin), and Plex (reverse-engineered, no
       plex.tv integration — see the "Client API compatibility" section above for that limitation).
-- [ ] **Phase 10 — Operability & distribution**: live logs, subtitles, custom domain/SSL, CDN
-      support, self-updater, bare-metal installers.
+- [x] **Phase 10 — Operability & distribution**: WebSocket live logs + cache/maintenance tools,
+      OpenSubtitles integration with content-hash-cached downloads, custom domain/automatic HTTPS
+      (certmagic) with Cloudflare-aware real-IP handling, a self-updater against GitHub Releases,
+      and bare-metal Linux/macOS/Windows installers (Linux tested; macOS/Windows best-effort).
+
+This completes the originally-planned 11-phase roadmap (Phase 0 through Phase 10). Ongoing work
+from here is maintenance, hardening, and whatever the community/users ask for next.
 
 ## Architecture
 
@@ -188,9 +193,34 @@ time via `-ldflags "-X .../internal/version.Version=v1.2.3"`; a plain `go run`/`
 `0.0.0-dev`). Applying downloads and replaces the running executable in place but **does not
 restart the process** — Vorn may have active playback sessions, so that's left to the admin (or
 whatever process supervisor runs it). Checking always works; applying returns 409 under Docker,
-where the container image is the unit of update instead of the binary inside it. Note this
-requires the project to actually publish release binaries following go-selfupdate's naming
-convention (`vornd_{os}_{arch}`) — a release pipeline for that isn't built yet.
+where the container image is the unit of update instead of the binary inside it.
+`.github/workflows/release.yml` publishes release binaries for every `v*` tag following
+go-selfupdate's naming convention (`vornd_{os}_{arch}`), for exactly this feature to use.
+
+## Bare-metal installers
+
+Once the Docker track is stable, Vorn can also run bare-metal (no containers) on Linux, macOS, or
+Windows — `deploy/installers/<platform>/install.sh` (or `install.ps1` on Windows) downloads a
+release binary (or accepts a local path) and registers it as a proper background service
+(systemd on Linux, launchd on macOS, a native Windows service). None of these provision
+PostgreSQL, a Redis-protocol server (DragonflyDB or Redis), or ffmpeg for you — they check for and
+warn about missing prerequisites, but installing across every distro's/platform's package manager
+is out of scope; point the generated config file at wherever those already run. **The Linux
+installer is tested** (this project's own dev environment); **macOS and Windows are written to
+each platform's conventions but not run on real hardware** (built in a Linux-only environment) —
+review before relying on them in production, and please report issues.
+
+```bash
+# Linux (systemd)
+sudo ./deploy/installers/linux/install.sh          # downloads the latest release
+sudo ./deploy/installers/linux/install.sh ./vornd  # or install a local binary
+
+# macOS (launchd)
+sudo ./deploy/installers/macos/install.sh
+
+# Windows (PowerShell, as Administrator)
+.\deploy\installers\windows\install.ps1
+```
 
 ### Running components natively (without Docker)
 

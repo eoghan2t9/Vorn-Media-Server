@@ -1,0 +1,22 @@
+[Unit]
+Description=Vorn Media Server
+Documentation=https://github.com/eoghan2t9/Vorn-Media-Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=vornd
+Group=vornd
+EnvironmentFile=/etc/vornd/vornd.env
+ExecStart=/usr/local/bin/vornd
+Restart=on-failure
+RestartSec=5
+# Self-update (Admin > Network) replaces this file in place, so the service
+# needs write access to its own binary -- ProtectSystem=strict (the usual
+# hardening default) would block that.
+ProtectSystem=false
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
