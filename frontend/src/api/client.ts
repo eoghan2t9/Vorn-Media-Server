@@ -298,6 +298,13 @@ export interface UpdateCheckResult {
 export const checkForUpdate = () => request<UpdateCheckResult>('/api/admin/update/check')
 export const applyUpdate = () => request<UpdateCheckResult>('/api/admin/update/apply', { method: 'POST' })
 
+// restartServer's response arrives right before the process exits -- the
+// backend deliberately doesn't wait for a graceful drain, so this request
+// itself commonly reads as a network error (connection reset) rather than a
+// clean response even on success. Callers should treat "no response" as
+// "probably worked" here, not as a failure to surface.
+export const restartServer = () => request<{ message: string }>('/api/admin/restart', { method: 'POST' })
+
 export const getProgress = (id: string) =>
   request<{ positionSeconds: number; durationSeconds: number }>(`/api/items/${id}/progress`)
 

@@ -252,6 +252,7 @@ func NewRouter(deps Deps) http.Handler {
 
 	mux.HandleFunc("GET /api/admin/update/check", s.withAdmin(s.handleCheckForUpdate))
 	mux.HandleFunc("POST /api/admin/update/apply", s.withAdmin(s.handleApplyUpdate))
+	mux.HandleFunc("POST /api/admin/restart", s.withAdmin(s.handleRestartServer))
 
 	return s.accessLog(withCORS(mux, deps.CORSOrigin))
 }

@@ -5,7 +5,9 @@ import {
   listCurrentlyWatching,
   listLibraries,
   listUsers,
+  restartServer,
 } from '../api/client'
+import { ConfirmDialog } from '../components/ConfirmDialog'
 import {
   CloudDownloadIcon,
   CloudIcon,
@@ -38,6 +40,10 @@ export function AdminHome() {
   const [libraryCount, setLibraryCount] = useState<number | null>(null)
   const [watchingCount, setWatchingCount] = useState<number | null>(null)
 
+  const [restarting, setRestarting] = useState(false)
+  const [restartConfirmOpen, setRestartConfirmOpen] = useState(false)
+  const [restartMessage, setRestartMessage] = useState<string | null>(null)
+
   useEffect(() => {
     fetchTranscodeCapabilities()
       .then((c) => setBackends(c.backends ?? []))
@@ -54,6 +60,21 @@ export function AdminHome() {
   }, [])
 
   const transcoderReady = backends !== null && backends.length > 0
+
+  async function handleRestart() {
+    setRestarting(true)
+    setRestartMessage(null)
+    try {
+      await restartServer()
+    } catch {
+      // Expected more often than not: the process typically exits before
+      // this request's response ever finishes, which surfaces here as a
+      // network error rather than a clean reply -- not a real failure.
+    }
+    setRestartConfirmOpen(false)
+    setRestarting(false)
+    setRestartMessage('Restart initiated. The server should be back within a few seconds; this page will stop responding until then.')
+  }
 
   return (
     <section className="vorn-admin-page">
@@ -125,6 +146,33 @@ export function AdminHome() {
           </Link>
         ))}
       </div>
+
+      <div className="vorn-panel">
+        <div className="vorn-panel-header">
+          <h2>Server</h2>
+        </div>
+        <p className="vorn-panel-subtitle">
+          Restarts the Vorn process immediately, disconnecting every active stream and admin session. Under the
+          standard Docker deployment it comes right back up on its own; on a native/systemd install, make sure
+          something is actually configured to restart the process, or it will just stay down.
+        </p>
+        <button type="button" className="vorn-btn-danger" onClick={() => setRestartConfirmOpen(true)} disabled={restarting}>
+          {restarting ? 'Restarting…' : 'Restart server'}
+        </button>
+        {restartMessage && <p>{restartMessage}</p>}
+      </div>
+
+      {restartConfirmOpen && (
+        <ConfirmDialog
+          title="Restart server?"
+          message="This immediately disconnects every active stream and admin session for everyone using this server. It should come back within a few seconds under the standard Docker setup."
+          confirmLabel="Restart"
+          danger
+          busy={restarting}
+          onConfirm={handleRestart}
+          onCancel={() => setRestartConfirmOpen(false)}
+        />
+      )}
     </section>
   )
 }

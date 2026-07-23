@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ApiError, browseFilesystem, type BrowseEntry } from '../api/client'
 import { FolderIcon, XIcon } from './icons'
+import './Modal.css'
 import './DirectoryBrowser.css'
 
 export function DirectoryBrowser({
