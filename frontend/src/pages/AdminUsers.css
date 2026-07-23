@@ -59,6 +59,28 @@
   margin: 0.35rem 0;
 }
 
+.vorn-status-badge {
+  display: inline-block;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-radius: 999px;
+  padding: 0.1rem 0.5rem;
+  margin-left: 0.5rem;
+  vertical-align: middle;
+}
+
+.vorn-status-badge-on {
+  background: var(--vorn-accent);
+  color: white;
+}
+
+.vorn-status-badge-off {
+  background: transparent;
+  border: 1px solid var(--vorn-border);
+  color: var(--vorn-text-muted);
+}
+
 .vorn-log-viewer {
   background: var(--vorn-bg);
   color: var(--vorn-text);

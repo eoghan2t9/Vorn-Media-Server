@@ -249,6 +249,26 @@ export interface UpdateServerSettingsInput {
 export const updateServerSettings = (input: UpdateServerSettingsInput) =>
   request<ServerSettings>('/api/admin/server-settings', { method: 'PUT', body: JSON.stringify(input) })
 
+export interface IntegrationSettings {
+  tmdbConfigured: boolean
+  openSubtitlesConfigured: boolean
+  openSubtitlesUsername?: string
+  updatedAt: string
+}
+export const fetchIntegrationSettings = () => request<IntegrationSettings>('/api/admin/integrations')
+
+// Fields left undefined are omitted from the request body, which the
+// backend treats as "leave this credential unchanged" -- pass an empty
+// string explicitly to clear one.
+export interface UpdateIntegrationSettingsInput {
+  tmdbApiKey?: string
+  openSubtitlesApiKey?: string
+  openSubtitlesUsername?: string
+  openSubtitlesPassword?: string
+}
+export const updateIntegrationSettings = (input: UpdateIntegrationSettingsInput) =>
+  request<IntegrationSettings>('/api/admin/integrations', { method: 'PUT', body: JSON.stringify(input) })
+
 export interface UpdateCheckResult {
   currentVersion: string
   latestVersion?: string

@@ -10,6 +10,7 @@ const TILES = [
   { to: '/admin/torrents', label: 'Torrents' },
   { to: '/admin/nzb', label: 'NZB / Usenet' },
   { to: '/admin/debrid', label: 'Debrid' },
+  { to: '/admin/integrations', label: 'Integrations' },
   { to: '/admin/logs', label: 'Logs' },
   { to: '/admin/server-settings', label: 'Network' },
 ]

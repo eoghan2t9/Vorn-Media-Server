@@ -14,6 +14,7 @@ import { AdminNzb } from './pages/AdminNzb'
 import { AdminDebrid } from './pages/AdminDebrid'
 import { AdminLogs } from './pages/AdminLogs'
 import { AdminServerSettings } from './pages/AdminServerSettings'
+import { AdminIntegrations } from './pages/AdminIntegrations'
 import { SetupWizard } from './pages/SetupWizard'
 import { Login } from './pages/Login'
 
@@ -74,6 +75,7 @@ function AppRoutes() {
           <Route path="/admin/debrid" element={<AdminDebrid />} />
           <Route path="/admin/logs" element={<AdminLogs />} />
           <Route path="/admin/server-settings" element={<AdminServerSettings />} />
+          <Route path="/admin/integrations" element={<AdminIntegrations />} />
         </Route>
       </Route>
 
