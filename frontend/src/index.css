@@ -42,6 +42,39 @@ a {
   color: var(--vorn-accent-2);
 }
 
+/* Baseline look for every button/select in the app, so anything that isn't
+   given a more specific style (form submit buttons, the theme toggle, ...)
+   still matches the rest of the UI instead of falling back to the browser's
+   plain native control -- a bare element selector like this has the lowest
+   possible specificity, so every existing more-specific class-based rule
+   keeps overriding it exactly as before. */
 button {
   font-family: inherit;
+  padding: 0.45rem 0.85rem;
+  border-radius: 0.4rem;
+  border: 1px solid var(--vorn-border);
+  background: var(--vorn-bg-elevated);
+  color: var(--vorn-text);
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: border-color 0.15s ease, opacity 0.15s ease;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--vorn-accent);
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+select {
+  font-family: inherit;
+  padding: 0.45rem 0.6rem;
+  border-radius: 0.4rem;
+  border: 1px solid var(--vorn-border);
+  background: var(--vorn-bg-elevated);
+  color: var(--vorn-text);
+  font-size: 0.9rem;
 }
