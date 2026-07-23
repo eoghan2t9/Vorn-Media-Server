@@ -6,12 +6,15 @@
   background-size: cover;
   background-position: center top;
   border: 1px solid var(--vorn-border);
+  box-shadow: var(--vorn-shadow-lg);
 }
 
 .vorn-detail-hero-scrim {
   position: absolute;
   inset: 0;
-  background: linear-gradient(to top, rgba(0, 0, 0, 0.85) 0%, rgba(0, 0, 0, 0.35) 55%, rgba(0, 0, 0, 0.05) 100%);
+  background:
+    linear-gradient(to top, var(--vorn-scrim) 0%, rgba(0, 0, 0, 0.35) 55%, rgba(0, 0, 0, 0.05) 100%),
+    linear-gradient(120deg, rgba(139, 92, 246, 0.18) 0%, transparent 45%);
 }
 
 .vorn-detail-hero-content {
@@ -26,7 +29,8 @@
 .vorn-detail-poster {
   width: 7rem;
   flex-shrink: 0;
-  box-shadow: var(--vorn-shadow-lg);
+  box-shadow: var(--vorn-shadow-lg), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  border-radius: var(--vorn-radius);
 }
 
 .vorn-detail-info {
@@ -75,8 +79,8 @@
 }
 
 .vorn-child-card:hover .vorn-poster {
-  transform: translateY(-3px);
-  box-shadow: var(--vorn-shadow-lg);
+  transform: translateY(-4px) scale(1.015);
+  box-shadow: var(--vorn-shadow-lg), var(--vorn-glow);
   border-color: var(--vorn-accent);
 }
 
@@ -114,10 +118,20 @@
 
 .vorn-play-button {
   display: inline-block;
-  padding: 0.5rem 1.1rem;
-  border-radius: 0.4rem;
-  background: var(--vorn-accent);
+  padding: 0.55rem 1.3rem;
+  border-radius: 0.5rem;
+  background: var(--vorn-gradient);
+  background-size: 160% auto;
+  background-position: left center;
   color: white;
   text-decoration: none;
   font-weight: 600;
+  box-shadow: 0 8px 24px rgba(139, 92, 246, 0.35);
+  transition: background-position var(--vorn-transition), box-shadow var(--vorn-transition), transform var(--vorn-transition);
+}
+
+.vorn-play-button:hover {
+  background-position: right center;
+  box-shadow: 0 10px 30px rgba(139, 92, 246, 0.5);
+  transform: translateY(-1px);
 }

@@ -12,13 +12,27 @@
 }
 
 .vorn-library-row-header h2 {
+  position: relative;
   margin: 0;
+  padding-left: 0.85rem;
   font-size: 1.2rem;
+}
+
+.vorn-library-row-header h2::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.15rem;
+  bottom: 0.15rem;
+  width: 0.28rem;
+  border-radius: 999px;
+  background: var(--vorn-gradient);
+  box-shadow: 0 0 12px rgba(139, 92, 246, 0.5);
 }
 
 .vorn-library-row-header select {
   padding: 0.35rem 0.5rem;
-  border-radius: 0.4rem;
+  border-radius: 0.5rem;
   border: 1px solid var(--vorn-border);
   background: var(--vorn-bg-elevated);
   color: var(--vorn-text);
@@ -49,8 +63,8 @@
 }
 
 .vorn-card:hover .vorn-poster {
-  transform: translateY(-3px);
-  box-shadow: var(--vorn-shadow-lg);
+  transform: translateY(-4px) scale(1.015);
+  box-shadow: var(--vorn-shadow-lg), var(--vorn-glow);
   border-color: var(--vorn-accent);
 }
 
@@ -60,6 +74,11 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  transition: color var(--vorn-transition);
+}
+
+.vorn-card:hover .vorn-card-title {
+  color: var(--vorn-accent-2);
 }
 
 .vorn-card-meta {
@@ -80,5 +99,6 @@
 
 .vorn-progress-fill {
   height: 100%;
-  background: var(--vorn-accent);
+  background: var(--vorn-gradient);
+  box-shadow: 0 0 8px rgba(139, 92, 246, 0.6);
 }

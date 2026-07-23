@@ -12,7 +12,8 @@
   width: 100%;
   aspect-ratio: 16 / 9;
   background: black;
-  border-radius: 0.5rem;
+  border-radius: var(--vorn-radius);
+  box-shadow: var(--vorn-shadow-lg);
 }
 
 .vorn-watch-title {
@@ -40,26 +41,29 @@
   right: 1rem;
   left: auto;
   max-width: calc(100% - 2rem);
-  background: var(--vorn-bg-elevated);
+  background: var(--vorn-bg-glass);
+  backdrop-filter: blur(16px) saturate(150%);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
   border: 1px solid var(--vorn-border);
-  border-radius: 0.5rem;
+  border-radius: var(--vorn-radius);
   padding: 0.9rem 1.1rem;
   display: flex;
   align-items: center;
   gap: 0.75rem;
   font-size: 0.9rem;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--vorn-shadow-lg);
   z-index: 5;
 }
 
 .vorn-up-next button {
   padding: 0.4rem 0.7rem;
-  border-radius: 0.35rem;
-  border: 1px solid var(--vorn-border);
-  background: var(--vorn-accent);
+  border-radius: 0.4rem;
+  border: none;
+  background: var(--vorn-gradient);
   color: white;
   cursor: pointer;
   font-size: 0.85rem;
+  box-shadow: 0 6px 18px rgba(139, 92, 246, 0.35);
 }
 
 .vorn-up-next button:last-child {

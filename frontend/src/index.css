@@ -1,29 +1,40 @@
 :root {
   color-scheme: light dark;
-  --vorn-accent: #7c5cff;
+  --vorn-accent: #8b5cf6;
   --vorn-accent-2: #22d3ee;
-  --vorn-radius: 0.5rem;
-  --vorn-radius-lg: 0.75rem;
-  --vorn-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
-  --vorn-shadow-lg: 0 12px 28px rgba(0, 0, 0, 0.4);
-  --vorn-transition: 0.18s ease;
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --vorn-accent-3: #f472b6;
+  --vorn-gradient: linear-gradient(135deg, var(--vorn-accent) 0%, var(--vorn-accent-2) 100%);
+  --vorn-gradient-text: linear-gradient(120deg, #a78bfa 0%, #22d3ee 55%, #f472b6 100%);
+  --vorn-radius: 0.6rem;
+  --vorn-radius-lg: 1.1rem;
+  --vorn-shadow: 0 2px 10px rgba(0, 0, 0, 0.28);
+  --vorn-shadow-lg: 0 20px 48px rgba(0, 0, 0, 0.45);
+  --vorn-glow: 0 0 0 1px rgba(139, 92, 246, 0.35), 0 0 28px rgba(139, 92, 246, 0.22);
+  --vorn-glow-cyan: 0 0 0 1px rgba(34, 211, 238, 0.35), 0 0 28px rgba(34, 211, 238, 0.2);
+  --vorn-transition: 0.2s cubic-bezier(0.22, 0.8, 0.3, 1);
+  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 }
 
 :root[data-theme='dark'] {
-  --vorn-bg: #0b0b14;
-  --vorn-bg-elevated: #14141f;
-  --vorn-border: #262636;
-  --vorn-text: #f2f2f7;
-  --vorn-text-muted: #9a9ab0;
+  --vorn-bg: #05060d;
+  --vorn-bg-elevated: #12131f;
+  --vorn-bg-glass: rgba(18, 19, 31, 0.66);
+  --vorn-border: #24263a;
+  --vorn-border-strong: rgba(139, 92, 246, 0.4);
+  --vorn-text: #f2f3fb;
+  --vorn-text-muted: #949ac0;
+  --vorn-scrim: rgba(0, 0, 0, 0.85);
 }
 
 :root[data-theme='light'] {
-  --vorn-bg: #f6f6fb;
+  --vorn-bg: #f3f4fb;
   --vorn-bg-elevated: #ffffff;
-  --vorn-border: #e2e2ec;
-  --vorn-text: #14141f;
-  --vorn-text-muted: #5a5a6e;
+  --vorn-bg-glass: rgba(255, 255, 255, 0.72);
+  --vorn-border: #e2e3f2;
+  --vorn-border-strong: rgba(124, 92, 255, 0.35);
+  --vorn-text: #13141f;
+  --vorn-text-muted: #62678a;
+  --vorn-scrim: rgba(20, 10, 40, 0.55);
 }
 
 * {
@@ -41,10 +52,59 @@ body {
   background: var(--vorn-bg);
   color: var(--vorn-text);
   transition: background-color 0.15s ease, color 0.15s ease;
+  background-image:
+    radial-gradient(60rem 34rem at 12% -10%, rgba(139, 92, 246, 0.16), transparent 60%),
+    radial-gradient(48rem 30rem at 110% 0%, rgba(34, 211, 238, 0.12), transparent 55%),
+    radial-gradient(40rem 30rem at 50% 120%, rgba(244, 114, 182, 0.07), transparent 60%);
+  background-attachment: fixed;
+  background-repeat: no-repeat;
+}
+
+:root[data-theme='light'] body {
+  background-image:
+    radial-gradient(60rem 34rem at 12% -10%, rgba(139, 92, 246, 0.1), transparent 60%),
+    radial-gradient(48rem 30rem at 110% 0%, rgba(34, 211, 238, 0.09), transparent 55%),
+    radial-gradient(40rem 30rem at 50% 120%, rgba(244, 114, 182, 0.05), transparent 60%);
+}
+
+h1,
+h2,
+h3 {
+  font-family: 'Space Grotesk', 'Inter', system-ui, sans-serif;
+  letter-spacing: -0.01em;
 }
 
 a {
   color: var(--vorn-accent-2);
+}
+
+::selection {
+  background: rgba(139, 92, 246, 0.35);
+  color: var(--vorn-text);
+}
+
+:focus-visible {
+  outline: 2px solid var(--vorn-accent-2);
+  outline-offset: 2px;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--vorn-border);
+  border-radius: 999px;
+  border: 2px solid var(--vorn-bg);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--vorn-accent);
 }
 
 /* Baseline look for every button/select in the app, so anything that isn't
@@ -56,17 +116,22 @@ a {
 button {
   font-family: inherit;
   padding: 0.45rem 0.85rem;
-  border-radius: 0.4rem;
+  border-radius: 0.5rem;
   border: 1px solid var(--vorn-border);
   background: var(--vorn-bg-elevated);
   color: var(--vorn-text);
   font-size: 0.9rem;
   cursor: pointer;
-  transition: border-color 0.15s ease, opacity 0.15s ease;
+  transition: border-color var(--vorn-transition), box-shadow var(--vorn-transition), opacity var(--vorn-transition), transform var(--vorn-transition);
 }
 
 button:hover:not(:disabled) {
   border-color: var(--vorn-accent);
+  box-shadow: var(--vorn-glow);
+}
+
+button:active:not(:disabled) {
+  transform: translateY(1px);
 }
 
 button:disabled {
@@ -77,9 +142,15 @@ button:disabled {
 select {
   font-family: inherit;
   padding: 0.45rem 0.6rem;
-  border-radius: 0.4rem;
+  border-radius: 0.5rem;
   border: 1px solid var(--vorn-border);
   background: var(--vorn-bg-elevated);
   color: var(--vorn-text);
   font-size: 0.9rem;
+  transition: border-color var(--vorn-transition), box-shadow var(--vorn-transition);
+}
+
+select:hover,
+select:focus {
+  border-color: var(--vorn-accent);
 }
