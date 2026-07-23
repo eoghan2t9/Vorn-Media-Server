@@ -136,6 +136,7 @@ func NewRouter(deps Deps) http.Handler {
 	mux.HandleFunc("PATCH /api/libraries/{id}", s.withAdmin(s.handleUpdateLibrary))
 	mux.HandleFunc("DELETE /api/libraries/{id}", s.withAdmin(s.handleDeleteLibrary))
 	mux.HandleFunc("GET /api/libraries/{id}/items", s.withAuth(s.handleListLibraryItems))
+	mux.HandleFunc("GET /api/admin/browse", s.withAdmin(s.handleBrowseFilesystem))
 
 	mux.HandleFunc("POST /api/libraries/{id}/scan", s.withAdmin(s.handleStartLibraryScan))
 	mux.HandleFunc("GET /api/scan-jobs", s.withAdmin(s.handleListScanJobs))
