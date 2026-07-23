@@ -42,7 +42,9 @@ Tracked in phases; each phase is delivered as a runnable increment with its own 
 - [x] **Phase 7 — Torrent acquisition**: anacrolix/torrent-backed client with sequential
       (streaming-order) or rarest-first download, a Torznab indexer plugin system for search,
       and an auto-add-to-library watcher on completion.
-- [ ] **Phase 8 — NZB & debrid acquisition**: Usenet client, Real-Debrid/TorBox direct streaming.
+- [x] **Phase 8 — NZB & debrid acquisition**: hand-rolled NNTP/yEnc Usenet client with par2 repair,
+      Real-Debrid/TorBox clients behind a shared `Provider.Resolve()` interface, and
+      direct-stream-from-debrid playback with no local download step.
 - [ ] **Phase 9 — Client API compatibility**: Jellyfin, then Emby, then Plex.
 - [ ] **Phase 10 — Operability & distribution**: live logs, subtitles, custom domain/SSL, CDN
       support, self-updater, bare-metal installers.
