@@ -90,3 +90,89 @@ export const setUserPermissions = (id: string, libraryIds: string[]) =>
   request<void>(`/api/users/${id}/permissions`, { method: 'PUT', body: JSON.stringify({ libraryIds }) })
 
 export const listLibraries = () => request<Library[]>('/api/libraries')
+
+export const getLibrary = (id: string) => request<Library>(`/api/libraries/${id}`)
+
+export interface CreateLibraryInput {
+  name: string
+  type: 'movie' | 'series'
+  folders: string[]
+}
+export const createLibrary = (input: CreateLibraryInput) =>
+  request<Library>('/api/libraries', { method: 'POST', body: JSON.stringify(input) })
+
+export const updateLibrary = (id: string, input: { name?: string; folders?: string[] }) =>
+  request<Library>(`/api/libraries/${id}`, { method: 'PATCH', body: JSON.stringify(input) })
+
+export const deleteLibrary = (id: string) => request<void>(`/api/libraries/${id}`, { method: 'DELETE' })
+
+export interface ScanJob {
+  id: string
+  libraryId: string
+  kind: 'real' | 'synthetic'
+  status: 'running' | 'completed' | 'failed'
+  filesFound: number
+  filesSynced: number
+  error?: string
+  startedAt: string
+  finishedAt?: string
+}
+export const startLibraryScan = (id: string) =>
+  request<ScanJob>(`/api/libraries/${id}/scan`, { method: 'POST' })
+
+export const listScanJobs = (libraryId?: string) =>
+  request<ScanJob[]>(`/api/scan-jobs${libraryId ? `?libraryId=${libraryId}` : ''}`)
+
+export const getScanJob = (id: string) => request<ScanJob>(`/api/scan-jobs/${id}`)
+
+export interface MediaItem {
+  id: string
+  libraryId: string
+  parentId?: string
+  kind: 'movie' | 'series' | 'season' | 'episode'
+  title: string
+  overview?: string
+  seasonNumber?: number
+  episodeNumber?: number
+  releaseDate?: string
+  addedAt: string
+}
+
+export interface MediaItemDetail extends MediaItem {
+  children?: MediaItem[]
+}
+
+export const listLibraryItems = (libraryId: string, opts?: { sort?: 'recent' | 'alpha'; kind?: string }) => {
+  const params = new URLSearchParams()
+  if (opts?.sort) params.set('sort', opts.sort)
+  if (opts?.kind) params.set('kind', opts.kind)
+  const qs = params.toString()
+  return request<MediaItem[]>(`/api/libraries/${libraryId}/items${qs ? `?${qs}` : ''}`)
+}
+
+export const getItem = (id: string) => request<MediaItemDetail>(`/api/items/${id}`)
+
+export const updateProgress = (id: string, positionSeconds: number, durationSeconds: number) =>
+  request<void>(`/api/items/${id}/progress`, {
+    method: 'PUT',
+    body: JSON.stringify({ positionSeconds, durationSeconds }),
+  })
+
+export interface ContinueWatchingEntry {
+  item: MediaItem
+  positionSeconds: number
+  durationSeconds: number
+}
+export const listContinueWatching = () => request<ContinueWatchingEntry[]>('/api/continue-watching')
+
+export interface ServerStats {
+  libraryCount: number
+  userCount: number
+  movieCount: number
+  seriesCount: number
+  episodeCount: number
+  activeUsers: number
+}
+export const fetchServerStats = () => request<ServerStats>('/api/admin/stats')
+
+export const search = (q: string) => request<MediaItem[]>(`/api/search?q=${encodeURIComponent(q)}`)

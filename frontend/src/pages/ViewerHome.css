@@ -1,0 +1,79 @@
+.vorn-library-row {
+  margin-bottom: 2.5rem;
+}
+
+.vorn-library-row-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.vorn-library-row-header h2 {
+  margin: 0;
+  font-size: 1.2rem;
+}
+
+.vorn-library-row-header select {
+  padding: 0.35rem 0.5rem;
+  border-radius: 0.4rem;
+  border: 1px solid var(--vorn-border);
+  background: var(--vorn-bg-elevated);
+  color: var(--vorn-text);
+  font-size: 0.85rem;
+}
+
+.vorn-empty {
+  color: var(--vorn-text-muted);
+  font-size: 0.9rem;
+}
+
+.vorn-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+  gap: 1rem;
+}
+
+.vorn-card {
+  text-decoration: none;
+  color: var(--vorn-text);
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.vorn-card-poster {
+  aspect-ratio: 2 / 3;
+  background: var(--vorn-bg-elevated);
+  border: 1px solid var(--vorn-border);
+  border-radius: 0.5rem;
+  display: flex;
+  align-items: flex-end;
+}
+
+.vorn-card-title {
+  font-size: 0.85rem;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vorn-card-meta {
+  font-size: 0.75rem;
+  color: var(--vorn-text-muted);
+}
+
+.vorn-progress-bar {
+  width: 100%;
+  height: 0.3rem;
+  background: rgba(0, 0, 0, 0.3);
+  margin: 0 0.4rem 0.4rem;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.vorn-progress-fill {
+  height: 100%;
+  background: var(--vorn-accent);
+}

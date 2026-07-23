@@ -1,0 +1,21 @@
+.vorn-children-list {
+  list-style: none;
+  padding: 0;
+  margin: 1.5rem 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.vorn-children-list a {
+  text-decoration: none;
+  color: var(--vorn-text);
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--vorn-border);
+  border-radius: 0.4rem;
+  display: block;
+}
+
+.vorn-children-list a:hover {
+  border-color: var(--vorn-accent);
+}

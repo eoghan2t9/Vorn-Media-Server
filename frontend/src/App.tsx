@@ -1,26 +1,32 @@
-import { Navigate, Route, Routes } from 'react-router-dom'
+import { Navigate, Outlet, Route, Routes } from 'react-router-dom'
 import { ThemeProvider } from './theme/ThemeContext'
 import { AuthProvider, useAuth } from './auth/AuthContext'
 import { AppShell } from './layout/AppShell'
 import { ViewerHome } from './pages/ViewerHome'
 import { AdminHome } from './pages/AdminHome'
 import { AdminUsers } from './pages/AdminUsers'
+import { AdminLibraries } from './pages/AdminLibraries'
+import { ItemDetail } from './pages/ItemDetail'
 import { SetupWizard } from './pages/SetupWizard'
 import { Login } from './pages/Login'
 
-function Gate({ children }: { children: React.ReactNode }) {
+function ProtectedLayout() {
   const { loading, setupCompleted, user } = useAuth()
 
   if (loading) return null
   if (!setupCompleted) return <Navigate to="/setup" replace />
   if (!user) return <Navigate to="/login" replace />
-  return <>{children}</>
+  return (
+    <AppShell>
+      <Outlet />
+    </AppShell>
+  )
 }
 
-function AdminGate({ children }: { children: React.ReactNode }) {
+function AdminLayout() {
   const { user } = useAuth()
   if (!user?.isAdmin) return <Navigate to="/" replace />
-  return <>{children}</>
+  return <Outlet />
 }
 
 function AppRoutes() {
@@ -30,40 +36,18 @@ function AppRoutes() {
     <Routes>
       <Route path="/setup" element={setupCompleted ? <Navigate to="/login" replace /> : <SetupWizard />} />
       <Route path="/login" element={<Login />} />
-      <Route
-        path="/"
-        element={
-          <Gate>
-            <AppShell>
-              <ViewerHome />
-            </AppShell>
-          </Gate>
-        }
-      />
-      <Route
-        path="/admin"
-        element={
-          <Gate>
-            <AdminGate>
-              <AppShell>
-                <AdminHome />
-              </AppShell>
-            </AdminGate>
-          </Gate>
-        }
-      />
-      <Route
-        path="/admin/users"
-        element={
-          <Gate>
-            <AdminGate>
-              <AppShell>
-                <AdminUsers />
-              </AppShell>
-            </AdminGate>
-          </Gate>
-        }
-      />
+
+      <Route element={<ProtectedLayout />}>
+        <Route path="/" element={<ViewerHome />} />
+        <Route path="/items/:id" element={<ItemDetail />} />
+
+        <Route element={<AdminLayout />}>
+          <Route path="/admin" element={<AdminHome />} />
+          <Route path="/admin/users" element={<AdminUsers />} />
+          <Route path="/admin/libraries" element={<AdminLibraries />} />
+        </Route>
+      </Route>
+
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )

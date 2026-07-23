@@ -26,7 +26,6 @@
 .vorn-nav {
   display: flex;
   gap: 1rem;
-  flex: 1;
 }
 
 .vorn-nav a {
@@ -37,6 +36,70 @@
 
 .vorn-nav a:hover {
   color: var(--vorn-text);
+}
+
+.vorn-header-search {
+  position: relative;
+  flex: 1;
+  max-width: 24rem;
+}
+
+.vorn-header-search input {
+  width: 100%;
+  padding: 0.45rem 0.75rem;
+  border-radius: 0.4rem;
+  border: 1px solid var(--vorn-border);
+  background: var(--vorn-bg);
+  color: var(--vorn-text);
+  font-size: 0.9rem;
+}
+
+.vorn-search-results {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  left: 0;
+  right: 0;
+  background: var(--vorn-bg-elevated);
+  border: 1px solid var(--vorn-border);
+  border-radius: 0.5rem;
+  list-style: none;
+  margin: 0;
+  padding: 0.3rem;
+  max-height: 20rem;
+  overflow-y: auto;
+  z-index: 20;
+}
+
+.vorn-search-results button {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  text-align: left;
+  padding: 0.5rem 0.6rem;
+  border: none;
+  background: transparent;
+  color: var(--vorn-text);
+  cursor: pointer;
+  border-radius: 0.35rem;
+  font-size: 0.9rem;
+}
+
+.vorn-search-results button:hover {
+  background: var(--vorn-bg);
+}
+
+.vorn-search-kind {
+  color: var(--vorn-text-muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+}
+
+.vorn-header-stats {
+  display: flex;
+  gap: 0.75rem;
+  font-size: 0.8rem;
+  color: var(--vorn-text-muted);
+  white-space: nowrap;
 }
 
 .vorn-user {
