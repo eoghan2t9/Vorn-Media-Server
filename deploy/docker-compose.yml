@@ -40,10 +40,15 @@ services:
       VORN_HTTP_ADDR: ":8080"
       VORN_POSTGRES_DSN: "postgres://${POSTGRES_USER:-vorn}:${POSTGRES_PASSWORD:-vorn}@postgres:5432/${POSTGRES_DB:-vorn}?sslmode=disable"
       VORN_DRAGONFLY_ADDR: "dragonfly:6379"
+      VORN_TORRENT_ENABLED: "${VORN_TORRENT_ENABLED:-false}"
+      VORN_TORRENT_DOWNLOAD_DIR: "/downloads"
     ports:
       - "8080:8080"
+      - "${VORN_TORRENT_PEER_PORT:-42069}:42069/tcp"
+      - "${VORN_TORRENT_PEER_PORT:-42069}:42069/udp"
     volumes:
       - ${VORN_LIBRARY_PATH:-./data/library}:/media:ro
+      - ${VORN_TORRENT_DOWNLOAD_PATH:-./data/downloads}:/downloads
     # --- GPU passthrough (uncomment the block matching your hardware) ---
     #
     # Nvidia (requires the NVIDIA Container Toolkit on the host):

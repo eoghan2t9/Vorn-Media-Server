@@ -8,6 +8,7 @@ import (
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/metadata"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/scanner"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/store"
+	"github.com/eoghan2t9/vorn-media-server/backend/internal/torrent"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/transcode"
 )
 
@@ -22,6 +23,7 @@ type Deps struct {
 	Scanner      *scanner.Service
 	Metadata     *metadata.Service
 	TranscodeMgr *transcode.Manager
+	Torrent      *torrent.Service
 	CORSOrigin   string
 	DevMode      bool
 }
@@ -31,6 +33,7 @@ type Server struct {
 	scanner      *scanner.Service
 	metadataSvc  *metadata.Service
 	transcodeMgr *transcode.Manager
+	torrentSvc   *torrent.Service
 	devMode      bool
 }
 
@@ -40,6 +43,7 @@ func NewServer(deps Deps) *Server {
 		scanner:      deps.Scanner,
 		metadataSvc:  deps.Metadata,
 		transcodeMgr: deps.TranscodeMgr,
+		torrentSvc:   deps.Torrent,
 		devMode:      deps.DevMode,
 	}
 }
@@ -94,6 +98,15 @@ func NewRouter(deps Deps) http.Handler {
 	mux.HandleFunc("GET /api/stream/direct/{id}", s.withAuth(s.handleDirectStream))
 	mux.HandleFunc("GET /api/stream/session/{sessionId}/{file}", s.withAuth(s.handleSessionFile))
 	mux.HandleFunc("DELETE /api/stream/session/{sessionId}", s.withAuth(s.handleStopSession))
+
+	mux.HandleFunc("GET /api/torrents", s.withAdmin(s.handleListTorrents))
+	mux.HandleFunc("POST /api/torrents", s.withAdmin(s.handleAddMagnet))
+	mux.HandleFunc("POST /api/torrents/file", s.withAdmin(s.handleAddTorrentFile))
+	mux.HandleFunc("DELETE /api/torrents/{id}", s.withAdmin(s.handleRemoveTorrent))
+	mux.HandleFunc("GET /api/torrents/search", s.withAdmin(s.handleTorrentSearch))
+	mux.HandleFunc("GET /api/torrent-indexers", s.withAdmin(s.handleListTorrentIndexers))
+	mux.HandleFunc("POST /api/torrent-indexers", s.withAdmin(s.handleCreateTorrentIndexer))
+	mux.HandleFunc("DELETE /api/torrent-indexers/{id}", s.withAdmin(s.handleDeleteTorrentIndexer))
 
 	return withCORS(mux, deps.CORSOrigin)
 }

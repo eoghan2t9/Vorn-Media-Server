@@ -13,6 +13,7 @@ import (
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/migrate"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/scanner"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/store"
+	"github.com/eoghan2t9/vorn-media-server/backend/internal/torrent"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/transcode"
 )
 
@@ -62,11 +63,23 @@ func main() {
 		transcodeMgr = transcode.NewManager(cfg.TranscodeOutputDir, backends, cfg.TranscodeMaxSessions)
 	}
 
+	var torrentSvc *torrent.Service
+	if cfg.TorrentEnabled {
+		torrentSvc, err = torrent.NewService(st, cfg.TorrentDownloadDir, cfg.TorrentPeerPort)
+		if err != nil {
+			log.Fatalf("starting torrent service: %v", err)
+		}
+		defer torrentSvc.Close()
+	} else {
+		log.Print("VORN_TORRENT_ENABLED not set: torrent acquisition is disabled")
+	}
+
 	router := httpapi.NewRouter(httpapi.Deps{
 		Store:        st,
 		Scanner:      scanSvc,
 		Metadata:     metadataSvc,
 		TranscodeMgr: transcodeMgr,
+		Torrent:      torrentSvc,
 		CORSOrigin:   cfg.CORSOrigin,
 		DevMode:      cfg.DevMode,
 	})
