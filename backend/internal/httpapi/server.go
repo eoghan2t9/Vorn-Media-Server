@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/eoghan2t9/vorn-media-server/backend/internal/metadata"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/scanner"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/store"
 )
@@ -12,18 +13,19 @@ import (
 const sessionCookieName = "vorn_session"
 
 type Server struct {
-	store   *store.Store
-	scanner *scanner.Service
-	devMode bool
+	store       *store.Store
+	scanner     *scanner.Service
+	metadataSvc *metadata.Service // nil if no TMDb API key is configured
+	devMode     bool
 }
 
-func NewServer(st *store.Store, sc *scanner.Service, devMode bool) *Server {
-	return &Server{store: st, scanner: sc, devMode: devMode}
+func NewServer(st *store.Store, sc *scanner.Service, metadataSvc *metadata.Service, devMode bool) *Server {
+	return &Server{store: st, scanner: sc, metadataSvc: metadataSvc, devMode: devMode}
 }
 
 // NewRouter returns the root HTTP handler for the Vorn backend.
-func NewRouter(st *store.Store, sc *scanner.Service, corsOrigin string, devMode bool) http.Handler {
-	s := NewServer(st, sc, devMode)
+func NewRouter(st *store.Store, sc *scanner.Service, metadataSvc *metadata.Service, corsOrigin string, devMode bool) http.Handler {
+	s := NewServer(st, sc, metadataSvc, devMode)
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/healthz", handleHealthz)
@@ -59,6 +61,10 @@ func NewRouter(st *store.Store, sc *scanner.Service, corsOrigin string, devMode 
 
 	mux.HandleFunc("GET /api/admin/stats", s.withAdmin(s.handleServerStats))
 	mux.HandleFunc("GET /api/search", s.withAuth(s.handleSearch))
+
+	mux.HandleFunc("POST /api/libraries/{id}/sync-metadata", s.withAdmin(s.handleStartMetadataSync))
+	mux.HandleFunc("GET /api/metadata-jobs/{id}", s.withAdmin(s.handleGetMetadataJob))
+	mux.HandleFunc("PATCH /api/items/{id}/metadata", s.withAdmin(s.handleUpdateItemMetadata))
 
 	return withCORS(mux, corsOrigin)
 }

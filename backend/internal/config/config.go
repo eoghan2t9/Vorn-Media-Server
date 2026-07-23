@@ -13,6 +13,7 @@ type Config struct {
 	DragonflyAddr string
 	CORSOrigin    string
 	DevMode       bool
+	TMDbAPIKey    string
 }
 
 func Load() Config {
@@ -22,6 +23,7 @@ func Load() Config {
 		DragonflyAddr: getEnv("VORN_DRAGONFLY_ADDR", "localhost:6379"),
 		CORSOrigin:    getEnv("VORN_CORS_ORIGIN", "http://localhost:5173"),
 		DevMode:       getBoolEnv("VORN_DEV_MODE", false),
+		TMDbAPIKey:    getEnv("VORN_TMDB_API_KEY", ""),
 	}
 }
 
@@ -45,6 +47,6 @@ func getBoolEnv(key string, fallback bool) bool {
 }
 
 func (c Config) String() string {
-	return fmt.Sprintf("http_addr=%s postgres=<redacted> dragonfly=%s cors_origin=%s dev_mode=%v",
-		c.HTTPAddr, c.DragonflyAddr, c.CORSOrigin, c.DevMode)
+	return fmt.Sprintf("http_addr=%s postgres=<redacted> dragonfly=%s cors_origin=%s dev_mode=%v tmdb_configured=%v",
+		c.HTTPAddr, c.DragonflyAddr, c.CORSOrigin, c.DevMode, c.TMDbAPIKey != "")
 }

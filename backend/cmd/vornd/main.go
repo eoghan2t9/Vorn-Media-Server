@@ -8,6 +8,7 @@ import (
 
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/config"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/httpapi"
+	"github.com/eoghan2t9/vorn-media-server/backend/internal/metadata"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/migrate"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/scanner"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/store"
@@ -36,7 +37,14 @@ func main() {
 
 	scanSvc := scanner.NewService(st, queue)
 
-	router := httpapi.NewRouter(st, scanSvc, cfg.CORSOrigin, cfg.DevMode)
+	var metadataSvc *metadata.Service
+	if cfg.TMDbAPIKey != "" {
+		metadataSvc = metadata.NewService(st, metadata.NewTMDbProvider(cfg.TMDbAPIKey))
+	} else {
+		log.Print("VORN_TMDB_API_KEY not set: metadata sync is disabled")
+	}
+
+	router := httpapi.NewRouter(st, scanSvc, metadataSvc, cfg.CORSOrigin, cfg.DevMode)
 
 	log.Printf("listening on %s", cfg.HTTPAddr)
 	if err := http.ListenAndServe(cfg.HTTPAddr, router); err != nil {
