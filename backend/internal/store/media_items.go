@@ -8,20 +8,29 @@ import (
 )
 
 type MediaItem struct {
-	ID            string
-	LibraryID     string
-	ParentID      *string
-	Kind          string // "movie" | "series" | "season" | "episode"
-	Title         string
-	SortTitle     string
-	Overview      string
-	SeasonNumber  *int
-	EpisodeNumber *int
-	ReleaseDate   *time.Time
-	Path          *string
-	TmdbID        *int
-	AddedAt       time.Time
-	UpdatedAt     time.Time
+	ID             string
+	LibraryID      string
+	ParentID       *string
+	Kind           string // "movie" | "series" | "season" | "episode"
+	Title          string
+	SortTitle      string
+	Overview       string
+	SeasonNumber   *int
+	EpisodeNumber  *int
+	ReleaseDate    *time.Time
+	Path           *string
+	TmdbID         *int
+	MetadataLocked bool
+	AddedAt        time.Time
+	UpdatedAt      time.Time
+}
+
+const mediaItemColumns = `id, library_id, parent_id, kind, title, sort_title, overview, season_number, episode_number,
+	release_date, path, tmdb_id, metadata_locked, added_at, updated_at`
+
+func scanMediaItem(row interface{ Scan(...any) error }, m *MediaItem) error {
+	return row.Scan(&m.ID, &m.LibraryID, &m.ParentID, &m.Kind, &m.Title, &m.SortTitle, &m.Overview,
+		&m.SeasonNumber, &m.EpisodeNumber, &m.ReleaseDate, &m.Path, &m.TmdbID, &m.MetadataLocked, &m.AddedAt, &m.UpdatedAt)
 }
 
 // findOrCreateMediaItem looks up a media item by its natural identity
@@ -178,9 +187,7 @@ func (s *Store) ListMediaItems(libraryID string, opts ListItemsOptions) ([]*Medi
 		orderBy = "added_at DESC"
 	}
 
-	query := `SELECT id, library_id, parent_id, kind, title, sort_title, overview, season_number, episode_number,
-	                  release_date, path, tmdb_id, added_at, updated_at
-	           FROM media_items WHERE library_id = $1 AND parent_id IS NULL`
+	query := `SELECT ` + mediaItemColumns + ` FROM media_items WHERE library_id = $1 AND parent_id IS NULL`
 	args := []any{libraryID}
 	if opts.Kind != "" {
 		query += ` AND kind = $2`
@@ -197,13 +204,9 @@ func (s *Store) ListMediaItems(libraryID string, opts ListItemsOptions) ([]*Medi
 }
 
 func (s *Store) GetMediaItem(id string) (*MediaItem, error) {
-	row := s.db.QueryRow(
-		`SELECT id, library_id, parent_id, kind, title, sort_title, overview, season_number, episode_number,
-		        release_date, path, tmdb_id, added_at, updated_at
-		 FROM media_items WHERE id = $1`, id)
+	row := s.db.QueryRow(`SELECT `+mediaItemColumns+` FROM media_items WHERE id = $1`, id)
 	m := &MediaItem{}
-	err := row.Scan(&m.ID, &m.LibraryID, &m.ParentID, &m.Kind, &m.Title, &m.SortTitle, &m.Overview,
-		&m.SeasonNumber, &m.EpisodeNumber, &m.ReleaseDate, &m.Path, &m.TmdbID, &m.AddedAt, &m.UpdatedAt)
+	err := scanMediaItem(row, m)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -217,9 +220,7 @@ func (s *Store) GetMediaItem(id string) (*MediaItem, error) {
 // a series, or episodes of a season), ordered by season/episode number.
 func (s *Store) ListChildren(parentID string) ([]*MediaItem, error) {
 	rows, err := s.db.Query(
-		`SELECT id, library_id, parent_id, kind, title, sort_title, overview, season_number, episode_number,
-		        release_date, path, tmdb_id, added_at, updated_at
-		 FROM media_items WHERE parent_id = $1
+		`SELECT `+mediaItemColumns+` FROM media_items WHERE parent_id = $1
 		 ORDER BY coalesce(season_number, 0), coalesce(episode_number, 0)`,
 		parentID,
 	)
@@ -234,8 +235,7 @@ func scanMediaItems(rows *sql.Rows) ([]*MediaItem, error) {
 	var out []*MediaItem
 	for rows.Next() {
 		m := &MediaItem{}
-		if err := rows.Scan(&m.ID, &m.LibraryID, &m.ParentID, &m.Kind, &m.Title, &m.SortTitle, &m.Overview,
-			&m.SeasonNumber, &m.EpisodeNumber, &m.ReleaseDate, &m.Path, &m.TmdbID, &m.AddedAt, &m.UpdatedAt); err != nil {
+		if err := scanMediaItem(rows, m); err != nil {
 			return nil, err
 		}
 		out = append(out, m)

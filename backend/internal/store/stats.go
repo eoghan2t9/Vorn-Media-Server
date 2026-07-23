@@ -36,8 +36,7 @@ func (s *Store) GetServerStats() (*ServerStats, error) {
 // libraries the caller can access (pass isAdmin=true to search everything).
 func (s *Store) SearchMediaItems(query string, isAdmin bool, userID string, limit int) ([]*MediaItem, error) {
 	rows, err := s.db.Query(
-		`SELECT id, library_id, parent_id, kind, title, sort_title, overview, season_number, episode_number,
-		        release_date, path, tmdb_id, added_at, updated_at
+		`SELECT `+mediaItemColumns+`
 		 FROM media_items
 		 WHERE parent_id IS NULL
 		   AND title ILIKE '%' || $1 || '%'
