@@ -12,6 +12,7 @@
   padding: 0.75rem 1.5rem;
   background: var(--vorn-bg-elevated);
   border-bottom: 1px solid var(--vorn-border);
+  box-shadow: var(--vorn-shadow);
 }
 
 .vorn-brand {
@@ -64,6 +65,11 @@
 
 .vorn-nav a:hover {
   color: var(--vorn-text);
+}
+
+.vorn-nav a.vorn-nav-active {
+  color: var(--vorn-text);
+  font-weight: 600;
 }
 
 .vorn-header-search {

@@ -1,7 +1,18 @@
 .vorn-form-page {
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
   padding: 3rem 1rem;
+}
+
+.vorn-auth-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+  font-size: 1.3rem;
+  color: var(--vorn-text);
+  margin-bottom: 1.5rem;
 }
 
 .vorn-form {

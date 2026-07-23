@@ -2,6 +2,11 @@
   color-scheme: light dark;
   --vorn-accent: #7c5cff;
   --vorn-accent-2: #22d3ee;
+  --vorn-radius: 0.5rem;
+  --vorn-radius-lg: 0.75rem;
+  --vorn-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  --vorn-shadow-lg: 0 12px 28px rgba(0, 0, 0, 0.4);
+  --vorn-transition: 0.18s ease;
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 }
 

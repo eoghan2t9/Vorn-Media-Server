@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useTheme } from '../theme/ThemeContext'
 import { useAuth } from '../auth/AuthContext'
 import { HeaderSearch } from './HeaderSearch'
@@ -34,8 +34,14 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         <div className={`vorn-header-panel${menuOpen ? ' vorn-header-panel-open' : ''}`}>
           <nav className="vorn-nav">
-            <Link to="/">Home</Link>
-            {user?.isAdmin && <Link to="/admin">Admin</Link>}
+            <NavLink to="/" end className={({ isActive }) => (isActive ? 'vorn-nav-active' : '')}>
+              Home
+            </NavLink>
+            {user?.isAdmin && (
+              <NavLink to="/admin" className={({ isActive }) => (isActive ? 'vorn-nav-active' : '')}>
+                Admin
+              </NavLink>
+            )}
           </nav>
           <HeaderSearch />
           {user?.isAdmin && <HeaderStats />}

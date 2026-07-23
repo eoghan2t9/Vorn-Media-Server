@@ -44,13 +44,14 @@
   gap: 0.35rem;
 }
 
-.vorn-card-poster {
-  aspect-ratio: 2 / 3;
-  background: var(--vorn-bg-elevated);
-  border: 1px solid var(--vorn-border);
-  border-radius: 0.5rem;
-  display: flex;
-  align-items: flex-end;
+.vorn-card .vorn-poster {
+  transition: transform var(--vorn-transition), box-shadow var(--vorn-transition), border-color var(--vorn-transition);
+}
+
+.vorn-card:hover .vorn-poster {
+  transform: translateY(-3px);
+  box-shadow: var(--vorn-shadow-lg);
+  border-color: var(--vorn-accent);
 }
 
 .vorn-card-title {
@@ -67,10 +68,12 @@
 }
 
 .vorn-progress-bar {
-  width: 100%;
+  position: absolute;
+  left: 0.4rem;
+  right: 0.4rem;
+  bottom: 0.4rem;
   height: 0.3rem;
-  background: rgba(0, 0, 0, 0.3);
-  margin: 0 0.4rem 0.4rem;
+  background: rgba(0, 0, 0, 0.5);
   border-radius: 999px;
   overflow: hidden;
 }

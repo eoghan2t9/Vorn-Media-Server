@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { ApiError, getItem, updateItemMetadata, type MediaItemDetail } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
+import { Poster } from '../components/Poster'
 import './ItemDetail.css'
 
 function EditMetadataForm({ item, onSaved }: { item: MediaItemDetail; onSaved: (updated: MediaItemDetail) => void }) {
@@ -70,26 +71,36 @@ export function ItemDetail() {
 
   return (
     <section>
-      <h1>{item.title}</h1>
-      {item.releaseDate && <p>{item.releaseDate.slice(0, 4)}</p>}
-      {item.overview && <p>{item.overview}</p>}
+      <div
+        className="vorn-detail-hero"
+        style={item.backdropUrl ? { backgroundImage: `url(${item.backdropUrl})` } : undefined}
+      >
+        <div className="vorn-detail-hero-scrim" />
+        <div className="vorn-detail-hero-content">
+          <Poster title={item.title} posterUrl={item.posterUrl} className="vorn-detail-poster" />
+          <div className="vorn-detail-info">
+            <h1>{item.title}</h1>
+            {item.releaseDate && <p className="vorn-detail-year">{item.releaseDate.slice(0, 4)}</p>}
+            {(item.kind === 'movie' || item.kind === 'episode') && (
+              <Link to={`/watch/${item.id}`} className="vorn-play-button">
+                ▶ Play
+              </Link>
+            )}
+          </div>
+        </div>
+      </div>
 
-      {(item.kind === 'movie' || item.kind === 'episode') && (
-        <p>
-          <Link to={`/watch/${item.id}`} className="vorn-play-button">
-            ▶ Play
-          </Link>
-        </p>
-      )}
+      {item.overview && <p className="vorn-detail-overview">{item.overview}</p>}
 
       {item.children && item.children.length > 0 && (
-        <ul className="vorn-children-list">
+        <div className="vorn-children-row">
           {item.children.map((c) => (
-            <li key={c.id}>
-              <Link to={`/items/${c.id}`}>{c.title}</Link>
-            </li>
+            <Link to={`/items/${c.id}`} key={c.id} className="vorn-child-card">
+              <Poster title={c.title} posterUrl={c.posterUrl} />
+              <div className="vorn-child-title">{c.title}</div>
+            </Link>
           ))}
-        </ul>
+        </div>
       )}
 
       {user?.isAdmin && (item.kind === 'movie' || item.kind === 'series') && (

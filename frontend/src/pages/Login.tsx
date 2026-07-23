@@ -28,6 +28,10 @@ export function Login() {
 
   return (
     <div className="vorn-form-page">
+      <div className="vorn-auth-brand">
+        <img src="/favicon.svg" alt="" width={28} height={28} />
+        <span>Vorn</span>
+      </div>
       <form className="vorn-form" onSubmit={handleSubmit}>
         <h1>Sign in</h1>
         <label>

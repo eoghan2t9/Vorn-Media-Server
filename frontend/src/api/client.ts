@@ -136,6 +136,8 @@ export interface MediaItem {
   episodeNumber?: number
   releaseDate?: string
   addedAt: string
+  posterUrl?: string
+  backdropUrl?: string
 }
 
 export interface MediaItemDetail extends MediaItem {

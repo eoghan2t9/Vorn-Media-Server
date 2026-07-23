@@ -40,6 +40,10 @@ export function SetupWizard() {
 
   return (
     <div className="vorn-form-page">
+      <div className="vorn-auth-brand">
+        <img src="/favicon.svg" alt="" width={28} height={28} />
+        <span>Vorn</span>
+      </div>
       <form className="vorn-form" onSubmit={handleSubmit}>
         <h1>Welcome to Vorn</h1>
         <p className="vorn-form-subtitle">Let's create your admin account to get started.</p>
