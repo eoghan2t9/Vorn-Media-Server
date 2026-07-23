@@ -78,7 +78,7 @@
 }
 
 .vorn-card:hover .vorn-card-title {
-  color: var(--vorn-accent-2);
+  color: var(--vorn-text-accent);
 }
 
 .vorn-card-meta {

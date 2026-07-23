@@ -107,14 +107,15 @@
 }
 
 .vorn-select-option-active {
-  color: var(--vorn-accent-2);
+  color: var(--vorn-text-accent);
+  font-weight: 600;
 }
 
 .vorn-select-check {
   flex-shrink: 0;
   width: 0.95rem;
   height: 0.95rem;
-  color: var(--vorn-accent-2);
+  color: var(--vorn-text-accent);
 }
 
 .vorn-select-checkbox {

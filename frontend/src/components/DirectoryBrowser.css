@@ -111,5 +111,5 @@
 
 .vorn-directory-icon {
   flex-shrink: 0;
-  color: var(--vorn-accent-2);
+  color: var(--vorn-text-accent);
 }

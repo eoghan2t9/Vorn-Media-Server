@@ -31,7 +31,7 @@
 }
 
 .vorn-stat-icon {
-  color: var(--vorn-accent-2);
+  color: var(--vorn-text-accent);
   margin-bottom: 0.6rem;
 }
 
@@ -91,7 +91,7 @@
   padding: 0.45rem;
   border-radius: 0.6rem;
   background: color-mix(in srgb, var(--vorn-accent) 14%, transparent);
-  color: var(--vorn-accent-2);
+  color: var(--vorn-text-accent);
   box-sizing: border-box;
 }
 
@@ -119,6 +119,6 @@
 }
 
 .vorn-admin-tile:hover .vorn-admin-tile-arrow {
-  color: var(--vorn-accent-2);
+  color: var(--vorn-text-accent);
   transform: translateX(3px);
 }

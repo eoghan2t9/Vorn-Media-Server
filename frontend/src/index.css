@@ -3,7 +3,12 @@
   --vorn-accent: #8b5cf6;
   --vorn-accent-2: #22d3ee;
   --vorn-accent-3: #f472b6;
-  --vorn-gradient: linear-gradient(135deg, var(--vorn-accent) 0%, var(--vorn-accent-2) 100%);
+  /* Deliberately deeper than --vorn-accent/--vorn-accent-2: this is the
+     fill behind white button/badge text, and the raw accent colors (bright
+     cyan especially) don't leave enough contrast for white text on top --
+     these two stops keep white text readable (~5:1+) across the whole
+     gradient, not just at the purple end. */
+  --vorn-gradient: linear-gradient(135deg, #7c3aed 0%, #0e7490 100%);
   --vorn-gradient-text: linear-gradient(120deg, #a78bfa 0%, #22d3ee 55%, #f472b6 100%);
   --vorn-radius: 0.6rem;
   --vorn-radius-lg: 1.1rem;
@@ -24,6 +29,9 @@
   --vorn-text: #f2f3fb;
   --vorn-text-muted: #949ac0;
   --vorn-scrim: rgba(0, 0, 0, 0.85);
+  /* Cyan-as-text (links, active dropdown option, hover states) reads fine
+     at full brightness against these dark surfaces. */
+  --vorn-text-accent: var(--vorn-accent-2);
 }
 
 :root[data-theme='light'] {
@@ -35,6 +43,10 @@
   --vorn-text: #13141f;
   --vorn-text-muted: #62678a;
   --vorn-scrim: rgba(20, 10, 40, 0.55);
+  /* --vorn-accent-2 at full brightness is unreadable as text/icon color on
+     these light surfaces (~1.8:1 contrast) -- this deeper teal keeps the
+     same "cyan accent" identity but at a readable contrast on white/light. */
+  --vorn-text-accent: #0e7490;
 }
 
 * {
@@ -75,7 +87,7 @@ h3 {
 }
 
 a {
-  color: var(--vorn-accent-2);
+  color: var(--vorn-text-accent);
 }
 
 ::selection {
