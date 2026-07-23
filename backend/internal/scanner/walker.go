@@ -102,7 +102,7 @@ func WalkConcurrent(roots []string, workers int, emit func(DiscoveredFile)) {
 						q.push(full)
 						continue
 					}
-					if !isVideoFile(entry.Name()) {
+					if !IsVideoFile(entry.Name()) {
 						continue
 					}
 					info, err := entry.Info()

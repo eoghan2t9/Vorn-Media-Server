@@ -17,7 +17,10 @@ var videoExtensions = map[string]bool{
 	".mpeg": true,
 }
 
-func isVideoFile(name string) bool {
+// IsVideoFile reports whether name has a file extension the scanner (and
+// any other ingestion path, e.g. the torrent auto-add watcher) treats as
+// playable video.
+func IsVideoFile(name string) bool {
 	i := strings.LastIndexByte(name, '.')
 	if i < 0 {
 		return false

@@ -44,6 +44,7 @@ func NewService(st *store.Store, downloadDir string, peerPort int) (*Service, er
 		downloadDir: downloadDir,
 		active:      make(map[string]*lt.Torrent),
 	}
+	svc.onComplete = func(t *store.Torrent) { PromoteCompleted(st, t) }
 	svc.resumeActive()
 	return svc, nil
 }
