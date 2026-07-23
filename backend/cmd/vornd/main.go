@@ -2,12 +2,14 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/config"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/httpapi"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/migrate"
+	"github.com/eoghan2t9/vorn-media-server/backend/internal/scanner"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/store"
 )
 
@@ -26,7 +28,15 @@ func main() {
 	}
 	defer st.Close()
 
-	router := httpapi.NewRouter(st, cfg.CORSOrigin)
+	queue := scanner.NewQueue(cfg.DragonflyAddr)
+	if err := queue.Ping(context.Background()); err != nil {
+		log.Fatalf("connecting to dragonfly: %v", err)
+	}
+	defer queue.Close()
+
+	scanSvc := scanner.NewService(st, queue)
+
+	router := httpapi.NewRouter(st, scanSvc, cfg.CORSOrigin, cfg.DevMode)
 
 	log.Printf("listening on %s", cfg.HTTPAddr)
 	if err := http.ListenAndServe(cfg.HTTPAddr, router); err != nil {

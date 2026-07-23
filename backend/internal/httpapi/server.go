@@ -5,22 +5,25 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/eoghan2t9/vorn-media-server/backend/internal/scanner"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/store"
 )
 
 const sessionCookieName = "vorn_session"
 
 type Server struct {
-	store *store.Store
+	store   *store.Store
+	scanner *scanner.Service
+	devMode bool
 }
 
-func NewServer(st *store.Store) *Server {
-	return &Server{store: st}
+func NewServer(st *store.Store, sc *scanner.Service, devMode bool) *Server {
+	return &Server{store: st, scanner: sc, devMode: devMode}
 }
 
 // NewRouter returns the root HTTP handler for the Vorn backend.
-func NewRouter(st *store.Store, corsOrigin string) http.Handler {
-	s := NewServer(st)
+func NewRouter(st *store.Store, sc *scanner.Service, corsOrigin string, devMode bool) http.Handler {
+	s := NewServer(st, sc, devMode)
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/healthz", handleHealthz)
@@ -39,6 +42,11 @@ func NewRouter(st *store.Store, corsOrigin string) http.Handler {
 	mux.HandleFunc("PUT /api/users/{id}/permissions", s.withAdmin(s.handleSetUserPermissions))
 
 	mux.HandleFunc("GET /api/libraries", s.withAuth(s.handleListLibraries))
+
+	mux.HandleFunc("POST /api/libraries/{id}/scan", s.withAdmin(s.handleStartLibraryScan))
+	mux.HandleFunc("GET /api/scan-jobs", s.withAdmin(s.handleListScanJobs))
+	mux.HandleFunc("GET /api/scan-jobs/{id}", s.withAdmin(s.handleGetScanJob))
+	mux.HandleFunc("POST /api/dev/synthetic-scan", s.withAdmin(s.handleSyntheticScan))
 
 	return withCORS(mux, corsOrigin)
 }

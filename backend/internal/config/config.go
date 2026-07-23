@@ -4,6 +4,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 )
 
 type Config struct {
@@ -11,6 +12,7 @@ type Config struct {
 	PostgresDSN   string
 	DragonflyAddr string
 	CORSOrigin    string
+	DevMode       bool
 }
 
 func Load() Config {
@@ -19,6 +21,7 @@ func Load() Config {
 		PostgresDSN:   getEnv("VORN_POSTGRES_DSN", "postgres://vorn:vorn@localhost:5432/vorn?sslmode=disable"),
 		DragonflyAddr: getEnv("VORN_DRAGONFLY_ADDR", "localhost:6379"),
 		CORSOrigin:    getEnv("VORN_CORS_ORIGIN", "http://localhost:5173"),
+		DevMode:       getBoolEnv("VORN_DEV_MODE", false),
 	}
 }
 
@@ -29,6 +32,19 @@ func getEnv(key, fallback string) string {
 	return fallback
 }
 
+func getBoolEnv(key string, fallback bool) bool {
+	v, ok := os.LookupEnv(key)
+	if !ok {
+		return fallback
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return fallback
+	}
+	return b
+}
+
 func (c Config) String() string {
-	return fmt.Sprintf("http_addr=%s postgres=<redacted> dragonfly=%s cors_origin=%s", c.HTTPAddr, c.DragonflyAddr, c.CORSOrigin)
+	return fmt.Sprintf("http_addr=%s postgres=<redacted> dragonfly=%s cors_origin=%s dev_mode=%v",
+		c.HTTPAddr, c.DragonflyAddr, c.CORSOrigin, c.DevMode)
 }
