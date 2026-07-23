@@ -39,6 +39,34 @@
   color: var(--vorn-text);
 }
 
+.vorn-user {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+  color: var(--vorn-text-muted);
+}
+
+.vorn-user-badge {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: var(--vorn-accent);
+  color: white;
+  border-radius: 999px;
+  padding: 0.1rem 0.5rem;
+}
+
+.vorn-logout {
+  border: 1px solid var(--vorn-border);
+  background: transparent;
+  border-radius: 0.4rem;
+  padding: 0.4rem 0.75rem;
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--vorn-text);
+}
+
 .vorn-theme-toggle {
   border: 1px solid var(--vorn-border);
   background: transparent;

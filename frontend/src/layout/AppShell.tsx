@@ -1,10 +1,18 @@
 import type { ReactNode } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useTheme } from '../theme/ThemeContext'
+import { useAuth } from '../auth/AuthContext'
 import './AppShell.css'
 
 export function AppShell({ children }: { children: ReactNode }) {
   const { theme, toggleTheme } = useTheme()
+  const { user, logout } = useAuth()
+  const navigate = useNavigate()
+
+  async function handleLogout() {
+    await logout()
+    navigate('/login', { replace: true })
+  }
 
   return (
     <div className="vorn-shell">
@@ -15,8 +23,14 @@ export function AppShell({ children }: { children: ReactNode }) {
         </Link>
         <nav className="vorn-nav">
           <Link to="/">Home</Link>
-          <Link to="/admin">Admin</Link>
+          {user?.isAdmin && <Link to="/admin">Admin</Link>}
         </nav>
+        {user && (
+          <span className="vorn-user">
+            {user.username}
+            {user.isAdmin && <span className="vorn-user-badge">admin</span>}
+          </span>
+        )}
         <button
           type="button"
           className="vorn-theme-toggle"
@@ -25,6 +39,11 @@ export function AppShell({ children }: { children: ReactNode }) {
         >
           {theme === 'dark' ? '🌙' : '☀️'}
         </button>
+        {user && (
+          <button type="button" className="vorn-logout" onClick={handleLogout}>
+            Sign out
+          </button>
+        )}
       </header>
       <main className="vorn-main">{children}</main>
     </div>

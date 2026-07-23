@@ -1,0 +1,74 @@
+.vorn-form-page {
+  display: flex;
+  justify-content: center;
+  padding-top: 3rem;
+}
+
+.vorn-form {
+  width: 100%;
+  max-width: 26rem;
+  background: var(--vorn-bg-elevated);
+  border: 1px solid var(--vorn-border);
+  border-radius: 0.75rem;
+  padding: 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.vorn-form h1 {
+  margin: 0 0 0.25rem;
+  font-size: 1.4rem;
+}
+
+.vorn-form-subtitle {
+  margin: 0;
+  color: var(--vorn-text-muted);
+  font-size: 0.9rem;
+}
+
+.vorn-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+  color: var(--vorn-text-muted);
+}
+
+.vorn-form input,
+.vorn-form select {
+  padding: 0.5rem 0.6rem;
+  border-radius: 0.4rem;
+  border: 1px solid var(--vorn-border);
+  background: var(--vorn-bg);
+  color: var(--vorn-text);
+  font-size: 0.95rem;
+}
+
+.vorn-form button {
+  margin-top: 0.5rem;
+  padding: 0.6rem;
+  border-radius: 0.4rem;
+  border: none;
+  background: var(--vorn-accent);
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.vorn-form button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.vorn-form-error {
+  color: #f87171;
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+.vorn-form hr {
+  border: none;
+  border-top: 1px solid var(--vorn-border);
+  margin: 0.25rem 0;
+}

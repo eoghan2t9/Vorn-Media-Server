@@ -1,0 +1,39 @@
+.vorn-admin-users .vorn-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0 2rem;
+}
+
+.vorn-table th,
+.vorn-table td {
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--vorn-border);
+  font-size: 0.9rem;
+}
+
+.vorn-inline-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+}
+
+.vorn-inline-form input[type='text'],
+.vorn-inline-form input:not([type='checkbox']) {
+  padding: 0.5rem 0.6rem;
+  border-radius: 0.4rem;
+  border: 1px solid var(--vorn-border);
+  background: var(--vorn-bg-elevated);
+  color: var(--vorn-text);
+}
+
+.vorn-inline-form button {
+  padding: 0.5rem 0.9rem;
+  border-radius: 0.4rem;
+  border: none;
+  background: var(--vorn-accent);
+  color: white;
+  cursor: pointer;
+  font-weight: 600;
+}
