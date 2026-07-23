@@ -245,6 +245,9 @@ func NewRouter(deps Deps) http.Handler {
 	mux.HandleFunc("GET /api/admin/server-settings", s.withAdmin(s.handleGetServerSettings))
 	mux.HandleFunc("PUT /api/admin/server-settings", s.withAdmin(s.handleUpdateServerSettings))
 
+	mux.HandleFunc("GET /api/admin/integrations", s.withAdmin(s.handleGetIntegrationSettings))
+	mux.HandleFunc("PUT /api/admin/integrations", s.withAdmin(s.handleUpdateIntegrationSettings))
+
 	mux.HandleFunc("GET /api/admin/update/check", s.withAdmin(s.handleCheckForUpdate))
 	mux.HandleFunc("POST /api/admin/update/apply", s.withAdmin(s.handleApplyUpdate))
 

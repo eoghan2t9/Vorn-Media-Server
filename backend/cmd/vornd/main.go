@@ -65,6 +65,28 @@ func main() {
 	}
 	defer queue.Close()
 
+	// DB-saved integration credentials (Admin > Integrations) take precedence
+	// over the VORN_TMDB_API_KEY / VORN_OPENSUBTITLES_* env vars, so an admin
+	// who configures a key through the UI doesn't need to also edit compose
+	// files -- but existing env-var-only deployments keep working unchanged
+	// since these only override fields that were actually saved.
+	if intSettings, err := st.GetIntegrationSettings(); err != nil {
+		log.Printf("loading integration settings: %v", err)
+	} else {
+		if intSettings.TMDbAPIKey != "" {
+			cfg.TMDbAPIKey = intSettings.TMDbAPIKey
+		}
+		if intSettings.OpenSubtitlesAPIKey != "" {
+			cfg.OpenSubtitlesAPIKey = intSettings.OpenSubtitlesAPIKey
+		}
+		if intSettings.OpenSubtitlesUsername != "" {
+			cfg.OpenSubtitlesUser = intSettings.OpenSubtitlesUsername
+		}
+		if intSettings.OpenSubtitlesPassword != "" {
+			cfg.OpenSubtitlesPass = intSettings.OpenSubtitlesPassword
+		}
+	}
+
 	scanSvc := scanner.NewService(st, queue)
 
 	var metadataSvc *metadata.Service
