@@ -11,6 +11,7 @@ import { WatchPage } from './pages/WatchPage'
 import { AdminCurrentlyWatching } from './pages/AdminCurrentlyWatching'
 import { AdminTorrents } from './pages/AdminTorrents'
 import { AdminNzb } from './pages/AdminNzb'
+import { AdminDebrid } from './pages/AdminDebrid'
 import { SetupWizard } from './pages/SetupWizard'
 import { Login } from './pages/Login'
 
@@ -53,6 +54,7 @@ function AppRoutes() {
           <Route path="/admin/currently-watching" element={<AdminCurrentlyWatching />} />
           <Route path="/admin/torrents" element={<AdminTorrents />} />
           <Route path="/admin/nzb" element={<AdminNzb />} />
+          <Route path="/admin/debrid" element={<AdminDebrid />} />
         </Route>
       </Route>
 

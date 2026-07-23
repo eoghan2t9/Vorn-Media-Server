@@ -356,6 +356,52 @@ export const createUsenetServer = (input: CreateUsenetServerInput) =>
 export const deleteUsenetServer = (id: string) =>
   request<void>(`/api/usenet-servers/${id}`, { method: 'DELETE' })
 
+export interface DebridAccount {
+  id: string
+  provider: 'realdebrid' | 'torbox'
+  enabled: boolean
+  createdAt: string
+}
+export const listDebridAccounts = () => request<DebridAccount[]>('/api/debrid-accounts')
+
+export const createDebridAccount = (input: { provider: 'realdebrid' | 'torbox'; apiKey: string }) =>
+  request<DebridAccount>('/api/debrid-accounts', { method: 'POST', body: JSON.stringify(input) })
+
+export const deleteDebridAccount = (id: string) =>
+  request<void>(`/api/debrid-accounts/${id}`, { method: 'DELETE' })
+
+export interface DebridItem {
+  id: string
+  libraryId?: string
+  accountId: string
+  sourceRef: string
+  name: string
+  status: 'resolving' | 'ready' | 'error' | 'removed'
+  error?: string
+  promoted: boolean
+  addedAt: string
+}
+export const listDebridItems = () => request<DebridItem[]>('/api/debrid')
+
+export interface AddDebridLinkInput {
+  accountId: string
+  sourceRef: string
+  name?: string
+  libraryId?: string
+}
+export const addDebridLink = (input: AddDebridLinkInput) =>
+  request<DebridItem>('/api/debrid', { method: 'POST', body: JSON.stringify(input) })
+
+export const removeDebridItem = (id: string) => request<void>(`/api/debrid/${id}`, { method: 'DELETE' })
+
+export interface DebridFile {
+  id: string
+  name: string
+  sizeBytes: number
+  streamUrl: string
+}
+export const listDebridFiles = (itemId: string) => request<DebridFile[]>(`/api/debrid/${itemId}/files`)
+
 // API_BASE is exported so components that need an absolute stream URL
 // (e.g. the HLS player, which hands the URL to hls.js/a <video> element
 // rather than fetching it themselves) can build one.

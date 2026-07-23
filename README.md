@@ -102,6 +102,12 @@ docker compose -f deploy/docker-compose.yml up --build
   `./data/nzb-downloads`; the Docker Compose backend service always uses `/nzb-downloads`, backed
   by the `VORN_NZB_DOWNLOAD_PATH` host bind mount).
 
+Debrid (Real-Debrid/TorBox) acquisition (`/api/debrid-accounts`, `/api/debrid`) has no env var and
+is always available — it opens no listening port and holds no local state until the admin adds an
+account (with its API key) via the admin UI. Resolving a magnet/hash produces direct provider CDN
+stream URLs with no local download step, so playback of debrid content requires no download disk
+space.
+
 ### Running components natively (without Docker)
 
 ```bash
