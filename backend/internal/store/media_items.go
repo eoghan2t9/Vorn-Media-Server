@@ -23,14 +23,18 @@ type MediaItem struct {
 	MetadataLocked bool
 	AddedAt        time.Time
 	UpdatedAt      time.Time
+	PosterURL      string
+	BackdropURL    string
 }
 
 const mediaItemColumns = `id, library_id, parent_id, kind, title, sort_title, overview, season_number, episode_number,
-	release_date, path, tmdb_id, metadata_locked, added_at, updated_at`
+	release_date, path, tmdb_id, metadata_locked, added_at, updated_at,
+	coalesce(metadata->>'posterUrl', ''), coalesce(metadata->>'backdropUrl', '')`
 
 func scanMediaItem(row interface{ Scan(...any) error }, m *MediaItem) error {
 	return row.Scan(&m.ID, &m.LibraryID, &m.ParentID, &m.Kind, &m.Title, &m.SortTitle, &m.Overview,
-		&m.SeasonNumber, &m.EpisodeNumber, &m.ReleaseDate, &m.Path, &m.TmdbID, &m.MetadataLocked, &m.AddedAt, &m.UpdatedAt)
+		&m.SeasonNumber, &m.EpisodeNumber, &m.ReleaseDate, &m.Path, &m.TmdbID, &m.MetadataLocked, &m.AddedAt, &m.UpdatedAt,
+		&m.PosterURL, &m.BackdropURL)
 }
 
 // findOrCreateMediaItem looks up a media item by its natural identity

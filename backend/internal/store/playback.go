@@ -47,6 +47,7 @@ func (s *Store) ListContinueWatching(userID string, isAdmin bool, limit int) ([]
 	query := `
 		SELECT m.id, m.library_id, m.parent_id, m.kind, m.title, m.sort_title, m.overview,
 		       m.season_number, m.episode_number, m.release_date, m.path, m.tmdb_id, m.metadata_locked, m.added_at, m.updated_at,
+		       coalesce(m.metadata->>'posterUrl', ''), coalesce(m.metadata->>'backdropUrl', ''),
 		       p.position_seconds, p.duration_seconds, p.updated_at
 		FROM playback_state p
 		JOIN media_items m ON m.id = p.media_item_id
@@ -70,6 +71,7 @@ func (s *Store) ListContinueWatching(userID string, isAdmin bool, limit int) ([]
 		p := PlaybackState{}
 		if err := rows.Scan(&m.ID, &m.LibraryID, &m.ParentID, &m.Kind, &m.Title, &m.SortTitle, &m.Overview,
 			&m.SeasonNumber, &m.EpisodeNumber, &m.ReleaseDate, &m.Path, &m.TmdbID, &m.MetadataLocked, &m.AddedAt, &m.UpdatedAt,
+			&m.PosterURL, &m.BackdropURL,
 			&p.PositionSeconds, &p.DurationSeconds, &p.UpdatedAt); err != nil {
 			return nil, err
 		}
