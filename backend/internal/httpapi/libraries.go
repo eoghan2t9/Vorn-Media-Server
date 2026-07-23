@@ -91,6 +91,18 @@ func (s *Server) handleGetLibrary(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, toLibraryResponse(lib))
 }
 
+// validLibraryTypes are the library "type" values the scanner/metadata/
+// player pipeline knows about. Music and audiobook libraries can be created
+// today but only get as far as folder scanning finding zero items -- the
+// scanner only recognizes video file extensions (see scanner.videoExtensions)
+// and there's no music/audiobook metadata provider or non-video player yet.
+var validLibraryTypes = map[string]bool{
+	"movie":     true,
+	"series":    true,
+	"music":     true,
+	"audiobook": true,
+}
+
 type createLibraryRequest struct {
 	Name    string   `json:"name"`
 	Type    string   `json:"type"`
@@ -103,8 +115,8 @@ func (s *Server) handleCreateLibrary(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if req.Name == "" || (req.Type != "movie" && req.Type != "series") || len(req.Folders) == 0 {
-		writeError(w, http.StatusBadRequest, "name, type ('movie' or 'series'), and at least one folder are required")
+	if req.Name == "" || !validLibraryTypes[req.Type] || len(req.Folders) == 0 {
+		writeError(w, http.StatusBadRequest, "name, a valid type (movie, series, music, or audiobook), and at least one folder are required")
 		return
 	}
 

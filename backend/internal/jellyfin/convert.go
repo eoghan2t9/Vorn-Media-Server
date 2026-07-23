@@ -25,8 +25,13 @@ func itemType(kind string) string {
 // CollectionFolder shown on the client's home screen).
 func LibraryItem(l *store.Library, serverID string) BaseItemDto {
 	collectionType := "tvshows"
-	if l.Type == "movie" {
+	switch l.Type {
+	case "movie":
 		collectionType = "movies"
+	case "music":
+		collectionType = "music"
+	case "audiobook":
+		collectionType = "books"
 	}
 	return BaseItemDto{
 		Id:             l.ID,

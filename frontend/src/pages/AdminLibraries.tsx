@@ -9,6 +9,7 @@ import {
   startLibraryScan,
   startMetadataSync,
   type Library,
+  type LibraryType,
   type MetadataJob,
   type ScanJob,
 } from '../api/client'
@@ -24,7 +25,7 @@ export function AdminLibraries() {
   const [error, setError] = useState<string | null>(null)
 
   const [name, setName] = useState('')
-  const [type, setType] = useState<'movie' | 'series'>('movie')
+  const [type, setType] = useState<LibraryType>('movie')
   const [folder, setFolder] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [browserOpen, setBrowserOpen] = useState(false)
@@ -166,10 +167,12 @@ export function AdminLibraries() {
           <input placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} required />
           <Select
             value={type}
-            onChange={(v) => setType(v as 'movie' | 'series')}
+            onChange={(v) => setType(v as LibraryType)}
             options={[
               { value: 'movie', label: 'Movies' },
               { value: 'series', label: 'Series' },
+              { value: 'music', label: 'Music' },
+              { value: 'audiobook', label: 'Audiobooks' },
             ]}
           />
           <input
@@ -187,6 +190,12 @@ export function AdminLibraries() {
             {submitting ? 'Adding…' : 'Add library'}
           </button>
         </form>
+        {(type === 'music' || type === 'audiobook') && (
+          <p className="vorn-panel-subtitle" style={{ margin: '0.75rem 0 0' }}>
+            Music and audiobook libraries can be created, but scanning only recognizes video files today — this
+            library will show 0 items until audio scanning and metadata matching are added.
+          </p>
+        )}
       </div>
 
       {browserOpen && (

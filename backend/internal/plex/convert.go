@@ -35,8 +35,11 @@ func itemType(kind string) string {
 // DirectoryFromLibrary converts a Vorn library into a Plex library section.
 func DirectoryFromLibrary(l *store.Library) Directory {
 	sectionType := "show"
-	if l.Type == "movie" {
+	switch l.Type {
+	case "movie":
 		sectionType = "movie"
+	case "music", "audiobook":
+		sectionType = "artist"
 	}
 	return Directory{
 		Key:   l.ID,

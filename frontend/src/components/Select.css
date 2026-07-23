@@ -4,6 +4,16 @@
   min-width: 10rem;
 }
 
+/* Matches the breakpoint every other inline-form field already uses (see
+   AdminUsers.css) so the whole row reflows to one full-width field per line
+   at the same point, instead of this one field switching earlier/later. */
+@media (max-width: 480px) {
+  .vorn-select {
+    min-width: 0;
+    width: 100%;
+  }
+}
+
 .vorn-select-trigger {
   display: flex;
   align-items: center;
@@ -63,6 +73,9 @@
   list-style: none;
   max-height: 16rem;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
   background: var(--vorn-bg-glass);
   backdrop-filter: blur(16px) saturate(150%);
   -webkit-backdrop-filter: blur(16px) saturate(150%);

@@ -13,10 +13,12 @@ export interface User {
   createdAt: string
 }
 
+export type LibraryType = 'movie' | 'series' | 'music' | 'audiobook'
+
 export interface Library {
   id: string
   name: string
-  type: 'movie' | 'series'
+  type: LibraryType
   folders: string[]
 }
 
@@ -95,7 +97,7 @@ export const getLibrary = (id: string) => request<Library>(`/api/libraries/${id}
 
 export interface CreateLibraryInput {
   name: string
-  type: 'movie' | 'series'
+  type: LibraryType
   folders: string[]
 }
 export const createLibrary = (input: CreateLibraryInput) =>

@@ -9,7 +9,7 @@ import (
 type Library struct {
 	ID        string
 	Name      string
-	Type      string // "movie" | "series"
+	Type      string // "movie" | "series" | "music" | "audiobook" (see httpapi.validLibraryTypes)
 	CreatedAt time.Time
 	Folders   []string
 }
