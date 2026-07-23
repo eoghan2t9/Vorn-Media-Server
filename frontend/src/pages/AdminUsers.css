@@ -132,7 +132,11 @@
   box-shadow: var(--vorn-glow);
 }
 
-.vorn-inline-form button {
+/* Direct children only -- a plain descendant selector here would also catch
+   buttons belonging to components nested inside the form (Select's option
+   list, MultiSelect's checkboxes, ...), painting every dropdown option like
+   a gradient submit button instead of a plain list row. */
+.vorn-inline-form > button {
   padding: 0.5rem 0.9rem;
   border-radius: 0.5rem;
   border: none;
@@ -143,7 +147,7 @@
   transition: box-shadow var(--vorn-transition), transform var(--vorn-transition);
 }
 
-.vorn-inline-form button:hover:not(:disabled) {
+.vorn-inline-form > button:hover:not(:disabled) {
   box-shadow: 0 8px 22px rgba(139, 92, 246, 0.35);
   transform: translateY(-1px);
 }
@@ -199,7 +203,7 @@
   transform: translateY(-1px);
 }
 
-.vorn-inline-form button.vorn-btn-danger,
+.vorn-inline-form > button.vorn-btn-danger,
 .vorn-btn-danger {
   border-color: rgba(248, 113, 113, 0.35);
   color: #f87171;
@@ -207,7 +211,7 @@
   box-shadow: none;
 }
 
-.vorn-inline-form button.vorn-btn-danger:hover:not(:disabled),
+.vorn-inline-form > button.vorn-btn-danger:hover:not(:disabled),
 .vorn-btn-danger:hover:not(:disabled) {
   border-color: #f87171;
   background: rgba(248, 113, 113, 0.1);
