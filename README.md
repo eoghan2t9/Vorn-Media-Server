@@ -38,7 +38,7 @@ Tracked in phases; each phase is delivered as a runnable increment with its own 
       (profile/stats/search), continue-watching, per-library filters.
 - [x] **Phase 4 — Metadata sync**: TMDb-backed art/trailers, manual metadata override.
 - [x] **Phase 5 — Transcoder**: ffmpeg/ffprobe wrapper, GPU capability probing, on-the-fly HLS.
-- [ ] **Phase 6 — Player**: resume playback, autoplay-next-episode, currently-watching admin view.
+- [x] **Phase 6 — Player**: resume playback, autoplay-next-episode, currently-watching admin view.
 - [ ] **Phase 7 — Torrent acquisition**: streaming-while-downloading torrent client, auto-add.
 - [ ] **Phase 8 — NZB & debrid acquisition**: Usenet client, Real-Debrid/TorBox direct streaming.
 - [ ] **Phase 9 — Client API compatibility**: Jellyfin, then Emby, then Plex.
