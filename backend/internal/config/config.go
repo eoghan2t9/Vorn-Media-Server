@@ -20,6 +20,8 @@ type Config struct {
 	TorrentEnabled       bool
 	TorrentDownloadDir   string
 	TorrentPeerPort      int
+	NZBEnabled           bool
+	NZBDownloadDir       string
 }
 
 func Load() Config {
@@ -35,6 +37,8 @@ func Load() Config {
 		TorrentEnabled:       getBoolEnv("VORN_TORRENT_ENABLED", false),
 		TorrentDownloadDir:   getEnv("VORN_TORRENT_DOWNLOAD_DIR", "./data/downloads"),
 		TorrentPeerPort:      getIntEnv("VORN_TORRENT_PEER_PORT", 0),
+		NZBEnabled:           getBoolEnv("VORN_NZB_ENABLED", false),
+		NZBDownloadDir:       getEnv("VORN_NZB_DOWNLOAD_DIR", "./data/nzb-downloads"),
 	}
 }
 
@@ -70,6 +74,6 @@ func getIntEnv(key string, fallback int) int {
 }
 
 func (c Config) String() string {
-	return fmt.Sprintf("http_addr=%s postgres=<redacted> dragonfly=%s cors_origin=%s dev_mode=%v tmdb_configured=%v transcode_max_sessions=%d torrent_enabled=%v",
-		c.HTTPAddr, c.DragonflyAddr, c.CORSOrigin, c.DevMode, c.TMDbAPIKey != "", c.TranscodeMaxSessions, c.TorrentEnabled)
+	return fmt.Sprintf("http_addr=%s postgres=<redacted> dragonfly=%s cors_origin=%s dev_mode=%v tmdb_configured=%v transcode_max_sessions=%d torrent_enabled=%v nzb_enabled=%v",
+		c.HTTPAddr, c.DragonflyAddr, c.CORSOrigin, c.DevMode, c.TMDbAPIKey != "", c.TranscodeMaxSessions, c.TorrentEnabled, c.NZBEnabled)
 }

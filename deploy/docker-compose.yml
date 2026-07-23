@@ -42,6 +42,8 @@ services:
       VORN_DRAGONFLY_ADDR: "dragonfly:6379"
       VORN_TORRENT_ENABLED: "${VORN_TORRENT_ENABLED:-false}"
       VORN_TORRENT_DOWNLOAD_DIR: "/downloads"
+      VORN_NZB_ENABLED: "${VORN_NZB_ENABLED:-false}"
+      VORN_NZB_DOWNLOAD_DIR: "/nzb-downloads"
     ports:
       - "8080:8080"
       - "${VORN_TORRENT_PEER_PORT:-42069}:42069/tcp"
@@ -49,6 +51,7 @@ services:
     volumes:
       - ${VORN_LIBRARY_PATH:-./data/library}:/media:ro
       - ${VORN_TORRENT_DOWNLOAD_PATH:-./data/downloads}:/downloads
+      - ${VORN_NZB_DOWNLOAD_PATH:-./data/nzb-downloads}:/nzb-downloads
     # --- GPU passthrough (uncomment the block matching your hardware) ---
     #
     # Nvidia (requires the NVIDIA Container Toolkit on the host):

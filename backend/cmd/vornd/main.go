@@ -11,6 +11,7 @@ import (
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/httpapi"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/metadata"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/migrate"
+	"github.com/eoghan2t9/vorn-media-server/backend/internal/nzb"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/scanner"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/store"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/torrent"
@@ -74,12 +75,23 @@ func main() {
 		log.Print("VORN_TORRENT_ENABLED not set: torrent acquisition is disabled")
 	}
 
+	var nzbSvc *nzb.Service
+	if cfg.NZBEnabled {
+		nzbSvc, err = nzb.NewService(st, cfg.NZBDownloadDir)
+		if err != nil {
+			log.Fatalf("starting nzb service: %v", err)
+		}
+	} else {
+		log.Print("VORN_NZB_ENABLED not set: NZB acquisition is disabled")
+	}
+
 	router := httpapi.NewRouter(httpapi.Deps{
 		Store:        st,
 		Scanner:      scanSvc,
 		Metadata:     metadataSvc,
 		TranscodeMgr: transcodeMgr,
 		Torrent:      torrentSvc,
+		NZB:          nzbSvc,
 		CORSOrigin:   cfg.CORSOrigin,
 		DevMode:      cfg.DevMode,
 	})

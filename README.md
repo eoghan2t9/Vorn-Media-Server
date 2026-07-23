@@ -95,6 +95,12 @@ docker compose -f deploy/docker-compose.yml up --build
   host bind mount).
 - `VORN_TORRENT_PEER_PORT` — TCP/uTP port for incoming peer connections (default: the
   anacrolix/torrent library default, 42069).
+- `VORN_NZB_ENABLED=true` — enables NZB/Usenet acquisition (`/api/nzb`, `/api/usenet-servers`). Off
+  by default; requires at least one enabled Usenet server to be configured via the admin UI before
+  any download can start.
+- `VORN_NZB_DOWNLOAD_DIR` — where NZB downloads are saved and par2-repaired (default:
+  `./data/nzb-downloads`; the Docker Compose backend service always uses `/nzb-downloads`, backed
+  by the `VORN_NZB_DOWNLOAD_PATH` host bind mount).
 
 ### Running components natively (without Docker)
 

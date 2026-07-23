@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/metadata"
+	"github.com/eoghan2t9/vorn-media-server/backend/internal/nzb"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/scanner"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/store"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/torrent"
@@ -24,6 +25,7 @@ type Deps struct {
 	Metadata     *metadata.Service
 	TranscodeMgr *transcode.Manager
 	Torrent      *torrent.Service
+	NZB          *nzb.Service
 	CORSOrigin   string
 	DevMode      bool
 }
@@ -34,6 +36,7 @@ type Server struct {
 	metadataSvc  *metadata.Service
 	transcodeMgr *transcode.Manager
 	torrentSvc   *torrent.Service
+	nzbSvc       *nzb.Service
 	devMode      bool
 }
 
@@ -44,6 +47,7 @@ func NewServer(deps Deps) *Server {
 		metadataSvc:  deps.Metadata,
 		transcodeMgr: deps.TranscodeMgr,
 		torrentSvc:   deps.Torrent,
+		nzbSvc:       deps.NZB,
 		devMode:      deps.DevMode,
 	}
 }
@@ -107,6 +111,13 @@ func NewRouter(deps Deps) http.Handler {
 	mux.HandleFunc("GET /api/torrent-indexers", s.withAdmin(s.handleListTorrentIndexers))
 	mux.HandleFunc("POST /api/torrent-indexers", s.withAdmin(s.handleCreateTorrentIndexer))
 	mux.HandleFunc("DELETE /api/torrent-indexers/{id}", s.withAdmin(s.handleDeleteTorrentIndexer))
+
+	mux.HandleFunc("GET /api/nzb", s.withAdmin(s.handleListNZBDownloads))
+	mux.HandleFunc("POST /api/nzb", s.withAdmin(s.handleAddNZB))
+	mux.HandleFunc("DELETE /api/nzb/{id}", s.withAdmin(s.handleRemoveNZB))
+	mux.HandleFunc("GET /api/usenet-servers", s.withAdmin(s.handleListUsenetServers))
+	mux.HandleFunc("POST /api/usenet-servers", s.withAdmin(s.handleCreateUsenetServer))
+	mux.HandleFunc("DELETE /api/usenet-servers/{id}", s.withAdmin(s.handleDeleteUsenetServer))
 
 	return withCORS(mux, deps.CORSOrigin)
 }
