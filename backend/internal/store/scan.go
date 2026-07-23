@@ -103,6 +103,8 @@ type ScanFileInsert struct {
 	GuessedYear   *int
 	SeasonNumber  *int
 	EpisodeNumber *int
+	GuessedArtist string // music/audiobook only
+	GuessedAlbum  string // music (album) / audiobook (book title) only
 }
 
 // UpsertScanFiles batch-inserts discovered file candidates in a single
@@ -115,17 +117,18 @@ func (s *Store) UpsertScanFiles(batch []ScanFileInsert) error {
 
 	var sb strings.Builder
 	sb.WriteString(`INSERT INTO scan_files
-		(library_id, scan_job_id, path, size_bytes, modified_at, guessed_kind, guessed_title, guessed_year, season_number, episode_number)
+		(library_id, scan_job_id, path, size_bytes, modified_at, guessed_kind, guessed_title, guessed_year, season_number, episode_number, guessed_artist, guessed_album)
 		VALUES `)
-	args := make([]any, 0, len(batch)*10)
+	args := make([]any, 0, len(batch)*12)
 	for i, f := range batch {
 		if i > 0 {
 			sb.WriteString(",")
 		}
-		base := i * 10
-		sb.WriteString(placeholders(base+1, 10))
+		base := i * 12
+		sb.WriteString(placeholders(base+1, 12))
 		args = append(args, f.LibraryID, f.ScanJobID, f.Path, f.SizeBytes, f.ModifiedAt,
-			f.GuessedKind, f.GuessedTitle, f.GuessedYear, f.SeasonNumber, f.EpisodeNumber)
+			f.GuessedKind, f.GuessedTitle, f.GuessedYear, f.SeasonNumber, f.EpisodeNumber,
+			f.GuessedArtist, f.GuessedAlbum)
 	}
 	sb.WriteString(` ON CONFLICT (library_id, path) DO UPDATE SET
 		scan_job_id = EXCLUDED.scan_job_id,
@@ -135,7 +138,9 @@ func (s *Store) UpsertScanFiles(batch []ScanFileInsert) error {
 		guessed_title = EXCLUDED.guessed_title,
 		guessed_year = EXCLUDED.guessed_year,
 		season_number = EXCLUDED.season_number,
-		episode_number = EXCLUDED.episode_number`)
+		episode_number = EXCLUDED.episode_number,
+		guessed_artist = EXCLUDED.guessed_artist,
+		guessed_album = EXCLUDED.guessed_album`)
 
 	_, err := s.db.Exec(sb.String(), args...)
 	return err

@@ -99,7 +99,7 @@ func (s *Server) handleGetItem(w http.ResponseWriter, r *http.Request) {
 	}
 	resp := itemDetailResponse{mediaItemResponse: toMediaItemResponse(item)}
 
-	if item.Kind == "series" || item.Kind == "season" {
+	if item.Kind == "series" || item.Kind == "season" || item.Kind == "artist" || item.Kind == "album" || item.Kind == "book" {
 		children, err := s.store.ListChildren(item.ID)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "loading children")

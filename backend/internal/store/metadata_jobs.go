@@ -66,11 +66,15 @@ func (s *Store) GetMetadataSyncJob(id string) (*MetadataSyncJob, error) {
 }
 
 // ListItemsNeedingMetadata returns top-level movies/series in a library that
-// haven't been matched to a provider yet and aren't manually locked.
+// haven't been matched to a provider yet and aren't manually locked. Scoped
+// to kind IN ('movie','series') -- there's no metadata provider for
+// artist/album/audiobook/book yet (see metadata.Provider), so those kinds
+// would otherwise show up here forever with no way to ever get matched.
 func (s *Store) ListItemsNeedingMetadata(libraryID string) ([]*MediaItem, error) {
 	rows, err := s.db.Query(
 		`SELECT `+mediaItemColumns+` FROM media_items
-		 WHERE library_id = $1 AND parent_id IS NULL AND tmdb_id IS NULL AND metadata_locked = false`,
+		 WHERE library_id = $1 AND parent_id IS NULL AND kind IN ('movie', 'series')
+		   AND tmdb_id IS NULL AND metadata_locked = false`,
 		libraryID,
 	)
 	if err != nil {

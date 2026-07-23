@@ -11,7 +11,7 @@ type MediaItem struct {
 	ID             string
 	LibraryID      string
 	ParentID       *string
-	Kind           string // "movie" | "series" | "season" | "episode"
+	Kind           string // "movie" | "series" | "season" | "episode" | "artist" | "album" | "track" | "audiobook" | "book" | "chapter"
 	Title          string
 	SortTitle      string
 	Overview       string
@@ -135,6 +135,111 @@ func (s *Store) PromoteEpisode(in PromoteEpisodeInput) (string, error) {
 	return episodeID, tx.Commit()
 }
 
+type PromoteTrackInput struct {
+	LibraryID   string
+	Artist      string
+	Album       string
+	Title       string
+	TrackNumber int // 0 if unknown
+	Path        string
+}
+
+// PromoteTrack finds-or-creates an artist -> album -> track chain, mirroring
+// PromoteEpisode's series -> season -> episode pattern. TrackNumber reuses
+// the episode_number column (see the 000008 migration) purely as "position
+// within parent" -- ListChildren already orders by it.
+func (s *Store) PromoteTrack(in PromoteTrackInput) (string, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback()
+
+	artistID, err := findOrCreateMediaItem(tx, in.LibraryID, nil, "artist", in.Artist, in.Artist, "", nil, nil)
+	if err != nil {
+		return "", err
+	}
+	albumID, err := findOrCreateMediaItem(tx, in.LibraryID, &artistID, "album", in.Album, in.Album, "", nil, nil)
+	if err != nil {
+		return "", err
+	}
+
+	var trackNum *int
+	if in.TrackNumber > 0 {
+		n := in.TrackNumber
+		trackNum = &n
+	}
+	title := in.Title
+	if title == "" {
+		title = fmt.Sprintf("Track %d", in.TrackNumber)
+	}
+	trackID, err := findOrCreateMediaItem(tx, in.LibraryID, &albumID, "track", title, title, in.Path, nil, trackNum)
+	if err != nil {
+		return "", err
+	}
+
+	return trackID, tx.Commit()
+}
+
+type PromoteAudiobookInput struct {
+	LibraryID string
+	Title     string
+	Path      string
+}
+
+// PromoteAudiobook creates a flat, directly-playable item for a single-file
+// audiobook -- the "book" and "chapter" kinds are only used when a book has
+// more than one file (see PromoteChapter).
+func (s *Store) PromoteAudiobook(in PromoteAudiobookInput) (string, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback()
+
+	id, err := findOrCreateMediaItem(tx, in.LibraryID, nil, "audiobook", in.Title, in.Title, in.Path, nil, nil)
+	if err != nil {
+		return "", err
+	}
+	return id, tx.Commit()
+}
+
+type PromoteChapterInput struct {
+	LibraryID     string
+	BookTitle     string
+	ChapterNumber int
+	ChapterTitle  string
+	Path          string
+}
+
+// PromoteChapter finds-or-creates a "book" parent (used only for multi-file
+// audiobooks) and a "chapter" child under it. ChapterNumber reuses
+// episode_number the same way PromoteTrack reuses it for track number.
+func (s *Store) PromoteChapter(in PromoteChapterInput) (string, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback()
+
+	bookID, err := findOrCreateMediaItem(tx, in.LibraryID, nil, "book", in.BookTitle, in.BookTitle, "", nil, nil)
+	if err != nil {
+		return "", err
+	}
+
+	num := in.ChapterNumber
+	title := in.ChapterTitle
+	if title == "" {
+		title = fmt.Sprintf("Chapter %d", num)
+	}
+	chapterID, err := findOrCreateMediaItem(tx, in.LibraryID, &bookID, "chapter", title, title, in.Path, nil, &num)
+	if err != nil {
+		return "", err
+	}
+
+	return chapterID, tx.Commit()
+}
+
 func seasonDisplayTitle(season int) string {
 	return fmt.Sprintf("Season %d", season)
 }
@@ -156,11 +261,13 @@ type UnmatchedScanFile struct {
 	GuessedYear   *int
 	SeasonNumber  *int
 	EpisodeNumber *int
+	GuessedArtist string
+	GuessedAlbum  string
 }
 
 func (s *Store) ListUnmatchedScanFiles(libraryID string) ([]*UnmatchedScanFile, error) {
 	rows, err := s.db.Query(
-		`SELECT id, path, guessed_kind, guessed_title, guessed_year, season_number, episode_number
+		`SELECT id, path, guessed_kind, guessed_title, guessed_year, season_number, episode_number, guessed_artist, guessed_album
 		 FROM scan_files WHERE library_id = $1 AND matched = false`,
 		libraryID,
 	)
@@ -172,7 +279,7 @@ func (s *Store) ListUnmatchedScanFiles(libraryID string) ([]*UnmatchedScanFile, 
 	var out []*UnmatchedScanFile
 	for rows.Next() {
 		f := &UnmatchedScanFile{}
-		if err := rows.Scan(&f.ID, &f.Path, &f.GuessedKind, &f.GuessedTitle, &f.GuessedYear, &f.SeasonNumber, &f.EpisodeNumber); err != nil {
+		if err := rows.Scan(&f.ID, &f.Path, &f.GuessedKind, &f.GuessedTitle, &f.GuessedYear, &f.SeasonNumber, &f.EpisodeNumber, &f.GuessedArtist, &f.GuessedAlbum); err != nil {
 			return nil, err
 		}
 		out = append(out, f)

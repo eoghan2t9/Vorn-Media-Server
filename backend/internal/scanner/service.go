@@ -1,6 +1,6 @@
-// Package scanner discovers video files (from real disk or a synthetic
-// generator), stages them in DragonflyDB, and flushes them in batches into
-// Postgres as scan_files candidates for later metadata matching.
+// Package scanner discovers video and audio files (from real disk or a
+// synthetic generator), stages them in DragonflyDB, and flushes them in
+// batches into Postgres as scan_files candidates for later metadata matching.
 package scanner
 
 import (
@@ -40,9 +40,13 @@ func (svc *Service) StartLibraryScan(library *store.Library) (*store.ScanJob, er
 	if err != nil {
 		return nil, err
 	}
-	go svc.run(job, func(ctx context.Context, found *atomic.Int64) {
+	isMediaFile := IsVideoFile
+	if library.Type == "music" || library.Type == "audiobook" {
+		isMediaFile = IsAudioFile
+	}
+	go svc.run(job, library.Type, func(ctx context.Context, found *atomic.Int64) {
 		workers := runtime.NumCPU() * 4
-		WalkConcurrent(library.Folders, workers, func(f DiscoveredFile) {
+		WalkConcurrent(library.Folders, workers, isMediaFile, func(f DiscoveredFile) {
 			found.Add(1)
 			if err := svc.queue.Push(ctx, job.ID, QueuedFile{Path: f.Path, SizeBytes: f.SizeBytes, ModifiedAt: f.ModifiedAt}); err != nil {
 				log.Printf("scanner: pushing discovered file: %v", err)
@@ -60,7 +64,7 @@ func (svc *Service) StartSyntheticScan(libraryID string, count int) (*store.Scan
 	if err != nil {
 		return nil, err
 	}
-	go svc.run(job, func(ctx context.Context, found *atomic.Int64) {
+	go svc.run(job, "movie", func(ctx context.Context, found *atomic.Int64) {
 		generateSynthetic(ctx, svc.queue, job.ID, count, found)
 	})
 	return job, nil
@@ -70,7 +74,7 @@ func (svc *Service) StartSyntheticScan(libraryID string, count int) (*store.Scan
 // background while this loop periodically flushes the staging queue into
 // Postgres, then drains whatever's left as fast as possible once the
 // producer signals it's done.
-func (svc *Service) run(job *store.ScanJob, produce func(ctx context.Context, found *atomic.Int64)) {
+func (svc *Service) run(job *store.ScanJob, libraryType string, produce func(ctx context.Context, found *atomic.Int64)) {
 	ctx := context.Background()
 	var found atomic.Int64
 	var synced atomic.Int64
@@ -90,13 +94,13 @@ waitForProducer:
 		case <-producerDone:
 			break waitForProducer
 		case <-ticker.C:
-			svc.drainAvailable(ctx, job, &synced)
+			svc.drainAvailable(ctx, job, libraryType, &synced)
 			svc.updateProgress(job, &found, &synced)
 		}
 	}
 
 	// Producer has finished; drain whatever it queued right at the end.
-	svc.drainAvailable(ctx, job, &synced)
+	svc.drainAvailable(ctx, job, libraryType, &synced)
 	svc.updateProgress(job, &found, &synced)
 
 	if err := svc.queue.Delete(ctx, job.ID); err != nil {
@@ -117,9 +121,9 @@ waitForProducer:
 }
 
 // drainAvailable flushes batches until the staging queue is (momentarily) empty.
-func (svc *Service) drainAvailable(ctx context.Context, job *store.ScanJob, synced *atomic.Int64) {
+func (svc *Service) drainAvailable(ctx context.Context, job *store.ScanJob, libraryType string, synced *atomic.Int64) {
 	for {
-		n, err := svc.flushBatch(ctx, job)
+		n, err := svc.flushBatch(ctx, job, libraryType)
 		if err != nil {
 			log.Printf("scanner: flushing batch for job %s: %v", job.ID, err)
 			return
@@ -137,7 +141,7 @@ func (svc *Service) updateProgress(job *store.ScanJob, found, synced *atomic.Int
 	}
 }
 
-func (svc *Service) flushBatch(ctx context.Context, job *store.ScanJob) (int, error) {
+func (svc *Service) flushBatch(ctx context.Context, job *store.ScanJob, libraryType string) (int, error) {
 	files, err := svc.queue.PopBatch(ctx, job.ID, flushBatchSize)
 	if err != nil {
 		return 0, err
@@ -146,8 +150,31 @@ func (svc *Service) flushBatch(ctx context.Context, job *store.ScanJob) (int, er
 		return 0, nil
 	}
 
+	isAudio := libraryType == "music" || libraryType == "audiobook"
+
 	batch := make([]store.ScanFileInsert, 0, len(files))
 	for _, f := range files {
+		if isAudio {
+			parsed := ParseAudioFile(f.Path, libraryType)
+			insert := store.ScanFileInsert{
+				LibraryID:     job.LibraryID,
+				ScanJobID:     job.ID,
+				Path:          f.Path,
+				SizeBytes:     f.SizeBytes,
+				ModifiedAt:    &f.ModifiedAt,
+				GuessedKind:   parsed.Kind,
+				GuessedTitle:  parsed.Title,
+				GuessedArtist: parsed.Artist,
+				GuessedAlbum:  parsed.Album,
+			}
+			if parsed.TrackNumber > 0 {
+				track := parsed.TrackNumber
+				insert.EpisodeNumber = &track
+			}
+			batch = append(batch, insert)
+			continue
+		}
+
 		parsed := ParseFilename(f.Path)
 		insert := store.ScanFileInsert{
 			LibraryID:    job.LibraryID,

@@ -74,9 +74,10 @@ func (q *dirQueue) finish() {
 
 // WalkConcurrent recursively walks roots, fanning directory reads out across
 // workers so large libraries scan in parallel rather than one directory at a
-// time. Discovered video files are sent to emit, which must be safe to call
-// concurrently.
-func WalkConcurrent(roots []string, workers int, emit func(DiscoveredFile)) {
+// time. Files for which isMediaFile returns true are sent to emit, which
+// must be safe to call concurrently. Pass IsVideoFile or IsAudioFile
+// depending on the library's type.
+func WalkConcurrent(roots []string, workers int, isMediaFile func(name string) bool, emit func(DiscoveredFile)) {
 	if len(roots) == 0 {
 		return
 	}
@@ -102,7 +103,7 @@ func WalkConcurrent(roots []string, workers int, emit func(DiscoveredFile)) {
 						q.push(full)
 						continue
 					}
-					if !IsVideoFile(entry.Name()) {
+					if !isMediaFile(entry.Name()) {
 						continue
 					}
 					info, err := entry.Info()

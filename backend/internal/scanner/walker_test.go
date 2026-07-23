@@ -19,7 +19,7 @@ func TestWalkConcurrentFindsVideoFiles(t *testing.T) {
 
 	var mu sync.Mutex
 	var found []string
-	WalkConcurrent([]string{root}, 4, func(f DiscoveredFile) {
+	WalkConcurrent([]string{root}, 4, IsVideoFile, func(f DiscoveredFile) {
 		mu.Lock()
 		found = append(found, f.Path)
 		mu.Unlock()
@@ -30,10 +30,30 @@ func TestWalkConcurrentFindsVideoFiles(t *testing.T) {
 	}
 }
 
+func TestWalkConcurrentFindsAudioFiles(t *testing.T) {
+	root := t.TempDir()
+	mustWriteFile(t, filepath.Join(root, "Artist", "Album", "01 Track.mp3"))
+	mustWriteFile(t, filepath.Join(root, "Artist", "Album", "02 Track.flac"))
+	mustWriteFile(t, filepath.Join(root, "Artist", "Album", "cover.jpg"))
+	mustWriteFile(t, filepath.Join(root, "Book", "Chapter 1.m4b"))
+
+	var mu sync.Mutex
+	var found []string
+	WalkConcurrent([]string{root}, 4, IsAudioFile, func(f DiscoveredFile) {
+		mu.Lock()
+		found = append(found, f.Path)
+		mu.Unlock()
+	})
+
+	if len(found) != 3 {
+		t.Fatalf("expected 3 audio files, got %d: %v", len(found), found)
+	}
+}
+
 func TestWalkConcurrentEmptyRoots(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
-		WalkConcurrent(nil, 4, func(DiscoveredFile) {})
+		WalkConcurrent(nil, 4, IsVideoFile, func(DiscoveredFile) {})
 		close(done)
 	}()
 	select {
@@ -59,7 +79,7 @@ func TestWalkConcurrentHighFanOut(t *testing.T) {
 	var mu sync.Mutex
 	done := make(chan struct{})
 	go func() {
-		WalkConcurrent([]string{root}, 2, func(DiscoveredFile) {
+		WalkConcurrent([]string{root}, 2, IsVideoFile, func(DiscoveredFile) {
 			mu.Lock()
 			count++
 			mu.Unlock()

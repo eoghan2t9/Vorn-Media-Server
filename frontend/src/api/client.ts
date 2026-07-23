@@ -143,7 +143,7 @@ export interface MediaItem {
   id: string
   libraryId: string
   parentId?: string
-  kind: 'movie' | 'series' | 'season' | 'episode'
+  kind: 'movie' | 'series' | 'season' | 'episode' | 'artist' | 'album' | 'track' | 'audiobook' | 'book' | 'chapter'
   title: string
   overview?: string
   seasonNumber?: number

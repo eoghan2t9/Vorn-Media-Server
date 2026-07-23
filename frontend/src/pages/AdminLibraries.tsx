@@ -192,8 +192,9 @@ export function AdminLibraries() {
         </form>
         {(type === 'music' || type === 'audiobook') && (
           <p className="vorn-panel-subtitle" style={{ margin: '0.75rem 0 0' }}>
-            Music and audiobook libraries can be created, but scanning only recognizes video files today — this
-            library will show 0 items until audio scanning and metadata matching are added.
+            Title/artist/album metadata is read from each file's embedded tags — there's no external
+            metadata/cover-art provider for {type === 'music' ? 'music' : 'audiobooks'} yet, so items will show a
+            plain fallback poster until one is added.
           </p>
         )}
       </div>

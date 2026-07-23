@@ -81,7 +81,11 @@ export function ItemDetail() {
           <div className="vorn-detail-info">
             <h1>{item.title}</h1>
             {item.releaseDate && <p className="vorn-detail-year">{item.releaseDate.slice(0, 4)}</p>}
-            {(item.kind === 'movie' || item.kind === 'episode') && (
+            {(item.kind === 'movie' ||
+              item.kind === 'episode' ||
+              item.kind === 'track' ||
+              item.kind === 'audiobook' ||
+              item.kind === 'chapter') && (
               <Link to={`/watch/${item.id}`} className="vorn-play-button">
                 ▶ Play
               </Link>
