@@ -14,7 +14,6 @@ export function AdminHome() {
   return (
     <section>
       <h1>Admin</h1>
-      <p>Downloads and other server tools land here in later phases.</p>
       <p>
         <Link to="/admin/libraries">Manage libraries →</Link>
       </p>
@@ -23,6 +22,9 @@ export function AdminHome() {
       </p>
       <p>
         <Link to="/admin/currently-watching">Currently watching →</Link>
+      </p>
+      <p>
+        <Link to="/admin/torrents">Torrents →</Link>
       </p>
 
       <h2>Transcoder</h2>

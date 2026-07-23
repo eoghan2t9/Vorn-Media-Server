@@ -229,6 +229,74 @@ export interface CurrentlyWatchingEntry {
 }
 export const listCurrentlyWatching = () => request<CurrentlyWatchingEntry[]>('/api/admin/currently-watching')
 
+export interface Torrent {
+  id: string
+  libraryId?: string
+  infoHash: string
+  name: string
+  sequential: boolean
+  status: 'downloading' | 'seeding' | 'completed' | 'error' | 'removed'
+  bytesTotal: number
+  bytesDone: number
+  error?: string
+  addedAt: string
+  completedAt?: string
+}
+export const listTorrents = () => request<Torrent[]>('/api/torrents')
+
+export interface AddMagnetInput {
+  magnetUri: string
+  libraryId?: string
+  sequential?: boolean
+}
+export const addMagnet = (input: AddMagnetInput) =>
+  request<Torrent>('/api/torrents', { method: 'POST', body: JSON.stringify(input) })
+
+export const addTorrentFile = async (file: File, opts?: { libraryId?: string; sequential?: boolean }) => {
+  const params = new URLSearchParams()
+  if (opts?.libraryId) params.set('libraryId', opts.libraryId)
+  if (opts?.sequential) params.set('sequential', 'true')
+  const qs = params.toString()
+  const res = await fetch(`${API_BASE}/api/torrents/file${qs ? `?${qs}` : ''}`, {
+    method: 'POST',
+    credentials: 'include',
+    body: await file.arrayBuffer(),
+  })
+  const body = await res.json().catch(() => ({}))
+  if (!res.ok) throw new ApiError(res.status, body.error ?? `request failed with ${res.status}`)
+  return body as Torrent
+}
+
+export const removeTorrent = (id: string, deleteFiles = false) =>
+  request<void>(`/api/torrents/${id}?deleteFiles=${deleteFiles}`, { method: 'DELETE' })
+
+export interface TorrentSearchResult {
+  indexerName: string
+  title: string
+  sizeBytes: number
+  seeders: number
+  peers: number
+  downloadUrl: string
+  publishedAt?: string
+}
+export const searchTorrents = (q: string) =>
+  request<TorrentSearchResult[]>(`/api/torrents/search?q=${encodeURIComponent(q)}`)
+
+export interface TorrentIndexer {
+  id: string
+  name: string
+  baseUrl: string
+  enabled: boolean
+  createdAt: string
+}
+export const listTorrentIndexers = () => request<TorrentIndexer[]>('/api/torrent-indexers')
+
+export const createTorrentIndexer = (input: { name: string; baseUrl: string; apiKey?: string }) =>
+  request<TorrentIndexer>('/api/torrent-indexers', { method: 'POST', body: JSON.stringify(input) })
+
+export const deleteTorrentIndexer = (id: string) =>
+  request<void>(`/api/torrent-indexers/${id}`, { method: 'DELETE' })
+
 // API_BASE is exported so components that need an absolute stream URL
 // (e.g. the HLS player, which hands the URL to hls.js/a <video> element
 // rather than fetching it themselves) can build one.

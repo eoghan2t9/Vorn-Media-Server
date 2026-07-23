@@ -9,6 +9,7 @@ import { AdminLibraries } from './pages/AdminLibraries'
 import { ItemDetail } from './pages/ItemDetail'
 import { WatchPage } from './pages/WatchPage'
 import { AdminCurrentlyWatching } from './pages/AdminCurrentlyWatching'
+import { AdminTorrents } from './pages/AdminTorrents'
 import { SetupWizard } from './pages/SetupWizard'
 import { Login } from './pages/Login'
 
@@ -49,6 +50,7 @@ function AppRoutes() {
           <Route path="/admin/users" element={<AdminUsers />} />
           <Route path="/admin/libraries" element={<AdminLibraries />} />
           <Route path="/admin/currently-watching" element={<AdminCurrentlyWatching />} />
+          <Route path="/admin/torrents" element={<AdminTorrents />} />
         </Route>
       </Route>
 
