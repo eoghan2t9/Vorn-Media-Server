@@ -42,11 +42,23 @@ func NewRouter(st *store.Store, sc *scanner.Service, corsOrigin string, devMode 
 	mux.HandleFunc("PUT /api/users/{id}/permissions", s.withAdmin(s.handleSetUserPermissions))
 
 	mux.HandleFunc("GET /api/libraries", s.withAuth(s.handleListLibraries))
+	mux.HandleFunc("POST /api/libraries", s.withAdmin(s.handleCreateLibrary))
+	mux.HandleFunc("GET /api/libraries/{id}", s.withAuth(s.handleGetLibrary))
+	mux.HandleFunc("PATCH /api/libraries/{id}", s.withAdmin(s.handleUpdateLibrary))
+	mux.HandleFunc("DELETE /api/libraries/{id}", s.withAdmin(s.handleDeleteLibrary))
+	mux.HandleFunc("GET /api/libraries/{id}/items", s.withAuth(s.handleListLibraryItems))
 
 	mux.HandleFunc("POST /api/libraries/{id}/scan", s.withAdmin(s.handleStartLibraryScan))
 	mux.HandleFunc("GET /api/scan-jobs", s.withAdmin(s.handleListScanJobs))
 	mux.HandleFunc("GET /api/scan-jobs/{id}", s.withAdmin(s.handleGetScanJob))
 	mux.HandleFunc("POST /api/dev/synthetic-scan", s.withAdmin(s.handleSyntheticScan))
+
+	mux.HandleFunc("GET /api/items/{id}", s.withAuth(s.handleGetItem))
+	mux.HandleFunc("PUT /api/items/{id}/progress", s.withAuth(s.handleUpdateProgress))
+	mux.HandleFunc("GET /api/continue-watching", s.withAuth(s.handleContinueWatching))
+
+	mux.HandleFunc("GET /api/admin/stats", s.withAdmin(s.handleServerStats))
+	mux.HandleFunc("GET /api/search", s.withAuth(s.handleSearch))
 
 	return withCORS(mux, corsOrigin)
 }

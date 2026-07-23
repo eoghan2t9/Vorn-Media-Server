@@ -109,6 +109,36 @@ func (s *Store) listLibraryFolders(libraryID string) ([]string, error) {
 	return folders, rows.Err()
 }
 
+// UpdateLibrary renames a library and/or replaces its folder mappings
+// entirely (pass nil to leave folders untouched).
+func (s *Store) UpdateLibrary(id string, name string, folders []string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if name != "" {
+		res, err := tx.Exec(`UPDATE libraries SET name = $1 WHERE id = $2`, name, id)
+		if err := checkRowsAffected(res, err); err != nil {
+			return err
+		}
+	}
+
+	if folders != nil {
+		if _, err := tx.Exec(`DELETE FROM library_folders WHERE library_id = $1`, id); err != nil {
+			return err
+		}
+		for _, f := range folders {
+			if _, err := tx.Exec(`INSERT INTO library_folders (library_id, path) VALUES ($1, $2)`, id, f); err != nil {
+				return err
+			}
+		}
+	}
+
+	return tx.Commit()
+}
+
 func (s *Store) DeleteLibrary(id string) error {
 	res, err := s.db.Exec(`DELETE FROM libraries WHERE id = $1`, id)
 	return checkRowsAffected(res, err)
