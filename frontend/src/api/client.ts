@@ -176,3 +176,27 @@ export interface ServerStats {
 export const fetchServerStats = () => request<ServerStats>('/api/admin/stats')
 
 export const search = (q: string) => request<MediaItem[]>(`/api/search?q=${encodeURIComponent(q)}`)
+
+export interface MetadataJob {
+  id: string
+  libraryId: string
+  status: 'running' | 'completed' | 'failed'
+  itemsFound: number
+  itemsMatched: number
+  error?: string
+  startedAt: string
+  finishedAt?: string
+}
+export const startMetadataSync = (libraryId: string) =>
+  request<MetadataJob>(`/api/libraries/${libraryId}/sync-metadata`, { method: 'POST' })
+
+export const getMetadataJob = (id: string) => request<MetadataJob>(`/api/metadata-jobs/${id}`)
+
+export interface UpdateMetadataInput {
+  title?: string
+  overview?: string
+  releaseDate?: string
+  tmdbId?: number
+}
+export const updateItemMetadata = (id: string, input: UpdateMetadataInput) =>
+  request<MediaItem>(`/api/items/${id}/metadata`, { method: 'PATCH', body: JSON.stringify(input) })

@@ -19,3 +19,8 @@
 .vorn-children-list a:hover {
   border-color: var(--vorn-accent);
 }
+
+.vorn-metadata-edit {
+  margin-top: 1.5rem;
+  max-width: 32rem;
+}

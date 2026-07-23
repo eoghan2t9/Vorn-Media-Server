@@ -36,13 +36,15 @@
 }
 
 .vorn-form input,
-.vorn-form select {
+.vorn-form select,
+.vorn-form textarea {
   padding: 0.5rem 0.6rem;
   border-radius: 0.4rem;
   border: 1px solid var(--vorn-border);
   background: var(--vorn-bg);
   color: var(--vorn-text);
   font-size: 0.95rem;
+  font-family: inherit;
 }
 
 .vorn-form button {
