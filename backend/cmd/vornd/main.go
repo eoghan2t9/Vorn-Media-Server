@@ -95,29 +95,21 @@ func main() {
 	}
 
 	// MusicBrainz/Open Library need no credentials at all (unlike TMDb), so
-	// they're gated purely by their own admin toggle in Admin > Integrations
-	// -- either can be enabled even with no TMDb key configured, which is why
-	// metadataSvc's nil-ness can't just mirror cfg.TMDbAPIKey any more.
+	// both providers are always constructed and attached -- whether they're
+	// actually *used* is decided fresh from IntegrationSettings on every
+	// sync run (see metadata.Service.run), not baked in here at startup.
+	// That's what lets the Admin > Integrations toggle take effect
+	// immediately, with no restart, unlike TMDb/OpenSubtitles below whose
+	// credentialed clients really are only ever built once at boot.
 	var metadataSvc *metadata.Service
 	if cfg.TMDbAPIKey != "" {
 		metadataSvc = metadata.NewService(st, metadata.NewTMDbProvider(cfg.TMDbAPIKey))
 	} else {
+		metadataSvc = metadata.NewService(st, nil)
 		log.Print("VORN_TMDB_API_KEY not set: movie/series metadata sync is disabled")
 	}
-	if intSettings != nil && intSettings.MusicMetadataEnabled {
-		if metadataSvc == nil {
-			metadataSvc = metadata.NewService(st, nil)
-		}
-		metadataSvc.WithMusicProvider(metadata.NewMusicBrainzProvider())
-		log.Print("music metadata (MusicBrainz + Cover Art Archive) enabled")
-	}
-	if intSettings != nil && intSettings.AudiobookMetadataEnabled {
-		if metadataSvc == nil {
-			metadataSvc = metadata.NewService(st, nil)
-		}
-		metadataSvc.WithAudiobookProvider(metadata.NewOpenLibraryProvider())
-		log.Print("audiobook metadata (Open Library) enabled")
-	}
+	metadataSvc.WithMusicProvider(metadata.NewMusicBrainzProvider())
+	metadataSvc.WithAudiobookProvider(metadata.NewOpenLibraryProvider())
 
 	var transcodeMgr *transcode.Manager
 	backends := transcode.DetectBackends(context.Background())

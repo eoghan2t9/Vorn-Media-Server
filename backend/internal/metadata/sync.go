@@ -61,6 +61,19 @@ func (svc *Service) StartLibrarySync(libraryID string) (*store.MetadataSyncJob, 
 func (svc *Service) run(job *store.MetadataSyncJob) {
 	ctx := context.Background()
 
+	// Read music/audiobook enablement fresh for this run rather than at
+	// service construction time, so toggling either in Admin > Integrations
+	// takes effect on the very next sync -- no server restart needed (unlike
+	// TMDb/OpenSubtitles, which still require one since their credentialed
+	// client is only ever built once at startup).
+	musicEnabled, audiobookEnabled := false, false
+	if settings, err := svc.store.GetIntegrationSettings(); err != nil {
+		log.Printf("metadata: loading integration settings: %v", err)
+	} else {
+		musicEnabled = settings.MusicMetadataEnabled
+		audiobookEnabled = settings.AudiobookMetadataEnabled
+	}
+
 	items, err := svc.store.ListItemsNeedingMetadata(job.LibraryID)
 	if err != nil {
 		svc.finish(job, err)
@@ -76,7 +89,7 @@ func (svc *Service) run(job *store.MetadataSyncJob) {
 			time.Sleep(requestSpacing)
 		}
 
-		matchedNow, err := svc.processItem(ctx, item)
+		matchedNow, err := svc.processItem(ctx, item, musicEnabled, audiobookEnabled)
 		if err != nil {
 			log.Printf("metadata: matching item %s (%q): %v", item.ID, item.Title, err)
 			continue
@@ -94,9 +107,9 @@ func (svc *Service) run(job *store.MetadataSyncJob) {
 
 // processItem looks up item against the provider for its kind and, if
 // found, writes the match. Returns matchedNow=false (with a nil error) for
-// a kind with no configured provider, or a provider lookup that legitimately
-// found nothing -- both are normal outcomes, not failures.
-func (svc *Service) processItem(ctx context.Context, item *store.MediaItem) (bool, error) {
+// a kind with no configured/enabled provider, or a provider lookup that
+// legitimately found nothing -- both are normal outcomes, not failures.
+func (svc *Service) processItem(ctx context.Context, item *store.MediaItem, musicEnabled, audiobookEnabled bool) (bool, error) {
 	switch item.Kind {
 	case "movie":
 		if svc.provider == nil {
@@ -123,7 +136,7 @@ func (svc *Service) processItem(ctx context.Context, item *store.MediaItem) (boo
 		return true, svc.applyTMDbMatch(item.ID, match)
 
 	case "album":
-		if svc.musicProvider == nil || item.ParentID == nil {
+		if svc.musicProvider == nil || !musicEnabled || item.ParentID == nil {
 			return false, nil
 		}
 		artist, err := svc.store.GetMediaItem(*item.ParentID)
@@ -137,7 +150,7 @@ func (svc *Service) processItem(ctx context.Context, item *store.MediaItem) (boo
 		return true, svc.applyMusicMatch(item.ID, match)
 
 	case "book", "audiobook":
-		if svc.audiobookProvider == nil {
+		if svc.audiobookProvider == nil || !audiobookEnabled {
 			return false, nil
 		}
 		match, err := svc.audiobookProvider.MatchBook(ctx, item.Title, item.Author)

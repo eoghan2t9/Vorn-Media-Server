@@ -242,7 +242,8 @@ export function AdminIntegrations() {
         <p className="vorn-panel-subtitle">
           Matches albums against MusicBrainz and fetches cover art from Cover Art Archive. Free, no API key or
           account needed — this toggle exists because it's still an outbound call to a third party, and that should
-          be your choice, not the default. Takes effect after restarting the server.
+          be your choice, not the default. Takes effect immediately, on the next library metadata sync — no restart
+          needed.
         </p>
         <label>
           <input
@@ -266,7 +267,8 @@ export function AdminIntegrations() {
         </div>
         <p className="vorn-panel-subtitle">
           Matches books against Open Library and fetches cover art from its covers API. Free, no API key or account
-          needed (Audible has no public API). Takes effect after restarting the server.
+          needed (Audible has no public API). Takes effect immediately, on the next library metadata sync — no
+          restart needed.
         </p>
         <label>
           <input
