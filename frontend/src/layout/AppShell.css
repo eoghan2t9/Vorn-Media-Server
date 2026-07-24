@@ -254,6 +254,12 @@
 
   .vorn-theme-toggle {
     order: 2;
+    /* Pushes both this and the hamburger (order 3, right after it) to the
+       far right of the header row -- without this they end up clustered
+       right next to the brand on the left, leaving the rest of the row
+       empty instead of using the usual top-right corner mobile users
+       expect a menu toggle to live in. */
+    margin-left: auto;
   }
 
   .vorn-menu-toggle {
