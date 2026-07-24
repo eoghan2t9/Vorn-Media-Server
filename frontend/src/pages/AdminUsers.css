@@ -132,6 +132,29 @@
   box-shadow: var(--vorn-glow);
 }
 
+/* A bare `<label><input type="checkbox" /> Some text</label>` has no layout
+   of its own -- the checkbox and text just flow inline with only a single
+   space between them in the markup, and browsers vary in how they baseline-
+   align a checkbox against text next to it. That's harmless for a
+   one-word label ("TLS"), but for the longer, wrapping descriptions used
+   on the Network settings page it reads as genuinely bunched up, with
+   wrapped lines starting flush against the checkbox instead of the text.
+   align-items: flex-start (not center) is deliberate: for a short
+   single-line label the two are visually indistinguishable, but for a
+   long wrapped one, center would drift the checkbox away from the first
+   line as the text grows taller. */
+.vorn-inline-form label:has(input[type='checkbox']) {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  line-height: 1.4;
+}
+
+.vorn-inline-form label:has(input[type='checkbox']) input[type='checkbox'] {
+  flex-shrink: 0;
+  margin-top: 0.2rem;
+}
+
 /* Direct children only -- a plain descendant selector here would also catch
    buttons belonging to components nested inside the form (Select's option
    list, MultiSelect's checkboxes, ...), painting every dropdown option like
@@ -266,10 +289,19 @@
   /* Several pages set a fixed min-width inline (e.g. magnet/API-key inputs)
      to look reasonable on desktop; on a narrow phone that forces the whole
      page to scroll sideways, so cap every inline-form input/select to the
-     viewport width regardless of what min-width an individual page set. */
-  .vorn-inline-form input,
+     viewport width regardless of what min-width an individual page set.
+     Excludes checkboxes -- a checkbox stretched to width:100% keeps its
+     tiny native visual size but its full-width layout box pushes/overlaps
+     the label text sitting right next to it in markup like
+     `<label><input type="checkbox" /> TLS</label>` (see the general
+     label:has(checkbox) fix above, which this would otherwise fight with). */
+  .vorn-inline-form input:not([type='checkbox']),
   .vorn-inline-form select {
     min-width: 0 !important;
+    width: 100%;
+  }
+
+  .vorn-inline-form label:has(input[type='checkbox']) {
     width: 100%;
   }
 }
