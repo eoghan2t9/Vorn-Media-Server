@@ -177,3 +177,36 @@ export function XIcon(props: IconProps) {
     </svg>
   )
 }
+
+export function CpuIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <rect x="7" y="7" width="10" height="10" rx="1.5" />
+      <rect x="10" y="2.5" width="4" height="3" />
+      <rect x="10" y="17.5" width="4" height="3" />
+      <rect x="2.5" y="10" width="3" height="4" />
+      <rect x="17.5" y="10" width="3" height="4" />
+    </svg>
+  )
+}
+
+export function MemoryIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <rect x="3" y="6" width="18" height="12" rx="1.5" />
+      <path d="M7 6V3.5M11 6V3.5M13 6V3.5M17 6V3.5" />
+      <path d="M7 20.5V18M11 20.5V18M13 20.5V18M17 20.5V18" />
+      <path d="M6.5 10h3v4h-3z" />
+    </svg>
+  )
+}
+
+export function HardDriveIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <rect x="2.5" y="4" width="19" height="16" rx="2" />
+      <path d="M2.5 14h19" />
+      <path d="M6 17.2h.01M10 17.2h.01" />
+    </svg>
+  )
+}

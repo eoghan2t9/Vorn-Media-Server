@@ -19,6 +19,7 @@ import (
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/scanner"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/store"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/subtitles"
+	"github.com/eoghan2t9/vorn-media-server/backend/internal/sysstats"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/torrent"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/transcode"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/update"
@@ -168,6 +169,16 @@ func main() {
 	}
 	updateSvc := update.NewService(cfg.GitHubRepo, version.Version)
 
+	// Prefer /media (Docker's library bind mount, see deploy/docker-compose.yml)
+	// for disk usage since that's the filesystem a media server admin
+	// actually cares about running out of space on; native installs won't
+	// have it, so fall back to the root filesystem.
+	diskStatsPath := "/"
+	if info, err := os.Stat("/media"); err == nil && info.IsDir() {
+		diskStatsPath = "/media"
+	}
+	sysStatsSampler := sysstats.NewSampler(diskStatsPath)
+
 	router := httpapi.NewRouter(httpapi.Deps{
 		Store:        st,
 		Scanner:      scanSvc,
@@ -179,6 +190,7 @@ func main() {
 		Subtitles:    subtitlesSvc,
 		Update:       updateSvc,
 		LogBuffer:    logBuffer,
+		SysStats:     sysStatsSampler,
 		CORSOrigin:   cfg.CORSOrigin,
 		DevMode:      cfg.DevMode,
 	})

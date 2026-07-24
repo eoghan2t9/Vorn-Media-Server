@@ -14,6 +14,7 @@ import (
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/scanner"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/store"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/subtitles"
+	"github.com/eoghan2t9/vorn-media-server/backend/internal/sysstats"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/torrent"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/transcode"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/update"
@@ -37,6 +38,7 @@ type Deps struct {
 	Subtitles    *subtitles.Service
 	Update       *update.Service
 	LogBuffer    *logging.Buffer
+	SysStats     *sysstats.Sampler
 	CORSOrigin   string
 	DevMode      bool
 }
@@ -52,6 +54,7 @@ type Server struct {
 	subtitlesSvc *subtitles.Service
 	updateSvc    *update.Service
 	logBuffer    *logging.Buffer
+	sysStats     *sysstats.Sampler
 	devMode      bool
 	// serverID identifies this server to client-API-compatibility clients
 	// (Jellyfin/Emby/Plex). It's regenerated on every restart, which is fine:
@@ -76,6 +79,7 @@ func NewServer(deps Deps) *Server {
 		subtitlesSvc: deps.Subtitles,
 		updateSvc:    deps.Update,
 		logBuffer:    deps.LogBuffer,
+		sysStats:     deps.SysStats,
 		devMode:      deps.DevMode,
 		serverID:     uuid.NewString(),
 	}
@@ -149,6 +153,7 @@ func NewRouter(deps Deps) http.Handler {
 	mux.HandleFunc("GET /api/continue-watching", s.withAuth(s.handleContinueWatching))
 
 	mux.HandleFunc("GET /api/admin/stats", s.withAdmin(s.handleServerStats))
+	mux.HandleFunc("GET /api/admin/stats/system", s.withAdmin(s.handleSystemStats))
 	mux.HandleFunc("GET /api/admin/currently-watching", s.withAdmin(s.handleCurrentlyWatching))
 	mux.HandleFunc("GET /api/search", s.withAuth(s.handleSearch))
 

@@ -27,6 +27,31 @@ func (s *Server) handleServerStats(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+type systemStatsResponse struct {
+	Available      bool    `json:"available"`
+	CPUPercent     float64 `json:"cpuPercent"`
+	MemUsedBytes   uint64  `json:"memUsedBytes"`
+	MemTotalBytes  uint64  `json:"memTotalBytes"`
+	DiskUsedBytes  uint64  `json:"diskUsedBytes"`
+	DiskTotalBytes uint64  `json:"diskTotalBytes"`
+}
+
+func (s *Server) handleSystemStats(w http.ResponseWriter, r *http.Request) {
+	if s.sysStats == nil {
+		writeJSON(w, http.StatusOK, systemStatsResponse{})
+		return
+	}
+	snap := s.sysStats.Latest()
+	writeJSON(w, http.StatusOK, systemStatsResponse{
+		Available:      snap.Available,
+		CPUPercent:     snap.CPUPercent,
+		MemUsedBytes:   snap.MemUsedBytes,
+		MemTotalBytes:  snap.MemTotalBytes,
+		DiskUsedBytes:  snap.DiskUsedBytes,
+		DiskTotalBytes: snap.DiskTotalBytes,
+	})
+}
+
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query().Get("q")
 	if query == "" {

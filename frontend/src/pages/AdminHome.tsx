@@ -1,44 +1,61 @@
-import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useEffect, useState, type ReactNode } from 'react'
 import {
+  fetchSystemStats,
   fetchTranscodeCapabilities,
   listCurrentlyWatching,
   listLibraries,
   listUsers,
   restartServer,
+  type SystemStats,
 } from '../api/client'
 import { ConfirmDialog } from '../components/ConfirmDialog'
-import {
-  CloudDownloadIcon,
-  CloudIcon,
-  DashboardIcon,
-  EyeIcon,
-  GlobeIcon,
-  LibraryIcon,
-  MagnetIcon,
-  PlugIcon,
-  TerminalIcon,
-  UsersIcon,
-} from '../components/icons'
+import { CpuIcon, DashboardIcon, EyeIcon, HardDriveIcon, LibraryIcon, MemoryIcon, UsersIcon } from '../components/icons'
 import './AdminHome.css'
 
-const TILES = [
-  { to: '/admin/libraries', label: 'Libraries', desc: 'Folders, scans, metadata sync', icon: LibraryIcon },
-  { to: '/admin/users', label: 'Users', desc: 'Accounts and library access', icon: UsersIcon },
-  { to: '/admin/currently-watching', label: 'Currently watching', desc: 'Live playback sessions', icon: EyeIcon },
-  { to: '/admin/torrents', label: 'Torrents', desc: 'Magnets, files, indexers', icon: MagnetIcon },
-  { to: '/admin/nzb', label: 'NZB / Usenet', desc: 'Usenet servers and downloads', icon: CloudDownloadIcon },
-  { to: '/admin/debrid', label: 'Debrid', desc: 'Real-Debrid / TorBox accounts', icon: CloudIcon },
-  { to: '/admin/integrations', label: 'Integrations', desc: 'TMDb, OpenSubtitles', icon: PlugIcon },
-  { to: '/admin/server-settings', label: 'Network', desc: 'Domain, HTTPS, updates', icon: GlobeIcon },
-  { to: '/admin/logs', label: 'Logs', desc: 'Live tail and maintenance', icon: TerminalIcon },
-]
+const STATS_POLL_INTERVAL_MS = 3000
+
+function formatBytes(n: number) {
+  if (n <= 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  const i = Math.min(units.length - 1, Math.floor(Math.log(n) / Math.log(1024)))
+  return `${(n / 1024 ** i).toFixed(1)} ${units[i]}`
+}
+
+function LoadStatCard({
+  icon: Icon,
+  label,
+  percent,
+  detail,
+}: {
+  icon: (props: { className?: string }) => ReactNode
+  label: string
+  percent: number | null
+  detail?: string
+}) {
+  return (
+    <div className="vorn-stat-card">
+      <Icon className="vorn-stat-icon" />
+      <div className="vorn-stat-value">{percent === null ? '—' : `${percent.toFixed(0)}%`}</div>
+      <div className="vorn-stat-label">{label}</div>
+      {percent !== null && (
+        <div className="vorn-load-bar">
+          <div
+            className={`vorn-load-bar-fill${percent >= 90 ? ' vorn-load-bar-fill-hot' : ''}`}
+            style={{ width: `${Math.min(100, percent)}%` }}
+          />
+        </div>
+      )}
+      {detail && <div className="vorn-stat-detail">{detail}</div>}
+    </div>
+  )
+}
 
 export function AdminHome() {
   const [backends, setBackends] = useState<string[] | null>(null)
   const [userCount, setUserCount] = useState<number | null>(null)
   const [libraryCount, setLibraryCount] = useState<number | null>(null)
   const [watchingCount, setWatchingCount] = useState<number | null>(null)
+  const [sysStats, setSysStats] = useState<SystemStats | null>(null)
 
   const [restarting, setRestarting] = useState(false)
   const [restartConfirmOpen, setRestartConfirmOpen] = useState(false)
@@ -59,7 +76,24 @@ export function AdminHome() {
       .catch(() => setWatchingCount(null))
   }, [])
 
+  useEffect(() => {
+    function refresh() {
+      fetchSystemStats()
+        .then(setSysStats)
+        .catch(() => setSysStats(null))
+    }
+    refresh()
+    const interval = setInterval(refresh, STATS_POLL_INTERVAL_MS)
+    return () => clearInterval(interval)
+  }, [])
+
   const transcoderReady = backends !== null && backends.length > 0
+  const memPercent =
+    sysStats?.available && sysStats.memTotalBytes > 0 ? (sysStats.memUsedBytes / sysStats.memTotalBytes) * 100 : null
+  const diskPercent =
+    sysStats?.available && sysStats.diskTotalBytes > 0
+      ? (sysStats.diskUsedBytes / sysStats.diskTotalBytes) * 100
+      : null
 
   async function handleRestart() {
     setRestarting(true)
@@ -109,6 +143,30 @@ export function AdminHome() {
         </div>
       </div>
 
+      <div className="vorn-panel-header" style={{ marginBottom: '0.9rem' }}>
+        <h2>Server load</h2>
+      </div>
+      <div className="vorn-stat-grid">
+        <LoadStatCard icon={CpuIcon} label="CPU" percent={sysStats?.available ? sysStats.cpuPercent : null} />
+        <LoadStatCard
+          icon={MemoryIcon}
+          label="Memory"
+          percent={memPercent}
+          detail={sysStats?.available ? `${formatBytes(sysStats.memUsedBytes)} / ${formatBytes(sysStats.memTotalBytes)}` : undefined}
+        />
+        <LoadStatCard
+          icon={HardDriveIcon}
+          label="Storage"
+          percent={diskPercent}
+          detail={sysStats?.available ? `${formatBytes(sysStats.diskUsedBytes)} / ${formatBytes(sysStats.diskTotalBytes)}` : undefined}
+        />
+      </div>
+      {sysStats !== null && !sysStats.available && (
+        <p className="vorn-panel-subtitle" style={{ margin: '-0.75rem 0 1.5rem' }}>
+          System stats aren't available on this host (requires /proc, i.e. Linux).
+        </p>
+      )}
+
       <div className="vorn-panel">
         <div className="vorn-panel-header">
           <h2>Transcoder backends</h2>
@@ -127,24 +185,6 @@ export function AdminHome() {
             ))}
           </p>
         )}
-      </div>
-
-      <div className="vorn-panel-header" style={{ marginBottom: '0.9rem' }}>
-        <h2>Manage</h2>
-      </div>
-      <div className="vorn-admin-tiles">
-        {TILES.map((tile) => (
-          <Link key={tile.to} to={tile.to} className="vorn-admin-tile">
-            <tile.icon className="vorn-admin-tile-icon" />
-            <div className="vorn-admin-tile-text">
-              <div className="vorn-admin-tile-label">{tile.label}</div>
-              <div className="vorn-admin-tile-desc">{tile.desc}</div>
-            </div>
-            <span className="vorn-admin-tile-arrow" aria-hidden>
-              →
-            </span>
-          </Link>
-        ))}
       </div>
 
       <div className="vorn-panel">

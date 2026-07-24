@@ -223,6 +223,16 @@ export interface TranscodeCapabilities {
 }
 export const fetchTranscodeCapabilities = () => request<TranscodeCapabilities>('/api/transcode/capabilities')
 
+export interface SystemStats {
+  available: boolean
+  cpuPercent: number
+  memUsedBytes: number
+  memTotalBytes: number
+  diskUsedBytes: number
+  diskTotalBytes: number
+}
+export const fetchSystemStats = () => request<SystemStats>('/api/admin/stats/system')
+
 export interface PlayResponse {
   mode: 'direct' | 'transcode'
   directUrl?: string
