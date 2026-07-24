@@ -8,10 +8,20 @@ import {
   listDebridItems,
   listLibraries,
   removeDebridItem,
+  testDebridAccount,
   type DebridAccount,
   type DebridItem,
+  type DebridProvider,
   type Library,
 } from '../api/client'
+
+const DEBRID_PROVIDERS: { value: DebridProvider; label: string }[] = [
+  { value: 'realdebrid', label: 'Real-Debrid' },
+  { value: 'torbox', label: 'TorBox' },
+  { value: 'alldebrid', label: 'AllDebrid' },
+  { value: 'premiumize', label: 'Premiumize' },
+  { value: 'debridlink', label: 'Debrid-Link' },
+]
 import { Select } from '../components/Select'
 import './AdminUsers.css'
 
@@ -27,8 +37,10 @@ export function AdminDebrid() {
   const [libraryId, setLibraryId] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
-  const [newProvider, setNewProvider] = useState<'realdebrid' | 'torbox'>('realdebrid')
+  const [newProvider, setNewProvider] = useState<DebridProvider>('realdebrid')
   const [newApiKey, setNewApiKey] = useState('')
+  const [testingAccount, setTestingAccount] = useState(false)
+  const [accountTestResult, setAccountTestResult] = useState<{ ok: boolean; message: string } | null>(null)
 
   async function refreshItems() {
     setItems(await listDebridItems())
@@ -81,8 +93,27 @@ export function AdminDebrid() {
       const account = await createDebridAccount({ provider: newProvider, apiKey: newApiKey })
       setAccounts((list) => [...list, account])
       setNewApiKey('')
+      setAccountTestResult(null)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to add account')
+    }
+  }
+
+  async function handleTestAccount() {
+    setAccountTestResult(null)
+    setTestingAccount(true)
+    try {
+      const result = await testDebridAccount({ provider: newProvider, apiKey: newApiKey })
+      if (result.ok) {
+        const bits = [result.username, result.detail].filter(Boolean)
+        setAccountTestResult({ ok: true, message: bits.length ? bits.join(' — ') : 'Account verified.' })
+      } else {
+        setAccountTestResult({ ok: false, message: result.error ?? 'Verification failed.' })
+      }
+    } catch (err) {
+      setAccountTestResult({ ok: false, message: err instanceof ApiError ? err.message : 'Failed to test account' })
+    } finally {
+      setTestingAccount(false)
     }
   }
 
@@ -200,11 +231,11 @@ export function AdminDebrid() {
         <form className="vorn-inline-form" onSubmit={handleAddAccount} style={{ marginTop: '1rem' }}>
           <Select
             value={newProvider}
-            onChange={(v) => setNewProvider(v as 'realdebrid' | 'torbox')}
-            options={[
-              { value: 'realdebrid', label: 'Real-Debrid' },
-              { value: 'torbox', label: 'TorBox' },
-            ]}
+            onChange={(v) => {
+              setNewProvider(v as DebridProvider)
+              setAccountTestResult(null)
+            }}
+            options={DEBRID_PROVIDERS}
           />
           <input
             placeholder="API key"
@@ -214,8 +245,16 @@ export function AdminDebrid() {
             style={{ minWidth: '16rem' }}
             required
           />
+          <button type="button" onClick={handleTestAccount} disabled={testingAccount || !newApiKey}>
+            {testingAccount ? 'Testing…' : 'Test'}
+          </button>
           <button type="submit">Add account</button>
         </form>
+        {accountTestResult && (
+          <p className={accountTestResult.ok ? 'vorn-test-result-ok' : 'vorn-form-error'} style={{ marginTop: '0.6rem' }}>
+            {accountTestResult.message}
+          </p>
+        )}
       </div>
     </section>
   )

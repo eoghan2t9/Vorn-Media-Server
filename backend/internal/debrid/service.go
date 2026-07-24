@@ -29,6 +29,9 @@ func NewService(st *store.Store) *Service {
 		providers: map[string]Provider{
 			"realdebrid": NewRealDebridClient(),
 			"torbox":     NewTorBoxClient(),
+			"alldebrid":  NewAllDebridClient(),
+			"premiumize": NewPremiumizeClient(),
+			"debridlink": NewDebridLinkClient(),
 		},
 	}
 	svc.onComplete = func(item *store.DebridItem) { PromoteCompleted(st, item) }
@@ -119,3 +122,13 @@ func (svc *Service) ListAccounts() ([]*store.DebridAccount, error) {
 }
 
 func (svc *Service) RemoveAccount(id string) error { return svc.store.DeleteDebridAccount(id) }
+
+// TestAccount verifies a provider/apiKey pair by fetching that provider's
+// account info, without requiring the account to be saved first.
+func (svc *Service) TestAccount(ctx context.Context, provider, apiKey string) (*AccountInfo, error) {
+	p, ok := svc.providers[provider]
+	if !ok {
+		return nil, fmt.Errorf("debrid: unknown provider %q", provider)
+	}
+	return p.AccountInfo(ctx, apiKey)
+}

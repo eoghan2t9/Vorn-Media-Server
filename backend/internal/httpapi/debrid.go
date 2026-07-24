@@ -70,6 +70,45 @@ func (s *Server) handleCreateDebridAccount(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusCreated, toDebridAccountResponse(account))
 }
 
+type testDebridAccountRequest struct {
+	Provider string `json:"provider"`
+	APIKey   string `json:"apiKey"`
+}
+
+type debridTestResultResponse struct {
+	OK       bool   `json:"ok"`
+	Error    string `json:"error,omitempty"`
+	Username string `json:"username,omitempty"`
+	Premium  bool   `json:"premium,omitempty"`
+	Detail   string `json:"detail,omitempty"`
+}
+
+// handleTestDebridAccount verifies a provider/apiKey pair by fetching that
+// provider's account info, without requiring the account to be saved
+// first -- a bad key otherwise wouldn't surface until the first real
+// resolve attempt fails.
+func (s *Server) handleTestDebridAccount(w http.ResponseWriter, r *http.Request) {
+	if s.debridSvc == nil {
+		writeError(w, http.StatusServiceUnavailable, debridServiceUnavailable)
+		return
+	}
+	var req testDebridAccountRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Provider == "" || req.APIKey == "" {
+		writeError(w, http.StatusBadRequest, "provider and apiKey are required")
+		return
+	}
+	info, err := s.debridSvc.TestAccount(r.Context(), req.Provider, req.APIKey)
+	if err != nil {
+		writeJSON(w, http.StatusOK, debridTestResultResponse{OK: false, Error: err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, debridTestResultResponse{OK: true, Username: info.Username, Premium: info.Premium, Detail: info.Detail})
+}
+
 func (s *Server) handleDeleteDebridAccount(w http.ResponseWriter, r *http.Request) {
 	if s.debridSvc == nil {
 		writeError(w, http.StatusServiceUnavailable, debridServiceUnavailable)

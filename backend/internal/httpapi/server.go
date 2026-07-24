@@ -207,6 +207,7 @@ func NewRouter(deps Deps) http.Handler {
 
 	mux.HandleFunc("GET /api/debrid-accounts", s.withAdmin(s.handleListDebridAccounts))
 	mux.HandleFunc("POST /api/debrid-accounts", s.withAdmin(s.handleCreateDebridAccount))
+	mux.HandleFunc("POST /api/debrid-accounts/test", s.withAdmin(s.handleTestDebridAccount))
 	mux.HandleFunc("DELETE /api/debrid-accounts/{id}", s.withAdmin(s.handleDeleteDebridAccount))
 	mux.HandleFunc("GET /api/debrid", s.withAdmin(s.handleListDebridItems))
 	mux.HandleFunc("POST /api/debrid", s.withAdmin(s.handleAddDebridLink))

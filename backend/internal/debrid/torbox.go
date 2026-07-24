@@ -171,6 +171,33 @@ func (c *TorBoxClient) requestDownloadLink(ctx context.Context, apiKey string, t
 	return resp.Data, nil
 }
 
+type tbUserData struct {
+	Email            string  `json:"email"`
+	Plan             float64 `json:"plan"`
+	IsSubscribed     bool    `json:"is_subscribed"`
+	PremiumExpiresAt string  `json:"premium_expires_at"`
+}
+
+// AccountInfo calls TorBox's GET /user/me, confirmed against the official
+// Go SDK (torbox-sdk-go/pkg/user) for the exact response field names --
+// requires only the Authorization header, no write access.
+func (c *TorBoxClient) AccountInfo(ctx context.Context, apiKey string) (*AccountInfo, error) {
+	var resp tbEnvelope[tbUserData]
+	if err := c.do(ctx, http.MethodGet, "/user/me", apiKey, "", nil, &resp); err != nil {
+		return nil, fmt.Errorf("torbox: fetching account info: %w", err)
+	}
+	if !resp.Success {
+		return nil, fmt.Errorf("torbox: %s", resp.Detail)
+	}
+	info := &AccountInfo{Username: resp.Data.Email, Premium: resp.Data.IsSubscribed}
+	if info.Premium {
+		info.Detail = "subscribed, expires " + resp.Data.PremiumExpiresAt
+	} else {
+		info.Detail = "free account (not subscribed)"
+	}
+	return info, nil
+}
+
 func (c *TorBoxClient) do(ctx context.Context, method, path, apiKey, contentType string, body io.Reader, out any) error {
 	if err := c.limiter.wait(ctx); err != nil {
 		return err

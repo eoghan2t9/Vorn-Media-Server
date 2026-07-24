@@ -13,10 +13,20 @@ type ResolvedFile struct {
 	StreamURL string
 }
 
+// AccountInfo is basic account status from a debrid provider, fetched with
+// a single lightweight call so an admin can verify an API key is valid
+// without waiting on a real magnet resolve.
+type AccountInfo struct {
+	Username string
+	Premium  bool
+	Detail   string // human-readable extra context (plan/expiry), provider-specific
+}
+
 // Provider adds a magnet link/info-hash to a debrid service's cloud storage
 // and, once the provider has cached it, returns direct unrestricted
 // stream/download URLs for its files.
 type Provider interface {
 	Name() string
 	Resolve(ctx context.Context, apiKey, magnetOrHash string) ([]ResolvedFile, error)
+	AccountInfo(ctx context.Context, apiKey string) (*AccountInfo, error)
 }

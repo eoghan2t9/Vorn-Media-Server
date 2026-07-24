@@ -177,6 +177,29 @@ func (c *RealDebridClient) unrestrictLink(ctx context.Context, apiKey, link stri
 	return &resp, nil
 }
 
+type rdUserResponse struct {
+	Username   string `json:"username"`
+	Type       string `json:"type"` // "premium" or "free"
+	Expiration string `json:"expiration"`
+}
+
+// AccountInfo calls Real-Debrid's GET /user, the same lightweight endpoint
+// the official site itself uses to check an API key -- it needs no magnet
+// or write access, just a valid Authorization header.
+func (c *RealDebridClient) AccountInfo(ctx context.Context, apiKey string) (*AccountInfo, error) {
+	var resp rdUserResponse
+	if err := c.doJSON(ctx, http.MethodGet, "/user", apiKey, nil, &resp); err != nil {
+		return nil, fmt.Errorf("realdebrid: fetching account info: %w", err)
+	}
+	info := &AccountInfo{Username: resp.Username, Premium: resp.Type == "premium"}
+	if info.Premium {
+		info.Detail = "premium, expires " + resp.Expiration
+	} else {
+		info.Detail = "free account (no premium)"
+	}
+	return info, nil
+}
+
 // doJSON issues a GET (or any body-less request) and decodes a JSON response.
 func (c *RealDebridClient) doJSON(ctx context.Context, method, path, apiKey string, body io.Reader, out any) error {
 	return c.do(ctx, method, path, apiKey, "", body, out)
