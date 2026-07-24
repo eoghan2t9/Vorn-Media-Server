@@ -168,3 +168,77 @@
   box-shadow: 0 10px 30px rgba(139, 92, 246, 0.5);
   transform: translateY(-1px);
 }
+
+.vorn-cast-section {
+  margin: 1.5rem 0;
+}
+
+.vorn-cast-directors {
+  margin: 0 0 0.75rem;
+  color: var(--vorn-text-muted);
+  font-size: 0.9rem;
+}
+
+.vorn-cast-row {
+  display: flex;
+  gap: 1.1rem;
+  overflow-x: auto;
+  padding-bottom: 0.5rem;
+}
+
+.vorn-cast-card {
+  flex: 0 0 6rem;
+  text-align: center;
+}
+
+.vorn-cast-photo {
+  width: 6rem;
+  height: 6rem;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--vorn-bg-elevated);
+  border: 1px solid var(--vorn-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--vorn-text-muted);
+}
+
+.vorn-cast-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.vorn-cast-name {
+  margin-top: 0.4rem;
+  font-size: 0.8rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vorn-cast-character {
+  font-size: 0.75rem;
+  color: var(--vorn-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Resets <button> chrome so a similar-title card matches the plain
+   <a class="vorn-child-card"> links in the row above it. */
+.vorn-similar-card {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+}
+
+.vorn-similar-card:disabled {
+  cursor: default;
+  opacity: 0.6;
+}

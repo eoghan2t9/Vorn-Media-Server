@@ -1,7 +1,17 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { Link, useParams } from 'react-router-dom'
-import { ApiError, getItem, resolveMediaUrl, setItemMonitored, updateItemMetadata, type MediaItemDetail } from '../api/client'
+import { Link, useNavigate, useParams } from 'react-router-dom'
+import {
+  ApiError,
+  getItem,
+  openCatalogEntry,
+  resolveMediaUrl,
+  setItemMonitored,
+  updateItemMetadata,
+  type CatalogEntry,
+  type MediaItemDetail,
+} from '../api/client'
 import { useAuth } from '../auth/AuthContext'
+import { CastRow } from '../components/CastRow'
 import { Poster } from '../components/Poster'
 import './ItemDetail.css'
 
@@ -54,11 +64,13 @@ function EditMetadataForm({ item, onSaved }: { item: MediaItemDetail; onSaved: (
 
 export function ItemDetail() {
   const { id } = useParams<{ id: string }>()
+  const navigate = useNavigate()
   const { user } = useAuth()
   const [item, setItem] = useState<MediaItemDetail | null>(null)
   const [editing, setEditing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [togglingMonitor, setTogglingMonitor] = useState(false)
+  const [openingSimilarId, setOpeningSimilarId] = useState<number | null>(null)
 
   useEffect(() => {
     if (!id) return
@@ -77,6 +89,27 @@ export function ItemDetail() {
       setError(err instanceof ApiError ? err.message : 'Failed to update monitoring')
     } finally {
       setTogglingMonitor(false)
+    }
+  }
+
+  // A similar-title card has no local media_item yet -- materialize it into
+  // this item's own library (same mechanism as BrowsePage's handleOpen) and
+  // jump straight to its page. mediaType is 'series' for both series and
+  // episode, since an inherited similar-list is always TV titles there.
+  async function handleOpenSimilar(entry: CatalogEntry) {
+    if (!item) return
+    setError(null)
+    setOpeningSimilarId(entry.tmdbId)
+    try {
+      const opened = await openCatalogEntry({
+        tmdbId: entry.tmdbId,
+        mediaType: item.kind === 'movie' ? 'movie' : 'series',
+        libraryId: item.libraryId,
+      })
+      navigate(`/items/${opened.id}`)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : String(err))
+      setOpeningSimilarId(null)
     }
   }
 
@@ -137,6 +170,8 @@ export function ItemDetail() {
         </p>
       )}
 
+      <CastRow cast={item.cast ?? []} directors={item.directors} />
+
       {item.children && item.children.length > 0 && (
         <div className="vorn-children-row">
           {item.children.map((c) => (
@@ -144,6 +179,23 @@ export function ItemDetail() {
               <Poster title={c.title} posterUrl={c.posterUrl} />
               <div className="vorn-child-title">{c.title}</div>
             </Link>
+          ))}
+        </div>
+      )}
+
+      {item.similar && item.similar.length > 0 && (
+        <div className="vorn-children-row">
+          {item.similar.map((sm) => (
+            <button
+              type="button"
+              key={sm.tmdbId}
+              className="vorn-child-card vorn-similar-card"
+              onClick={() => handleOpenSimilar(sm)}
+              disabled={openingSimilarId === sm.tmdbId}
+            >
+              <Poster title={sm.title} posterUrl={sm.posterUrl} />
+              <div className="vorn-child-title">{openingSimilarId === sm.tmdbId ? 'Opening…' : sm.title}</div>
+            </button>
           ))}
         </div>
       )}

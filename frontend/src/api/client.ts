@@ -167,8 +167,17 @@ export interface MediaItem {
   ratingRottenTomatoes?: string
 }
 
+export interface CastMember {
+  name: string
+  character?: string
+  photoUrl?: string
+}
+
 export interface MediaItemDetail extends MediaItem {
   children?: MediaItem[]
+  cast?: CastMember[]
+  directors?: string[]
+  similar?: CatalogEntry[]
 }
 
 export const listLibraryItems = (libraryId: string, opts?: { sort?: 'recent' | 'alpha'; kind?: string }) => {

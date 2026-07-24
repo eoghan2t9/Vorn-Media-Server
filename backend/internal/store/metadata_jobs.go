@@ -91,6 +91,47 @@ func (s *Store) ListItemsNeedingMetadata(libraryID string) ([]*MediaItem, error)
 	return scanMediaItems(rows)
 }
 
+// ListItemsNeedingCastSync returns top-level movie/series items that
+// already have a tmdb_id (matched before cast/crew/similar existed, or
+// simply skipped because a previous sync only ran the search-based
+// ListItemsNeedingMetadata pass) but haven't been backfilled with
+// cast/similar yet. A separate, cheaper pass than ListItemsNeedingMetadata
+// -- these items skip the title-search step entirely since the TMDb id is
+// already known.
+func (s *Store) ListItemsNeedingCastSync(libraryID string) ([]*MediaItem, error) {
+	rows, err := s.db.Query(
+		`SELECT `+mediaItemColumns+` FROM media_items
+		 WHERE library_id = $1 AND metadata_locked = false
+		   AND parent_id IS NULL AND kind IN ('movie', 'series')
+		   AND tmdb_id IS NOT NULL AND NOT (metadata ? 'cast')`,
+		libraryID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanMediaItems(rows)
+}
+
+// CastMember is one billed actor, as stored under metadata->'cast'.
+type CastMember struct {
+	Name      string `json:"name"`
+	Character string `json:"character,omitempty"`
+	PhotoURL  string `json:"photoUrl,omitempty"`
+}
+
+// SimilarTitle is one TMDb-recommended title, as stored under
+// metadata->'similar' -- not necessarily materialized as a local media_item
+// yet (see httpapi.handleOpenCatalogEntry, which is how a click on one
+// becomes a real item).
+type SimilarTitle struct {
+	TmdbID      int    `json:"tmdbId"`
+	Title       string `json:"title"`
+	Overview    string `json:"overview,omitempty"`
+	ReleaseDate string `json:"releaseDate,omitempty"`
+	PosterURL   string `json:"posterUrl,omitempty"`
+}
+
 type MetadataUpdate struct {
 	TmdbID      *int
 	ExternalID  *string // MusicBrainz release MBID / Open Library work key
@@ -108,13 +149,20 @@ type MetadataUpdate struct {
 	LogoURL              string
 	RatingIMDb           string
 	RatingRottenTomatoes string
+
+	// Cast/Directors/Similar are movie/series only, from TMDb's credits and
+	// similar endpoints. Empty for a plain TheTVDB fallback match, or when
+	// backfilling an item TMDb has no data for.
+	Cast      []CastMember
+	Directors []string
+	Similar   []SimilarTitle
 }
 
 // ApplyMetadata writes a provider match (or a manual admin correction) onto
 // a media item. Passing lock=true marks it so future automatic syncs won't
 // overwrite the correction.
 func (s *Store) ApplyMetadata(itemID string, update MetadataUpdate, lock bool) error {
-	metadataJSON := map[string]string{}
+	metadataJSON := map[string]any{}
 	if update.PosterURL != "" {
 		metadataJSON["posterUrl"] = update.PosterURL
 	}
@@ -126,6 +174,15 @@ func (s *Store) ApplyMetadata(itemID string, update MetadataUpdate, lock bool) e
 	}
 	if update.ExternalID != nil {
 		metadataJSON["externalId"] = *update.ExternalID
+	}
+	if len(update.Cast) > 0 {
+		metadataJSON["cast"] = update.Cast
+	}
+	if len(update.Directors) > 0 {
+		metadataJSON["directors"] = update.Directors
+	}
+	if len(update.Similar) > 0 {
+		metadataJSON["similar"] = update.Similar
 	}
 	if update.Author != "" {
 		metadataJSON["author"] = update.Author
@@ -161,4 +218,28 @@ func toJSONB(v any) string {
 		return "{}"
 	}
 	return string(raw)
+}
+
+// GetItemCastAndSimilar returns the cast/crew and similar-titles a metadata
+// sync wrote into itemID's metadata blob, empty slices if none yet. A
+// dedicated lightweight query rather than folding into mediaItemColumns
+// (see ListChildren for the same "extra per-item data only the detail
+// handler needs" pattern) -- every list-view query already selects
+// mediaItemColumns and doesn't need this nested JSON.
+func (s *Store) GetItemCastAndSimilar(itemID string) (cast []CastMember, directors []string, similar []SimilarTitle, err error) {
+	var castJSON, directorsJSON, similarJSON []byte
+	err = s.db.QueryRow(
+		`SELECT coalesce(metadata->'cast', '[]'), coalesce(metadata->'directors', '[]'), coalesce(metadata->'similar', '[]')
+		 FROM media_items WHERE id = $1`, itemID,
+	).Scan(&castJSON, &directorsJSON, &similarJSON)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil, nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	_ = json.Unmarshal(castJSON, &cast)
+	_ = json.Unmarshal(directorsJSON, &directors)
+	_ = json.Unmarshal(similarJSON, &similar)
+	return cast, directors, similar, nil
 }

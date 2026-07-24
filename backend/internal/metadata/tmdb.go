@@ -372,6 +372,85 @@ func (c *TMDbClient) trailerURL(ctx context.Context, kind string, id int) (strin
 	return "", nil
 }
 
+type tmdbCreditsResponse struct {
+	Cast []struct {
+		Name        string `json:"name"`
+		Character   string `json:"character"`
+		ProfilePath string `json:"profile_path"`
+	} `json:"cast"`
+	Crew []struct {
+		Name string `json:"name"`
+		Job  string `json:"job"`
+	} `json:"crew"`
+}
+
+// CastMember is one billed actor, capped to castLimit by TMDb's own
+// order-of-billing (the /credits response already comes pre-sorted).
+type CastMember struct {
+	Name      string
+	Character string
+	PhotoURL  string
+}
+
+const castLimit = 12
+
+// credits fetches /{kind}/{id}/credits and returns the top castLimit-billed
+// cast plus every crew member whose job is "Director".
+func (c *TMDbClient) credits(ctx context.Context, kind string, id int) ([]CastMember, []string, error) {
+	var resp tmdbCreditsResponse
+	if err := c.get(ctx, fmt.Sprintf("/%s/%d/credits", kind, id), url.Values{}, &resp); err != nil {
+		return nil, nil, err
+	}
+	cast := make([]CastMember, 0, castLimit)
+	for i, m := range resp.Cast {
+		if i >= castLimit {
+			break
+		}
+		cast = append(cast, CastMember{Name: m.Name, Character: m.Character, PhotoURL: imageURL(m.ProfilePath)})
+	}
+	var directors []string
+	for _, m := range resp.Crew {
+		if m.Job == "Director" {
+			directors = append(directors, m.Name)
+		}
+	}
+	return cast, directors, nil
+}
+
+const similarLimit = 12
+
+// similar fetches /{kind}/{id}/similar ("movie" or "tv"), capped to
+// similarLimit -- reuses SearchResult, the same shape DiscoverMovies/
+// PopularMovies already produce for a title hit.
+func (c *TMDbClient) similar(ctx context.Context, kind string, id int) ([]SearchResult, error) {
+	if kind == "movie" {
+		var resp tmdbPagedResponse[tmdbMovieResult]
+		if err := c.get(ctx, fmt.Sprintf("/movie/%d/similar", id), url.Values{}, &resp); err != nil {
+			return nil, err
+		}
+		out := make([]SearchResult, 0, similarLimit)
+		for i, r := range resp.Results {
+			if i >= similarLimit {
+				break
+			}
+			out = append(out, SearchResult{TmdbID: r.ID, Title: r.Title, Overview: r.Overview, ReleaseDate: r.ReleaseDate, PosterURL: imageURL(r.PosterPath)})
+		}
+		return out, nil
+	}
+	var resp tmdbPagedResponse[tmdbTVResult]
+	if err := c.get(ctx, fmt.Sprintf("/tv/%d/similar", id), url.Values{}, &resp); err != nil {
+		return nil, err
+	}
+	out := make([]SearchResult, 0, similarLimit)
+	for i, r := range resp.Results {
+		if i >= similarLimit {
+			break
+		}
+		out = append(out, SearchResult{TmdbID: r.ID, Title: r.Name, Overview: r.Overview, ReleaseDate: r.FirstAirDate, PosterURL: imageURL(r.PosterPath)})
+	}
+	return out, nil
+}
+
 type tmdbExternalIDs struct {
 	IMDbID string `json:"imdb_id"`
 	TVDbID int    `json:"tvdb_id"` // only ever populated on the /tv external_ids response

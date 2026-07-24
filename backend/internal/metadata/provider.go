@@ -27,6 +27,13 @@ type Match struct {
 	LogoURL              string
 	RatingIMDb           string
 	RatingRottenTomatoes string
+
+	// Cast/Directors/Similar are populated the same way IMDbID/TVDbID are --
+	// supplemental per-ID TMDb calls after the search match, via
+	// castAndSimilar below. Best-effort: left empty on any fetch error.
+	Cast      []CastMember
+	Directors []string
+	Similar   []SearchResult
 }
 
 // Provider looks up movies and TV series against an external metadata
@@ -75,6 +82,7 @@ func (p *TMDbProvider) MatchMovie(ctx context.Context, title string, year int) (
 	if ext, err := p.client.externalIDs(ctx, "movie", result.ID); err == nil {
 		match.IMDbID = ext.IMDbID
 	}
+	match.Cast, match.Directors, match.Similar = p.castAndSimilar(ctx, "movie", result.ID)
 	return match, nil
 }
 
@@ -100,5 +108,17 @@ func (p *TMDbProvider) MatchSeries(ctx context.Context, title string) (*Match, e
 		match.IMDbID = ext.IMDbID
 		match.TVDbID = ext.TVDbID
 	}
+	match.Cast, match.Directors, match.Similar = p.castAndSimilar(ctx, "tv", result.ID)
 	return match, nil
+}
+
+// castAndSimilar fetches credits+similar for an already-known TMDb id --
+// used both by MatchMovie/MatchSeries above (a fresh title match) and by
+// metadata.Service's cast-backfill pass for items matched before this
+// existed (see sync.go). Best-effort like externalIDs: errors just leave
+// the result empty rather than failing the whole match.
+func (p *TMDbProvider) castAndSimilar(ctx context.Context, kind string, tmdbID int) ([]CastMember, []string, []SearchResult) {
+	cast, directors, _ := p.client.credits(ctx, kind, tmdbID)
+	similar, _ := p.client.similar(ctx, kind, tmdbID)
+	return cast, directors, similar
 }

@@ -128,6 +128,35 @@ func (svc *Service) run(job *store.MetadataSyncJob) {
 		}
 	}
 
+	// Second, cheaper pass: backfill cast/similar onto movies/series that
+	// were already matched (have a tmdb_id) before this feature existed, or
+	// by an earlier run of this same loop -- skips the title-search step
+	// entirely since the id is already known. Runs strictly after the loop
+	// above, so an item matched just now is never double-processed here.
+	castItems, err := svc.store.ListItemsNeedingCastSync(job.LibraryID)
+	if err != nil {
+		log.Printf("metadata: listing cast-backfill items: %v", err)
+		castItems = nil
+	}
+	if len(castItems) > 0 {
+		if err := svc.store.SetMetadataSyncJobCounts(job.ID, int64(len(items)+len(castItems)), matched); err != nil {
+			log.Printf("metadata: updating job counts: %v", err)
+		}
+	}
+	for i, item := range castItems {
+		if i > 0 {
+			time.Sleep(requestSpacing)
+		}
+		if err := svc.backfillCastAndSimilar(ctx, item); err != nil {
+			log.Printf("metadata: cast-backfill for item %s (%q): %v", item.ID, item.Title, err)
+			continue
+		}
+		matched++
+		if err := svc.store.SetMetadataSyncJobCounts(job.ID, int64(len(items)+len(castItems)), matched); err != nil {
+			log.Printf("metadata: updating job counts: %v", err)
+		}
+	}
+
 	svc.finish(job, nil)
 }
 
@@ -254,6 +283,9 @@ func (svc *Service) applyTMDbMatch(itemID string, match *Match) error {
 		LogoURL:              match.LogoURL,
 		RatingIMDb:           match.RatingIMDb,
 		RatingRottenTomatoes: match.RatingRottenTomatoes,
+		Cast:                 toStoreCast(match.Cast),
+		Directors:            match.Directors,
+		Similar:              toStoreSimilar(match.Similar),
 	}
 	// ProviderID is 0 for a TheTVDB fallback match (no TMDb ID at all) --
 	// leaving TmdbID nil there instead of writing a bogus tmdb_id=0.
@@ -264,6 +296,41 @@ func (svc *Service) applyTMDbMatch(itemID string, match *Match) error {
 		update.ReleaseDate = &d
 	}
 	return svc.store.ApplyMetadata(itemID, update, false)
+}
+
+func toStoreCast(cast []CastMember) []store.CastMember {
+	out := make([]store.CastMember, 0, len(cast))
+	for _, c := range cast {
+		out = append(out, store.CastMember{Name: c.Name, Character: c.Character, PhotoURL: c.PhotoURL})
+	}
+	return out
+}
+
+func toStoreSimilar(similar []SearchResult) []store.SimilarTitle {
+	out := make([]store.SimilarTitle, 0, len(similar))
+	for _, r := range similar {
+		out = append(out, store.SimilarTitle{TmdbID: r.TmdbID, Title: r.Title, Overview: r.Overview, ReleaseDate: r.ReleaseDate, PosterURL: r.PosterURL})
+	}
+	return out
+}
+
+// backfillCastAndSimilar fetches credits/similar for an item that already
+// has a tmdb_id but predates this feature -- an ID-based fetch, skipping
+// the title-search step ListItemsNeedingMetadata's items still need. A
+// no-op if the configured provider isn't TMDb (nothing else populates
+// tmdb_id) or the item somehow has no tmdb_id despite the caller's filter.
+func (svc *Service) backfillCastAndSimilar(ctx context.Context, item *store.MediaItem) error {
+	tp, ok := svc.provider.(*TMDbProvider)
+	if !ok || item.TmdbID == nil {
+		return nil
+	}
+	kind := "movie"
+	if item.Kind == "series" {
+		kind = "tv"
+	}
+	cast, directors, similar := tp.castAndSimilar(ctx, kind, *item.TmdbID)
+	update := store.MetadataUpdate{Cast: toStoreCast(cast), Directors: directors, Similar: toStoreSimilar(similar)}
+	return svc.store.ApplyMetadata(item.ID, update, false)
 }
 
 func (svc *Service) applyMusicMatch(itemID string, match *MusicMatch) error {

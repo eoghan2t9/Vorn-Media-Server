@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"errors"
 	"net/http"
 	"time"
 
@@ -109,10 +110,6 @@ func (s *Server) handleGetItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	type itemDetailResponse struct {
-		mediaItemResponse
-		Children []mediaItemResponse `json:"children,omitempty"`
-	}
 	resp := itemDetailResponse{mediaItemResponse: toMediaItemResponse(item)}
 
 	if item.Kind == "series" || item.Kind == "season" || item.Kind == "artist" || item.Kind == "album" || item.Kind == "book" {
@@ -127,7 +124,47 @@ func (s *Server) handleGetItem(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Episodes show their parent series' cast/crew rather than fetching
+	// per-episode guest stars -- two parent hops up (episode -> season ->
+	// series, see store.PromoteEpisode).
+	castSourceID := item.ID
+	if item.Kind == "episode" && item.ParentID != nil {
+		if season, err := s.store.GetMediaItem(*item.ParentID); err == nil && season.ParentID != nil {
+			castSourceID = *season.ParentID
+		}
+	}
+	if item.Kind == "movie" || item.Kind == "series" || item.Kind == "episode" {
+		cast, directors, similar, err := s.store.GetItemCastAndSimilar(castSourceID)
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusInternalServerError, "loading cast")
+			return
+		}
+		resp.Cast = make([]castMemberResponse, 0, len(cast))
+		for _, c := range cast {
+			resp.Cast = append(resp.Cast, castMemberResponse{Name: c.Name, Character: c.Character, PhotoURL: c.PhotoURL})
+		}
+		resp.Directors = directors
+		resp.Similar = make([]catalogEntryResponse, 0, len(similar))
+		for _, sm := range similar {
+			resp.Similar = append(resp.Similar, catalogEntryResponse{TmdbID: sm.TmdbID, Title: sm.Title, Overview: sm.Overview, ReleaseDate: sm.ReleaseDate, PosterURL: sm.PosterURL})
+		}
+	}
+
 	writeJSON(w, http.StatusOK, resp)
+}
+
+type castMemberResponse struct {
+	Name      string `json:"name"`
+	Character string `json:"character,omitempty"`
+	PhotoURL  string `json:"photoUrl,omitempty"`
+}
+
+type itemDetailResponse struct {
+	mediaItemResponse
+	Children  []mediaItemResponse    `json:"children,omitempty"`
+	Cast      []castMemberResponse   `json:"cast,omitempty"`
+	Directors []string               `json:"directors,omitempty"`
+	Similar   []catalogEntryResponse `json:"similar,omitempty"`
 }
 
 type setMonitoredRequest struct {
