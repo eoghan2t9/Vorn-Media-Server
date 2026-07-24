@@ -13,6 +13,7 @@ import {
   type BackupSettings,
 } from '../api/client'
 import { ConfirmDialog } from '../components/ConfirmDialog'
+import { FileDropzone, type FileDropzoneHandle } from '../components/FileDropzone'
 import { Select } from '../components/Select'
 import './AdminHome.css'
 import './AdminUsers.css'
@@ -39,7 +40,7 @@ export function AdminBackups() {
   const [restoreConfirmOpen, setRestoreConfirmOpen] = useState(false)
   const [restoring, setRestoring] = useState(false)
   const [restoreMessage, setRestoreMessage] = useState<{ ok: boolean; text: string } | null>(null)
-  const restoreFileInputRef = useRef<HTMLInputElement>(null)
+  const restoreDropzoneRef = useRef<FileDropzoneHandle>(null)
 
   // Automated backup schedule + the list of what it's produced so far.
   const [settings, setSettings] = useState<BackupSettings | null>(null)
@@ -74,7 +75,7 @@ export function AdminBackups() {
       setRestoreConfirmOpen(false)
       setRestoring(false)
       setRestoreFile(null)
-      if (restoreFileInputRef.current) restoreFileInputRef.current.value = ''
+      restoreDropzoneRef.current?.reset()
     }
   }
 
@@ -228,22 +229,22 @@ export function AdminBackups() {
           everything currently in it, then restarts the server. There is no undo — take a fresh backup first if
           you're not certain.
         </p>
-        <div className="vorn-button-group">
-          <input
-            ref={restoreFileInputRef}
-            type="file"
-            accept=".sql"
-            onChange={(e) => setRestoreFile(e.target.files?.[0] ?? null)}
-          />
-          <button
-            type="button"
-            className="vorn-btn-danger"
-            onClick={() => setRestoreConfirmOpen(true)}
-            disabled={!restoreFile || restoring}
-          >
-            {restoring ? 'Restoring…' : 'Restore from backup'}
-          </button>
-        </div>
+        <FileDropzone
+          ref={restoreDropzoneRef}
+          accept=".sql"
+          hint=".sql files"
+          disabled={restoring}
+          onFile={setRestoreFile}
+        />
+        <button
+          type="button"
+          className="vorn-btn-danger"
+          style={{ marginTop: '0.75rem' }}
+          onClick={() => setRestoreConfirmOpen(true)}
+          disabled={!restoreFile || restoring}
+        >
+          {restoring ? 'Restoring…' : 'Restore from backup'}
+        </button>
         {restoreMessage && <p className={restoreMessage.ok ? 'vorn-test-result-ok' : 'vorn-form-error'}>{restoreMessage.text}</p>}
       </div>
 
