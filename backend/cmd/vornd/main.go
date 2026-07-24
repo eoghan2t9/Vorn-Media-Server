@@ -19,6 +19,7 @@ import (
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/migrate"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/notify"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/nzb"
+	"github.com/eoghan2t9/vorn-media-server/backend/internal/prowlarr"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/scanner"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/store"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/subtitles"
@@ -168,6 +169,18 @@ func main() {
 			log.Fatalf("starting torrent service: %v", err)
 		}
 		defer torrentSvc.Close()
+
+		// Optional: mirror whatever indexers are configured inside a
+		// Prowlarr instance into Vorn's own torrent indexer table, so
+		// bundling Prowlarr (see deploy/docker-compose.yml's "prowlarr"
+		// Compose profile) doesn't also require manually copying each
+		// indexer's URL/API key in by hand. Needs at least a base URL and
+		// one of an API key or a path to Prowlarr's config.xml to read it
+		// from; silently does nothing otherwise; see internal/prowlarr.
+		if cfg.ProwlarrBaseURL != "" && (cfg.ProwlarrAPIKey != "" || cfg.ProwlarrConfigPath != "") {
+			go prowlarr.NewSyncService(torrentSvc, cfg.ProwlarrBaseURL, cfg.ProwlarrAPIKey, cfg.ProwlarrConfigPath).Run(context.Background())
+			log.Printf("prowlarr sync enabled: %s", cfg.ProwlarrBaseURL)
+		}
 	} else {
 		log.Print("VORN_TORRENT_ENABLED not set: torrent acquisition is disabled")
 	}

@@ -53,6 +53,16 @@ services:
       VORN_CORS_ORIGIN: "${VORN_FRONTEND_ORIGIN:-http://localhost:5173}"
       VORN_TORRENT_ENABLED: "${VORN_TORRENT_ENABLED:-false}"
       VORN_TORRENT_DOWNLOAD_DIR: "/downloads"
+      # Optional: auto-mirror indexers configured inside a Prowlarr instance
+      # into Vorn's own Torrent Indexers page -- set VORN_PROWLARR_BASE_URL
+      # (e.g. http://prowlarr:9696 when using the bundled "prowlarr" Compose
+      # profile below) to enable it. The API key is read automatically from
+      # Prowlarr's own config.xml via the read-only mount further down;
+      # VORN_PROWLARR_API_KEY can be set instead to skip that (e.g. pointing
+      # at an external Prowlarr you already run, without sharing its volume).
+      VORN_PROWLARR_BASE_URL: "${VORN_PROWLARR_BASE_URL:-}"
+      VORN_PROWLARR_API_KEY: "${VORN_PROWLARR_API_KEY:-}"
+      VORN_PROWLARR_CONFIG_PATH: "/prowlarr-config/config.xml"
       VORN_NZB_ENABLED: "${VORN_NZB_ENABLED:-false}"
       VORN_NZB_DOWNLOAD_DIR: "/nzb-downloads"
       VORN_OPENSUBTITLES_API_KEY: "${VORN_OPENSUBTITLES_API_KEY:-}"
@@ -77,6 +87,10 @@ services:
       - ${VORN_SUBTITLES_CACHE_PATH:-./data/subtitles-cache}:/subtitles-cache
       - ${VORN_ARTWORK_CACHE_PATH:-./data/artwork-cache}:/artwork-cache
       - ${VORN_BACKUP_PATH:-./data/backups}:/backups
+      # Read-only -- only Prowlarr itself needs write access. Harmless if
+      # the "prowlarr" profile isn't in use; nothing reads from it unless
+      # VORN_PROWLARR_BASE_URL is also set above.
+      - ${VORN_PROWLARR_DATA_PATH:-./data/prowlarr}:/prowlarr-config:ro
     # --- GPU passthrough (uncomment the block matching your hardware) ---
     #
     # Nvidia (requires the NVIDIA Container Toolkit on the host):
@@ -91,6 +105,29 @@ services:
     # Intel QuickSync / AMD VAAPI (Linux render nodes):
     # devices:
     #   - /dev/dri:/dev/dri
+
+  # Optional: bundles Prowlarr as a managed sidecar instead of requiring a
+  # separately-run instance. Off by default -- start with `docker compose
+  # --profile prowlarr up -d` (or set COMPOSE_PROFILES=prowlarr), then also
+  # set VORN_PROWLARR_BASE_URL=http://prowlarr:9696 above so the backend
+  # picks it up. You'll still visit its own UI (the exposed port below)
+  # once to add trackers -- that per-site configuration is what Prowlarr is
+  # for and bundling it doesn't remove that step, it just means Vorn learns
+  # about whatever you add there automatically instead of needing each
+  # indexer's URL/API key copied in by hand.
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:latest
+    restart: unless-stopped
+    profiles:
+      - prowlarr
+    environment:
+      PUID: "${VORN_PUID:-1000}"
+      PGID: "${VORN_PGID:-1000}"
+      TZ: "${VORN_TZ:-UTC}"
+    volumes:
+      - ${VORN_PROWLARR_DATA_PATH:-./data/prowlarr}:/config
+    ports:
+      - "${VORN_PROWLARR_PORT:-9696}:9696"
 
   frontend:
     build:
