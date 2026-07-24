@@ -35,11 +35,24 @@ func NewService(st *store.Store) *Service {
 		},
 	}
 	svc.onComplete = func(item *store.DebridItem) {
-		if item.MediaItemID != nil {
-			PromoteToExistingItem(st, item)
+		if item.MediaItemID == nil {
+			PromoteCompleted(st, item)
 			return
 		}
-		PromoteCompleted(st, item)
+		mediaItem, err := AuthorizedMediaItem(st, item)
+		if err != nil {
+			log.Printf("debrid: checking whether %s is still authoritative for %s: %v", item.ID, *item.MediaItemID, err)
+			return
+		}
+		if mediaItem == nil {
+			log.Printf("debrid: %s is a stale/abandoned resolve, a later attempt already took over -- skipping promotion", item.ID)
+			return
+		}
+		if mediaItem.Kind == "season" {
+			PromoteSeasonPackToExistingItems(st, mediaItem, item)
+			return
+		}
+		PromoteToExistingItem(st, mediaItem, item)
 	}
 	return svc
 }
@@ -93,13 +106,14 @@ func (svc *Service) run(item *store.DebridItem, account *store.DebridAccount) {
 
 	files, err := provider.Resolve(ctx, account.APIKey, item.SourceRef)
 	if err != nil {
+		// Deliberately does NOT touch the media_item here even when
+		// MediaItemID is set: this resolve may be one of several retry
+		// candidates the acquisition package is trying in sequence, and
+		// only it knows whether this was the last one -- it detects this
+		// failure itself by polling this debrid_item's own Status (set by
+		// FinishDebridItem below) via acquisition.Service.waitForOutcome.
 		if ferr := svc.store.FinishDebridItem(item.ID, err); ferr != nil {
 			log.Printf("debrid: finishing %s: %v", item.ID, ferr)
-		}
-		if item.MediaItemID != nil {
-			if serr := svc.store.SetMediaItemAcquisitionError(*item.MediaItemID, err.Error()); serr != nil {
-				log.Printf("debrid: setting acquisition error on %s: %v", *item.MediaItemID, serr)
-			}
 		}
 		return
 	}

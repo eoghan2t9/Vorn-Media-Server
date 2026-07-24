@@ -31,28 +31,33 @@ type MediaItem struct {
 	RatingRottenTomatoes string // from OMDb enrichment, from metadata->>'ratingRottenTomatoes'
 	AcquisitionStatus    string // "owned" | "placeholder" | "searching" | "acquiring" | "error"
 	AcquisitionError     string
+	ActiveDebridItemID   *string // fences which resolve attempt is currently authorized to write Path -- see SetMediaItemActiveDebridItem
+	Monitored            bool
+	CurrentReleaseTitle  string // the release title Path was last promoted from, for the quality-upgrade comparison
 }
 
 const mediaItemColumns = `id, library_id, parent_id, kind, title, sort_title, overview, season_number, episode_number,
 	release_date, path, tmdb_id, metadata_locked, added_at, updated_at,
 	coalesce(metadata->>'posterUrl', ''), coalesce(metadata->>'backdropUrl', ''), coalesce(metadata->>'author', ''),
 	coalesce(metadata->>'logoUrl', ''), coalesce(metadata->>'ratingImdb', ''), coalesce(metadata->>'ratingRottenTomatoes', ''),
-	acquisition_status, acquisition_error`
+	acquisition_status, acquisition_error, active_debrid_item_id, monitored, current_release_title`
 
 func scanMediaItem(row interface{ Scan(...any) error }, m *MediaItem) error {
 	return row.Scan(&m.ID, &m.LibraryID, &m.ParentID, &m.Kind, &m.Title, &m.SortTitle, &m.Overview,
 		&m.SeasonNumber, &m.EpisodeNumber, &m.ReleaseDate, &m.Path, &m.TmdbID, &m.MetadataLocked, &m.AddedAt, &m.UpdatedAt,
 		&m.PosterURL, &m.BackdropURL, &m.Author, &m.LogoURL, &m.RatingIMDb, &m.RatingRottenTomatoes,
-		&m.AcquisitionStatus, &m.AcquisitionError)
+		&m.AcquisitionStatus, &m.AcquisitionError, &m.ActiveDebridItemID, &m.Monitored, &m.CurrentReleaseTitle)
 }
 
 // SetMediaItemPath is called once acquisition produces a real file/stream
 // URL for a placeholder item, flipping it back to the normal "owned" state
 // -- the same state every scan/torrent/NZB-promoted item has always been in.
-func (s *Store) SetMediaItemPath(id, path string) error {
+// releaseTitle is stored for the quality-upgrade check to later compare
+// against a newer candidate's parsed resolution/codec.
+func (s *Store) SetMediaItemPath(id, path, releaseTitle string) error {
 	_, err := s.db.Exec(
-		`UPDATE media_items SET path = $1, acquisition_status = 'owned', acquisition_error = '', updated_at = now() WHERE id = $2`,
-		path, id,
+		`UPDATE media_items SET path = $1, acquisition_status = 'owned', acquisition_error = '', current_release_title = $2, updated_at = now() WHERE id = $3`,
+		path, releaseTitle, id,
 	)
 	return err
 }
@@ -73,6 +78,44 @@ func (s *Store) SetMediaItemAcquisitionError(id, message string) error {
 // or error.
 func (s *Store) SetMediaItemAcquisitionStatus(id, status string) error {
 	_, err := s.db.Exec(`UPDATE media_items SET acquisition_status = $1, updated_at = now() WHERE id = $2`, status, id)
+	return err
+}
+
+// SetMediaItemActiveDebridItem records debridItemID as the sole resolve
+// attempt currently authorized to write id's path -- called before polling
+// for that attempt's outcome. A promotion whose own debrid_item no longer
+// matches what's recorded here (a later attempt has since taken over, or
+// nothing is active anymore) must not write anything, since it means this
+// promotion is a stale/abandoned resolve finishing late. Pass "" to clear
+// (fence off every future promotion until a new attempt is authorized).
+func (s *Store) SetMediaItemActiveDebridItem(id, debridItemID string) error {
+	var arg any
+	if debridItemID != "" {
+		arg = debridItemID
+	}
+	_, err := s.db.Exec(`UPDATE media_items SET active_debrid_item_id = $1, updated_at = now() WHERE id = $2`, arg, id)
+	return err
+}
+
+// SetMediaItemMonitored subscribes/unsubscribes id (a movie or series) to
+// proactive re-checking (see acquisition.MonitorScheduler). Toggling a
+// series cascades to every current season/episode under it in the same
+// direction -- there is no per-episode override in this pass, so
+// un-monitoring a series un-monitors everything under it too.
+func (s *Store) SetMediaItemMonitored(id string, monitored bool) error {
+	item, err := s.GetMediaItem(id)
+	if err != nil {
+		return err
+	}
+	if item.Kind == "series" {
+		_, err := s.db.Exec(
+			`UPDATE media_items SET monitored = $1, updated_at = now()
+			 WHERE id = $2 OR parent_id = $2 OR parent_id IN (SELECT id FROM media_items WHERE parent_id = $2)`,
+			monitored, id,
+		)
+		return err
+	}
+	_, err = s.db.Exec(`UPDATE media_items SET monitored = $1, updated_at = now() WHERE id = $2`, monitored, id)
 	return err
 }
 

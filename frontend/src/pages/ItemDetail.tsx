@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ApiError, getItem, resolveMediaUrl, updateItemMetadata, type MediaItemDetail } from '../api/client'
+import { ApiError, getItem, resolveMediaUrl, setItemMonitored, updateItemMetadata, type MediaItemDetail } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
 import { Poster } from '../components/Poster'
 import './ItemDetail.css'
@@ -58,6 +58,7 @@ export function ItemDetail() {
   const [item, setItem] = useState<MediaItemDetail | null>(null)
   const [editing, setEditing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [togglingMonitor, setTogglingMonitor] = useState(false)
 
   useEffect(() => {
     if (!id) return
@@ -65,6 +66,19 @@ export function ItemDetail() {
       .then(setItem)
       .catch((err) => setError(err instanceof ApiError ? err.message : String(err)))
   }, [id])
+
+  async function handleToggleMonitor() {
+    if (!item) return
+    setTogglingMonitor(true)
+    try {
+      const updated = await setItemMonitored(item.id, !item.monitored)
+      setItem({ ...item, ...updated })
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to update monitoring')
+    } finally {
+      setTogglingMonitor(false)
+    }
+  }
 
   if (error) return <p className="vorn-form-error">{error}</p>
   if (!item) return <p>Loading…</p>
@@ -101,11 +115,27 @@ export function ItemDetail() {
                 ▶ Play
               </Link>
             )}
+            {(item.kind === 'movie' || item.kind === 'series') && (
+              <button
+                type="button"
+                className="vorn-edit-toggle"
+                onClick={handleToggleMonitor}
+                disabled={togglingMonitor}
+                title="Automatically grab new episodes / retry until available, and upgrade quality once owned"
+              >
+                {item.monitored ? '★ Monitored' : '☆ Monitor'}
+              </button>
+            )}
           </div>
         </div>
       </div>
 
       {item.overview && <p className="vorn-detail-overview">{item.overview}</p>}
+      {item.currentReleaseTitle && (
+        <p className="vorn-detail-year" style={{ opacity: 0.7 }}>
+          Current: {item.currentReleaseTitle}
+        </p>
+      )}
 
       {item.children && item.children.length > 0 && (
         <div className="vorn-children-row">

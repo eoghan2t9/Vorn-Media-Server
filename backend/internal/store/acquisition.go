@@ -48,6 +48,31 @@ func (s *Store) FindPlaceholderChild(libraryID string, parentID *string, kind, t
 	return m, nil
 }
 
+// ListMonitoredTopLevel returns every monitored movie/series row, across
+// all libraries -- the "grab new content" half of acquisition.MonitorScheduler's
+// tick: a monitored series gets its tree re-synced for new episodes, a
+// monitored movie still without a file gets retried.
+func (s *Store) ListMonitoredTopLevel() ([]*MediaItem, error) {
+	rows, err := s.db.Query(`SELECT ` + mediaItemColumns + ` FROM media_items WHERE monitored = true AND kind IN ('movie', 'series') AND parent_id IS NULL`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanMediaItems(rows)
+}
+
+// ListMonitoredOwned returns every monitored, already-owned movie/episode
+// row -- the "check for a better release" half of
+// acquisition.MonitorScheduler's tick.
+func (s *Store) ListMonitoredOwned() ([]*MediaItem, error) {
+	rows, err := s.db.Query(`SELECT ` + mediaItemColumns + ` FROM media_items WHERE monitored = true AND acquisition_status = 'owned' AND kind IN ('movie', 'episode')`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanMediaItems(rows)
+}
+
 // CreatePlaceholderInput is the bare identity of a not-yet-owned
 // media_item -- full metadata (overview/poster/etc) is filled in
 // afterward via ApplyMetadata, reusing the same metadata-writing path the
@@ -61,6 +86,11 @@ type CreatePlaceholderInput struct {
 	SeasonNumber  *int
 	EpisodeNumber *int
 	TmdbID        *int
+	// Monitored inherits the parent series' current monitored value for a
+	// season/episode created by a resync of an already-monitored series --
+	// existing children get this via SetMediaItemMonitored's cascade
+	// instead, this only matters for rows created after that cascade ran.
+	Monitored bool
 }
 
 // CreatePlaceholder inserts a media_item with no file/stream yet
@@ -72,9 +102,9 @@ func (s *Store) CreatePlaceholder(in CreatePlaceholderInput) (*MediaItem, error)
 	}
 	var id string
 	err := s.db.QueryRow(
-		`INSERT INTO media_items (library_id, parent_id, kind, title, sort_title, season_number, episode_number, tmdb_id, acquisition_status)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'placeholder') RETURNING id`,
-		in.LibraryID, in.ParentID, in.Kind, in.Title, sortTitle, in.SeasonNumber, in.EpisodeNumber, in.TmdbID,
+		`INSERT INTO media_items (library_id, parent_id, kind, title, sort_title, season_number, episode_number, tmdb_id, acquisition_status, monitored)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'placeholder', $9) RETURNING id`,
+		in.LibraryID, in.ParentID, in.Kind, in.Title, sortTitle, in.SeasonNumber, in.EpisodeNumber, in.TmdbID, in.Monitored,
 	).Scan(&id)
 	if err != nil {
 		return nil, err

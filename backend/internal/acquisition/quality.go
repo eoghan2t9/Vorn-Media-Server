@@ -7,6 +7,7 @@ package acquisition
 import (
 	"errors"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/store"
@@ -106,12 +107,14 @@ const seederScoreCap = 500
 // entirely during filtering, never merely down-scored.
 func resolutionBonus(tier int) int { return tier * 100 }
 
-// ScoreAndPick filters candidates against profile (drops releases with
+// ScoreAndRank filters candidates against profile (drops releases with
 // fewer than MinSeeders, or a parsed resolution outside
 // [MinResolution, MaxResolution] -- an unparseable/unknown resolution is
 // kept, since a real release with an unusual title is still better than no
-// release at all) and returns the single highest-scoring survivor.
-func ScoreAndPick(candidates []torrent.SearchResult, profile store.QualityProfile) (*ScoredRelease, error) {
+// release at all) and returns every survivor sorted best-first, for a
+// caller that wants to try more than just the single top pick (e.g.
+// falling back to the next-best candidate if the winner fails to resolve).
+func ScoreAndRank(candidates []torrent.SearchResult, profile store.QualityProfile) []ScoredRelease {
 	minTier, ok := resolutionTier(Resolution(profile.MinResolution))
 	if !ok {
 		minTier = 0
@@ -121,7 +124,7 @@ func ScoreAndPick(candidates []torrent.SearchResult, profile store.QualityProfil
 		maxTier = len(resolutionOrder) - 1
 	}
 
-	var best *ScoredRelease
+	var ranked []ScoredRelease
 	for _, c := range candidates {
 		if c.Seeders < profile.MinSeeders {
 			continue
@@ -143,12 +146,20 @@ func ScoreAndPick(candidates []torrent.SearchResult, profile store.QualityProfil
 			score += 25
 		}
 
-		if best == nil || score > best.Score {
-			best = &ScoredRelease{SearchResult: c, Resolution: res, Codec: codec, Score: score}
-		}
+		ranked = append(ranked, ScoredRelease{SearchResult: c, Resolution: res, Codec: codec, Score: score})
 	}
-	if best == nil {
+	sort.SliceStable(ranked, func(i, j int) bool { return ranked[i].Score > ranked[j].Score })
+	return ranked
+}
+
+// ScoreAndPick returns just ScoreAndRank's single highest-scoring survivor,
+// for callers that only ever want the top pick (e.g. the quality-upgrade
+// check, which only cares whether the current best candidate beats what's
+// already owned).
+func ScoreAndPick(candidates []torrent.SearchResult, profile store.QualityProfile) (*ScoredRelease, error) {
+	ranked := ScoreAndRank(candidates, profile)
+	if len(ranked) == 0 {
 		return nil, ErrNoAcceptableRelease
 	}
-	return best, nil
+	return &ranked[0], nil
 }

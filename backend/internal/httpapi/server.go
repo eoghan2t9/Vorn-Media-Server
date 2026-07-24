@@ -14,6 +14,7 @@ import (
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/debrid"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/logging"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/metadata"
+	"github.com/eoghan2t9/vorn-media-server/backend/internal/notify"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/nzb"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/scanner"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/store"
@@ -43,6 +44,7 @@ type Deps struct {
 	NZB          *nzb.Service
 	Debrid       *debrid.Service
 	Acquisition  *acquisition.Service
+	Notify       *notify.Service
 	Subtitles    *subtitles.Service
 	Update       *update.Service
 	LogBuffer    *logging.Buffer
@@ -63,6 +65,7 @@ type Server struct {
 	nzbSvc       *nzb.Service
 	debridSvc    *debrid.Service
 	acquisition  *acquisition.Service
+	notify       *notify.Service
 	subtitlesSvc *subtitles.Service
 	updateSvc    *update.Service
 	logBuffer    *logging.Buffer
@@ -92,6 +95,7 @@ func NewServer(deps Deps) *Server {
 		nzbSvc:       deps.NZB,
 		debridSvc:    deps.Debrid,
 		acquisition:  deps.Acquisition,
+		notify:       deps.Notify,
 		subtitlesSvc: deps.Subtitles,
 		updateSvc:    deps.Update,
 		logBuffer:    deps.LogBuffer,
@@ -180,6 +184,7 @@ func NewRouter(deps Deps) http.Handler {
 	mux.HandleFunc("POST /api/dev/synthetic-scan", s.withAdmin(s.handleSyntheticScan))
 
 	mux.HandleFunc("GET /api/items/{id}", s.withAuth(s.handleGetItem))
+	mux.HandleFunc("PUT /api/items/{id}/monitor", s.withAuth(s.handleSetItemMonitored))
 	mux.HandleFunc("PUT /api/items/{id}/progress", s.withAuth(s.handleUpdateProgress))
 	mux.HandleFunc("GET /api/items/{id}/progress", s.withAuth(s.handleGetProgress))
 	mux.HandleFunc("GET /api/continue-watching", s.withAuth(s.handleContinueWatching))
@@ -316,6 +321,10 @@ func NewRouter(deps Deps) http.Handler {
 
 	mux.HandleFunc("GET /api/admin/backups/settings", s.withAdmin(s.handleGetBackupSettings))
 	mux.HandleFunc("PUT /api/admin/backups/settings", s.withAdmin(s.handleUpdateBackupSettings))
+
+	mux.HandleFunc("GET /api/admin/notifications", s.withAdmin(s.handleGetNotificationSettings))
+	mux.HandleFunc("PUT /api/admin/notifications", s.withAdmin(s.handleUpdateNotificationSettings))
+	mux.HandleFunc("POST /api/admin/notifications/test", s.withAdmin(s.handleTestNotification))
 	mux.HandleFunc("GET /api/admin/backups", s.withAdmin(s.handleListAutoBackups))
 	mux.HandleFunc("GET /api/admin/backups/{filename}", s.withAdmin(s.handleDownloadAutoBackup))
 	mux.HandleFunc("DELETE /api/admin/backups/{filename}", s.withAdmin(s.handleDeleteAutoBackup))

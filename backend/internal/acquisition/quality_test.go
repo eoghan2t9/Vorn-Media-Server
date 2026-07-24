@@ -52,6 +52,43 @@ func candidate(title string, seeders int) torrent.SearchResult {
 	return torrent.SearchResult{Title: title, Seeders: seeders, DownloadURL: "magnet:?xt=urn:btih:" + title}
 }
 
+func TestScoreAndRank_OrdersBestFirstAndFiltersConsistentlyWithScoreAndPick(t *testing.T) {
+	profile := store.QualityProfile{MinResolution: "480p", MaxResolution: "2160p", MinSeeders: 1}
+	candidates := []torrent.SearchResult{
+		candidate("Movie.2020.720p.WEB-DL", 50),
+		candidate("Movie.2020.2160p.WEB-DL", 200),
+		candidate("Movie.2020.1080p.WEB-DL", 100),
+	}
+	ranked := ScoreAndRank(candidates, profile)
+	if len(ranked) != 3 {
+		t.Fatalf("expected 3 ranked candidates, got %d", len(ranked))
+	}
+	for i := 1; i < len(ranked); i++ {
+		if ranked[i-1].Score < ranked[i].Score {
+			t.Fatalf("expected non-increasing score order, got %+v", ranked)
+		}
+	}
+	if ranked[0].Resolution != Res2160p {
+		t.Fatalf("expected 2160p to rank first, got %+v", ranked[0])
+	}
+
+	picked, err := ScoreAndPick(candidates, profile)
+	if err != nil {
+		t.Fatalf("ScoreAndPick: %v", err)
+	}
+	if picked.SearchResult.Title != ranked[0].SearchResult.Title {
+		t.Fatalf("expected ScoreAndPick to match ScoreAndRank's top entry: picked=%+v ranked[0]=%+v", picked, ranked[0])
+	}
+}
+
+func TestScoreAndRank_EmptyForNoQualifyingCandidates(t *testing.T) {
+	profile := store.QualityProfile{MinResolution: "480p", MaxResolution: "2160p", MinSeeders: 10}
+	ranked := ScoreAndRank([]torrent.SearchResult{candidate("Movie.2020.1080p.WEB-DL", 1)}, profile)
+	if len(ranked) != 0 {
+		t.Fatalf("expected no ranked candidates, got %+v", ranked)
+	}
+}
+
 func TestScoreAndPick_PrefersHigherResolution(t *testing.T) {
 	profile := store.QualityProfile{MinResolution: "480p", MaxResolution: "2160p", MinSeeders: 1}
 	candidates := []torrent.SearchResult{

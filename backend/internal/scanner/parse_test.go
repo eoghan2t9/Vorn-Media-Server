@@ -42,3 +42,19 @@ func TestParseFilename(t *testing.T) {
 		})
 	}
 }
+
+func TestLooksLikeSingleEpisode(t *testing.T) {
+	cases := map[string]bool{
+		"Breaking.Bad.S01E02.720p.mkv":       true,
+		"The Wire - s2e05 - Title.mkv":       true,
+		"Old.Show.3x10.mkv":                  true,
+		"Breaking.Bad.S01.COMPLETE.1080p":    false,
+		"Breaking.Bad.Season.1.1080p.BluRay": false,
+		"Inception.2010.1080p.BluRay":        false,
+	}
+	for title, want := range cases {
+		if got := LooksLikeSingleEpisode(title); got != want {
+			t.Errorf("LooksLikeSingleEpisode(%q) = %v, want %v", title, got, want)
+		}
+	}
+}

@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import {
   ArchiveIcon,
+  BellIcon,
   CloudDownloadIcon,
   CloudIcon,
   DashboardIcon,
@@ -45,6 +46,7 @@ const NAV_GROUPS: { label: string; items: { to: string; label: string; icon: (pr
       { to: '/admin/integrations', label: 'Integrations', icon: PlugIcon },
       { to: '/admin/server-settings', label: 'Network', icon: GlobeIcon },
       { to: '/admin/backups', label: 'Backups', icon: ArchiveIcon },
+      { to: '/admin/notifications', label: 'Notifications', icon: BellIcon },
       { to: '/admin/logs', label: 'Logs', icon: TerminalIcon },
     ],
   },

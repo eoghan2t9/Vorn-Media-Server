@@ -17,6 +17,7 @@ import (
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/logging"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/metadata"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/migrate"
+	"github.com/eoghan2t9/vorn-media-server/backend/internal/notify"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/nzb"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/scanner"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/store"
@@ -186,13 +187,19 @@ func main() {
 	// configures at least one account.
 	debridSvc := debrid.NewService(st)
 
+	// Webhook notifications have no listening port or background resources
+	// to gate behind an enable flag either; it's a no-op until an admin
+	// configures a URL in Admin > Notifications.
+	notifySvc := notify.NewService(st)
+
 	// On-demand acquisition (browse-and-play) needs both a TMDb key (to
 	// materialize placeholders) and torrent indexer search (to find a
 	// release) -- without either, browse/play-triggers-acquisition just
 	// isn't offered rather than failing at request time.
 	var acquisitionSvc *acquisition.Service
 	if tmdbClient != nil && torrentSvc != nil {
-		acquisitionSvc = acquisition.NewService(st, tmdbClient, torrentSvc, debridSvc)
+		acquisitionSvc = acquisition.NewService(st, tmdbClient, torrentSvc, debridSvc, notifySvc)
+		go acquisitionSvc.NewMonitorScheduler(st).Run(context.Background())
 	} else {
 		log.Print("TMDb API key and/or torrent indexers not configured: on-demand acquisition (browse-and-play) is disabled")
 	}
@@ -240,6 +247,7 @@ func main() {
 		NZB:          nzbSvc,
 		Debrid:       debridSvc,
 		Acquisition:  acquisitionSvc,
+		Notify:       notifySvc,
 		Subtitles:    subtitlesSvc,
 		Update:       updateSvc,
 		LogBuffer:    logBuffer,

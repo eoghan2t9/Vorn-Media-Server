@@ -26,6 +26,8 @@ type mediaItemResponse struct {
 	RatingRottenTomatoes string  `json:"ratingRottenTomatoes,omitempty"`
 	AcquisitionStatus    string  `json:"acquisitionStatus"`
 	AcquisitionError     string  `json:"acquisitionError,omitempty"`
+	Monitored            bool    `json:"monitored"`
+	CurrentReleaseTitle  string  `json:"currentReleaseTitle,omitempty"`
 }
 
 func toMediaItemResponse(m *store.MediaItem) mediaItemResponse {
@@ -47,6 +49,8 @@ func toMediaItemResponse(m *store.MediaItem) mediaItemResponse {
 		RatingRottenTomatoes: m.RatingRottenTomatoes,
 		AcquisitionStatus:    m.AcquisitionStatus,
 		AcquisitionError:     m.AcquisitionError,
+		Monitored:            m.Monitored,
+		CurrentReleaseTitle:  m.CurrentReleaseTitle,
 	}
 	if m.ReleaseDate != nil {
 		d := m.ReleaseDate.Format("2006-01-02")
@@ -124,6 +128,56 @@ func (s *Server) handleGetItem(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, resp)
+}
+
+type setMonitoredRequest struct {
+	Monitored bool `json:"monitored"`
+}
+
+// handleSetItemMonitored subscribes/unsubscribes a movie or series to
+// acquisition.MonitorScheduler's recurring re-check (grab new episodes as
+// they air, keep retrying an unavailable movie, auto-upgrade quality once
+// owned). Same access pattern as play/acquire -- any user with library
+// access can monitor something, not just admins, consistent with how
+// playing an unacquired item already triggers acquisition on its own.
+func (s *Server) handleSetItemMonitored(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	user := userFromContext(r.Context())
+
+	item, err := s.store.GetMediaItem(id)
+	if err != nil {
+		s.writeStoreErr(w, err, "loading item")
+		return
+	}
+	if item.Kind != "movie" && item.Kind != "series" {
+		writeError(w, http.StatusBadRequest, "only movies and series can be monitored")
+		return
+	}
+	ok, err := s.canAccessLibrary(user, item.LibraryID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "checking permissions")
+		return
+	}
+	if !ok {
+		writeError(w, http.StatusForbidden, "no access to this item")
+		return
+	}
+
+	var req setMonitoredRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if err := s.store.SetMediaItemMonitored(id, req.Monitored); err != nil {
+		s.writeStoreErr(w, err, "updating monitored status")
+		return
+	}
+	fresh, err := s.store.GetMediaItem(id)
+	if err != nil {
+		s.writeStoreErr(w, err, "reloading item")
+		return
+	}
+	writeJSON(w, http.StatusOK, toMediaItemResponse(fresh))
 }
 
 type updateProgressRequest struct {

@@ -24,6 +24,16 @@ var (
 	yearRe = regexp.MustCompile(`(?:\(|\.|_|\s)(19\d{2}|20\d{2})(?:\)|\.|_|\s|$)`)
 )
 
+// LooksLikeSingleEpisode reports whether title names one specific episode
+// (matches S01E02-style or 1x02-style), as opposed to a season pack or
+// movie release. Exported so other packages (e.g. acquisition, filtering
+// season-pack candidates out of single-episode search results) can reuse
+// this exact heuristic instead of maintaining a second copy of the regex
+// that could quietly drift out of sync with ParseFilename's own.
+func LooksLikeSingleEpisode(title string) bool {
+	return episodeSxxExxRe.MatchString(title) || episodeNxNRe.MatchString(title)
+}
+
 // ParseFilename guesses whether a video file is a movie or an episode and
 // extracts a display title (plus year, or season/episode) from its name.
 // It is intentionally simple regex-based heuristics, not a full metadata

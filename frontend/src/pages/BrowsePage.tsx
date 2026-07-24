@@ -9,6 +9,7 @@ import {
   type Library,
 } from '../api/client'
 import { Poster } from '../components/Poster'
+import { Select } from '../components/Select'
 import './ViewerHome.css'
 
 type MediaType = 'movie' | 'series'
@@ -19,12 +20,25 @@ export function BrowsePage() {
   const [mediaType, setMediaType] = useState<MediaType>('movie')
   const [sort, setSort] = useState<SortMode>('popular')
   const [libraries, setLibraries] = useState<Library[]>([])
+  const [targetLibraryId, setTargetLibraryId] = useState('')
   const [results, setResults] = useState<CatalogEntry[]>([])
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [loading, setLoading] = useState(false)
   const [openingId, setOpeningId] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  const matchingLibraries = libraries.filter((l) => l.type === mediaType)
+  // Defaults to the first library of the current media type -- the common
+  // case (one movie library, one series library) never has to think about
+  // this; the picker below only appears once a second library of the same
+  // type exists (e.g. a "Movies 4K" library alongside "Movies"). Computed
+  // during render rather than synced via an effect+extra state, since it's
+  // a pure function of (libraries, mediaType, targetLibraryId) -- only an
+  // explicit pick in the Select below ever calls setTargetLibraryId.
+  const effectiveLibraryId = matchingLibraries.some((l) => l.id === targetLibraryId)
+    ? targetLibraryId
+    : (matchingLibraries[0]?.id ?? '')
 
   useEffect(() => {
     listLibraries()
@@ -60,19 +74,18 @@ export function BrowsePage() {
   }
 
   // A browse card has no local library of its own yet -- it's materialized
-  // into whichever library already matches its media type, the same
-  // single-movie-library/single-series-library setup this app already
-  // assumes elsewhere (content requests have no library concept at all).
+  // into whichever library the picker below currently targets (defaults to
+  // the first of the matching type, so the common single-library case never
+  // has to think about this).
   async function handleOpen(entry: CatalogEntry) {
     setError(null)
-    const library = libraries.find((l) => l.type === mediaType)
-    if (!library) {
+    if (!effectiveLibraryId) {
       setError(`No ${mediaType === 'movie' ? 'movie' : 'TV'} library configured yet -- ask an admin to add one first.`)
       return
     }
     setOpeningId(entry.tmdbId)
     try {
-      const item = await openCatalogEntry({ tmdbId: entry.tmdbId, mediaType, libraryId: library.id })
+      const item = await openCatalogEntry({ tmdbId: entry.tmdbId, mediaType, libraryId: effectiveLibraryId })
       navigate(`/items/${item.id}`)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err))
@@ -86,14 +99,29 @@ export function BrowsePage() {
         <div className="vorn-library-row-header">
           <h2>Browse</h2>
           <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <select value={mediaType} onChange={(e) => setMediaType(e.target.value as MediaType)}>
-              <option value="movie">Movies</option>
-              <option value="series">TV Shows</option>
-            </select>
-            <select value={sort} onChange={(e) => setSort(e.target.value as SortMode)}>
-              <option value="popular">Popular</option>
-              <option value="trending">Trending</option>
-            </select>
+            <Select
+              value={mediaType}
+              onChange={(v) => setMediaType(v as MediaType)}
+              options={[
+                { value: 'movie', label: 'Movies' },
+                { value: 'series', label: 'TV Shows' },
+              ]}
+            />
+            <Select
+              value={sort}
+              onChange={(v) => setSort(v as SortMode)}
+              options={[
+                { value: 'popular', label: 'Popular' },
+                { value: 'trending', label: 'Trending' },
+              ]}
+            />
+            {matchingLibraries.length > 1 && (
+              <Select
+                value={effectiveLibraryId}
+                onChange={setTargetLibraryId}
+                options={matchingLibraries.map((l) => ({ value: l.id, label: l.name }))}
+              />
+            )}
           </div>
         </div>
 

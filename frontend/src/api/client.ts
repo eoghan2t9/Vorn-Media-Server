@@ -156,6 +156,8 @@ export interface MediaItem {
   logoUrl?: string
   acquisitionStatus: 'owned' | 'placeholder' | 'searching' | 'acquiring' | 'error'
   acquisitionError?: string
+  monitored: boolean
+  currentReleaseTitle?: string
   ratingImdb?: string
   ratingRottenTomatoes?: string
 }
@@ -173,6 +175,9 @@ export const listLibraryItems = (libraryId: string, opts?: { sort?: 'recent' | '
 }
 
 export const getItem = (id: string) => request<MediaItemDetail>(`/api/items/${id}`)
+
+export const setItemMonitored = (id: string, monitored: boolean) =>
+  request<MediaItem>(`/api/items/${id}/monitor`, { method: 'PUT', body: JSON.stringify({ monitored }) })
 
 export const updateProgress = (id: string, positionSeconds: number, durationSeconds: number) =>
   request<void>(`/api/items/${id}/progress`, {
@@ -619,6 +624,16 @@ export interface BackupSettings {
 export const fetchBackupSettings = () => request<BackupSettings>('/api/admin/backups/settings')
 export const updateBackupSettings = (input: BackupSettings) =>
   request<BackupSettings>('/api/admin/backups/settings', { method: 'PUT', body: JSON.stringify(input) })
+
+export interface NotificationSettings {
+  enabled: boolean
+  webhookUrl: string
+}
+export const fetchNotificationSettings = () => request<NotificationSettings>('/api/admin/notifications')
+export const updateNotificationSettings = (input: NotificationSettings) =>
+  request<NotificationSettings>('/api/admin/notifications', { method: 'PUT', body: JSON.stringify(input) })
+export const sendTestNotification = (webhookUrl: string) =>
+  request<{ sent: boolean }>('/api/admin/notifications/test', { method: 'POST', body: JSON.stringify({ webhookUrl }) })
 
 export interface AutoBackup {
   filename: string
