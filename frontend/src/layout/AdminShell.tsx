@@ -9,6 +9,7 @@ import {
   EyeIcon,
   GlobeIcon,
   InboxIcon,
+  InfoIcon,
   LibraryIcon,
   MagnetIcon,
   MenuIcon,
@@ -48,6 +49,7 @@ const NAV_GROUPS: { label: string; items: { to: string; label: string; icon: (pr
       { to: '/admin/backups', label: 'Backups', icon: ArchiveIcon },
       { to: '/admin/notifications', label: 'Notifications', icon: BellIcon },
       { to: '/admin/logs', label: 'Logs', icon: TerminalIcon },
+      { to: '/admin/about', label: 'About', icon: InfoIcon },
     ],
   },
 ]

@@ -1,0 +1,69 @@
+.vorn-credit-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: 0.75rem;
+  margin-top: 0.9rem;
+}
+
+.vorn-credit-card {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid var(--vorn-border);
+  border-radius: var(--vorn-radius);
+  text-decoration: none;
+  color: var(--vorn-text);
+  background: var(--vorn-bg);
+  transition: border-color var(--vorn-transition), transform var(--vorn-transition), box-shadow var(--vorn-transition);
+}
+
+.vorn-credit-card:hover {
+  border-color: var(--vorn-accent);
+  transform: translateY(-2px);
+  box-shadow: var(--vorn-shadow);
+}
+
+.vorn-credit-logo,
+.vorn-credit-logo-fallback {
+  flex-shrink: 0;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.4rem;
+}
+
+.vorn-credit-logo {
+  object-fit: contain;
+  background: var(--vorn-bg-elevated);
+  padding: 0.3rem;
+}
+
+.vorn-credit-logo-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--vorn-gradient);
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.vorn-credit-body {
+  min-width: 0;
+}
+
+.vorn-credit-name {
+  font-size: 0.9rem;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vorn-credit-desc {
+  font-size: 0.78rem;
+  color: var(--vorn-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

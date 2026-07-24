@@ -21,6 +21,7 @@ import { AdminServerSettings } from './pages/AdminServerSettings'
 import { AdminBackups } from './pages/AdminBackups'
 import { AdminNotifications } from './pages/AdminNotifications'
 import { AdminIntegrations } from './pages/AdminIntegrations'
+import { AdminAbout } from './pages/AdminAbout'
 import { SetupWizard } from './pages/SetupWizard'
 import { Login } from './pages/Login'
 
@@ -91,6 +92,7 @@ function AppRoutes() {
           <Route path="/admin/backups" element={<AdminBackups />} />
           <Route path="/admin/notifications" element={<AdminNotifications />} />
           <Route path="/admin/integrations" element={<AdminIntegrations />} />
+          <Route path="/admin/about" element={<AdminAbout />} />
         </Route>
       </Route>
 
