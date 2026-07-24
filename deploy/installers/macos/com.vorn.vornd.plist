@@ -20,6 +20,10 @@
         <string>localhost:6379</string>
         <key>VORN_CORS_ORIGIN</key>
         <string>http://localhost:5173</string>
+        <key>VORN_PROWLARR_BASE_URL</key>
+        <string>__VORN_PROWLARR_BASE_URL__</string>
+        <key>VORN_PROWLARR_CONFIG_PATH</key>
+        <string>__VORN_PROWLARR_CONFIG_PATH__</string>
     </dict>
 
     <key>RunAtLoad</key>

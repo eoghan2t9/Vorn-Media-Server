@@ -1,0 +1,17 @@
+[Unit]
+Description=Prowlarr (indexer manager, bundled with Vorn Media Server)
+Documentation=https://wiki.servarr.com/prowlarr
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=prowlarr
+Group=prowlarr
+ExecStart=/opt/prowlarr/Prowlarr -nobrowser -data=/var/lib/prowlarr
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

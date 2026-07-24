@@ -37,7 +37,6 @@ const STEPS: { id: StepId; label: string }[] = [
 ]
 
 const TORRENT_INDEXER_PRESETS: { label: string; name: string; baseUrl: string }[] = [
-  { label: 'Jackett', name: 'Jackett', baseUrl: 'http://localhost:9117/api/v2.0/indexers/<indexer-id>/results/torznab' },
   { label: 'Prowlarr', name: 'Prowlarr', baseUrl: 'http://localhost:9696/<indexer-id>' },
 ]
 
@@ -427,8 +426,8 @@ export function SetupWizard() {
           <div>
             <h1>Torrent indexers</h1>
             <p className="vorn-form-subtitle">
-              Connect a Torznab-compatible indexer manager (Jackett, Prowlarr) so Vorn can search for releases. Skip this and
-              add one later in Admin → Torrents if you don't have one running yet.
+              Connect a Torznab-compatible indexer manager (Prowlarr, or any other tool that speaks the same protocol) so
+              Vorn can search for releases. Skip this and add one later in Admin → Torrents if you don't have one running yet.
             </p>
             {addedTorrentIndexers.length > 0 && (
               <ul className="vorn-setup-added-list">

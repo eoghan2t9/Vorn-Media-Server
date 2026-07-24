@@ -14,6 +14,13 @@
 #     needed, since Vorn is a plain foreground process that handles
 #     SIGTERM-equivalent shutdown cleanly
 #   - Starts the service
+#   - Also installs Prowlarr (indexer manager) as its own Windows service
+#     and points vornd at it (VORN_PROWLARR_BASE_URL/VORN_PROWLARR_CONFIG_PATH
+#     appended to vornd.env) -- Vorn then auto-discovers Prowlarr's API key
+#     and mirrors whatever indexers you add in Prowlarr's own UI into Vorn's
+#     Torrent/NZB Indexers, same as the Docker Compose "prowlarr" profile.
+#     Pass -InstallProwlarr:$false to skip this (e.g. you already run your
+#     own Prowlarr elsewhere).
 #
 # What this does NOT do -- you need these already, locally or reachable
 # over the network:
@@ -28,10 +35,12 @@
 #   .\install.ps1 -BinaryPath C:\path\to\vornd.exe
 #   .\install.ps1 -Version v1.2.3   # downloads that release from GitHub
 #   .\install.ps1                   # downloads the latest release
+#   .\install.ps1 -InstallProwlarr:$false   # skip bundling Prowlarr
 
 param(
     [string]$BinaryPath = "",
-    [string]$Version = "latest"
+    [string]$Version = "latest",
+    [bool]$InstallProwlarr = $true
 )
 
 $ErrorActionPreference = "Stop"
@@ -40,6 +49,9 @@ $InstallDir = "$env:ProgramFiles\Vorn"
 $ConfigDir = "$env:ProgramData\Vorn"
 $Repo = "eoghan2t9/Vorn-Media-Server"
 $ServiceName = "vornd"
+$ProwlarrInstallDir = "$env:ProgramFiles\Prowlarr"
+$ProwlarrDataDir = "$env:ProgramData\Prowlarr"
+$ProwlarrServiceName = "Prowlarr"
 
 $currentPrincipal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
 if (-not $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
@@ -110,6 +122,53 @@ VORN_CORS_ORIGIN=http://localhost:5173
 "@ | Set-Content -Path $envFile -Encoding UTF8
 } else {
     Write-Host "==> $envFile already exists, leaving it as-is"
+}
+
+# Degrades to a warning rather than throwing on any failure (network hiccup,
+# unexpected release asset layout) -- vornd itself installs regardless.
+if ($InstallProwlarr) {
+    Write-Host "==> Installing Prowlarr (indexer manager) -- pass -InstallProwlarr:`$false to skip this"
+    try {
+        $prowlarrRelease = Invoke-RestMethod -Uri "https://api.github.com/repos/Prowlarr/Prowlarr/releases/latest"
+        $prowlarrAsset = $prowlarrRelease.assets | Where-Object { $_.name -like "*windows-core-x64.zip" } | Select-Object -First 1
+
+        if (-not $prowlarrAsset) {
+            Write-Host "  warning: could not find a Prowlarr windows-core-x64.zip release asset -- skipping Prowlarr install"
+        } else {
+            $prowlarrTmpDir = New-Item -ItemType Directory -Path (Join-Path $env:TEMP "prowlarr-install-$(Get-Random)")
+            $prowlarrZip = Join-Path $prowlarrTmpDir "prowlarr.zip"
+            Invoke-WebRequest -Uri $prowlarrAsset.browser_download_url -OutFile $prowlarrZip
+            Expand-Archive -Path $prowlarrZip -DestinationPath $prowlarrTmpDir
+
+            if (Test-Path $ProwlarrInstallDir) {
+                Remove-Item -Recurse -Force $ProwlarrInstallDir
+            }
+            Move-Item -Path (Join-Path $prowlarrTmpDir "Prowlarr") -Destination $ProwlarrInstallDir
+            Remove-Item -Recurse -Force $prowlarrTmpDir -ErrorAction SilentlyContinue
+            New-Item -ItemType Directory -Force -Path $ProwlarrDataDir | Out-Null
+
+            if (Get-Service -Name $ProwlarrServiceName -ErrorAction SilentlyContinue) {
+                Stop-Service -Name $ProwlarrServiceName -ErrorAction SilentlyContinue
+            }
+            $prowlarrBinPath = "`"$ProwlarrInstallDir\Prowlarr.exe`" -nobrowser -data=`"$ProwlarrDataDir`""
+            if (Get-Service -Name $ProwlarrServiceName -ErrorAction SilentlyContinue) {
+                sc.exe config $ProwlarrServiceName binPath= $prowlarrBinPath | Out-Null
+            } else {
+                sc.exe create $ProwlarrServiceName binPath= $prowlarrBinPath start= auto DisplayName= "Prowlarr" | Out-Null
+                sc.exe description $ProwlarrServiceName "Indexer manager, bundled with Vorn Media Server" | Out-Null
+            }
+            Start-Service -Name $ProwlarrServiceName
+
+            $prowlarrConfigPath = "$ProwlarrDataDir\config.xml"
+            $envContent = Get-Content -Path $envFile -Raw
+            if ($envContent -notmatch "(?m)^VORN_PROWLARR_BASE_URL=") {
+                Add-Content -Path $envFile -Value "VORN_PROWLARR_BASE_URL=http://localhost:9696"
+                Add-Content -Path $envFile -Value "VORN_PROWLARR_CONFIG_PATH=$prowlarrConfigPath"
+            }
+        }
+    } catch {
+        Write-Host "  warning: installing Prowlarr failed, skipping: $_"
+    }
 }
 
 # vornd reads its env file itself at startup (there's no native Windows

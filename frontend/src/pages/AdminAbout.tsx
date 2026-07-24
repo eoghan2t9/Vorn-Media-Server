@@ -40,15 +40,7 @@ const CREDIT_GROUPS: CreditGroup[] = [
   },
   {
     title: 'Torrent indexing',
-    entries: [
-      {
-        name: 'Jackett',
-        domain: 'github.com',
-        url: 'https://github.com/Jackett/Jackett',
-        description: 'Torznab-compatible indexer proxy.',
-      },
-      { name: 'Prowlarr', domain: 'prowlarr.com', description: 'Indexer manager (Torznab/Newznab).' },
-    ],
+    entries: [{ name: 'Prowlarr', domain: 'prowlarr.com', description: 'Indexer manager (Torznab/Newznab).' }],
   },
   {
     title: 'Usenet indexers',

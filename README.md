@@ -119,11 +119,13 @@ Features added after the original 11 phases landed, organized by area rather tha
   results and the library list both show a 4K badge so a title available in both a standard and 4K
   library is easy to tell apart.
 - **Bundled Prowlarr**: an optional Docker Compose profile (`--profile prowlarr`) runs Prowlarr as
-  a managed sidecar instead of requiring a separately-run instance. Vorn reads Prowlarr's own
-  auto-generated API key straight from its `config.xml` and periodically mirrors every enabled
-  indexer Prowlarr knows about — torrent-protocol into Vorn's Torrent Indexers, Usenet-protocol
-  into NZB Indexers — with no manual URL/API-key copying. Vorn itself remains a plain Torznab/
-  Newznab client throughout; this doesn't add any indexer scraping of its own.
+  a managed sidecar instead of requiring a separately-run instance; the bare-metal installers
+  (Linux/macOS/Windows) install and enable it by default too (`VORN_INSTALL_PROWLARR=false` /
+  `-InstallProwlarr:$false` to skip). Vorn reads Prowlarr's own auto-generated API key straight
+  from its `config.xml` and periodically mirrors every enabled indexer Prowlarr knows about —
+  torrent-protocol into Vorn's Torrent Indexers, Usenet-protocol into NZB Indexers — with no
+  manual URL/API-key copying. Vorn itself remains a plain Torznab/Newznab client throughout; this
+  doesn't add any indexer scraping of its own.
 - **Usenet indexer search & provider presets**: Newznab-compatible indexer search on the NZB page
   (NZBGeek and others), connection presets for popular commercial Usenet providers, and TorBox
   support as a Usenet backend alongside its debrid role.
@@ -297,13 +299,17 @@ go-selfupdate's naming convention (`vornd_{os}_{arch}`), for exactly this featur
 Once the Docker track is stable, Vorn can also run bare-metal (no containers) on Linux, macOS, or
 Windows — `deploy/installers/<platform>/install.sh` (or `install.ps1` on Windows) downloads a
 release binary (or accepts a local path) and registers it as a proper background service
-(systemd on Linux, launchd on macOS, a native Windows service). None of these provision
+(systemd on Linux, launchd on macOS, a native Windows service). Each installer also downloads and
+registers Prowlarr as its own service by default (skip with `VORN_INSTALL_PROWLARR=false` on
+Linux/macOS or `-InstallProwlarr:$false` on Windows), wiring Vorn to auto-discover its API key the
+same way the Docker Compose profile does — see "Bundled Prowlarr" above. None of these provision
 PostgreSQL, a Redis-protocol server (DragonflyDB or Redis), or ffmpeg for you — they check for and
 warn about missing prerequisites, but installing across every distro's/platform's package manager
 is out of scope; point the generated config file at wherever those already run. **The Linux
-installer is tested** (this project's own dev environment); **macOS and Windows are written to
-each platform's conventions but not run on real hardware** (built in a Linux-only environment) —
-review before relying on them in production, and please report issues.
+installer (including the Prowlarr provisioning) is tested** (this project's own dev environment,
+including a real download-and-run of the actual Prowlarr binary); **macOS and Windows are written
+to each platform's conventions but not run on real hardware** (built in a Linux-only environment)
+— review before relying on them in production, and please report issues.
 
 ```bash
 # Linux (systemd)

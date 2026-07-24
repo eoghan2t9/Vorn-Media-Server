@@ -35,11 +35,6 @@ function formatBytes(n: number) {
 // to swap for their own indexer's id/slug from that app's UI.
 const INDEXER_PRESETS: { label: string; name: string; baseUrl: string }[] = [
   {
-    label: 'Jackett',
-    name: 'Jackett',
-    baseUrl: 'http://localhost:9117/api/v2.0/indexers/<indexer-id>/results/torznab',
-  },
-  {
     label: 'Prowlarr',
     name: 'Prowlarr',
     baseUrl: 'http://localhost:9696/<indexer-id>',
