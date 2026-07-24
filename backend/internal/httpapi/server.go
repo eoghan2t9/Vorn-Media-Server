@@ -194,6 +194,7 @@ func NewRouter(deps Deps) http.Handler {
 	mux.HandleFunc("GET /api/torrents/search", s.withAdmin(s.handleTorrentSearch))
 	mux.HandleFunc("GET /api/torrent-indexers", s.withAdmin(s.handleListTorrentIndexers))
 	mux.HandleFunc("POST /api/torrent-indexers", s.withAdmin(s.handleCreateTorrentIndexer))
+	mux.HandleFunc("POST /api/torrent-indexers/test", s.withAdmin(s.handleTestTorrentIndexer))
 	mux.HandleFunc("DELETE /api/torrent-indexers/{id}", s.withAdmin(s.handleDeleteTorrentIndexer))
 
 	mux.HandleFunc("GET /api/nzb", s.withAdmin(s.handleListNZBDownloads))
@@ -201,6 +202,7 @@ func NewRouter(deps Deps) http.Handler {
 	mux.HandleFunc("DELETE /api/nzb/{id}", s.withAdmin(s.handleRemoveNZB))
 	mux.HandleFunc("GET /api/usenet-servers", s.withAdmin(s.handleListUsenetServers))
 	mux.HandleFunc("POST /api/usenet-servers", s.withAdmin(s.handleCreateUsenetServer))
+	mux.HandleFunc("POST /api/usenet-servers/test", s.withAdmin(s.handleTestUsenetServer))
 	mux.HandleFunc("DELETE /api/usenet-servers/{id}", s.withAdmin(s.handleDeleteUsenetServer))
 
 	mux.HandleFunc("GET /api/debrid-accounts", s.withAdmin(s.handleListDebridAccounts))

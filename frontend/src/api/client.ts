@@ -153,6 +153,9 @@ export interface MediaItem {
   posterUrl?: string
   backdropUrl?: string
   author?: string
+  logoUrl?: string
+  ratingImdb?: string
+  ratingRottenTomatoes?: string
 }
 
 export interface MediaItemDetail extends MediaItem {
@@ -285,6 +288,9 @@ export interface IntegrationSettings {
   openSubtitlesUsername?: string
   musicMetadataEnabled: boolean
   audiobookMetadataEnabled: boolean
+  fanartConfigured: boolean
+  omdbConfigured: boolean
+  tvdbConfigured: boolean
   updatedAt: string
 }
 export const fetchIntegrationSettings = () => request<IntegrationSettings>('/api/admin/integrations')
@@ -299,6 +305,10 @@ export interface UpdateIntegrationSettingsInput {
   openSubtitlesPassword?: string
   musicMetadataEnabled?: boolean
   audiobookMetadataEnabled?: boolean
+  fanartApiKey?: string
+  omdbApiKey?: string
+  tvdbApiKey?: string
+  tvdbPin?: string
 }
 export const updateIntegrationSettings = (input: UpdateIntegrationSettingsInput) =>
   request<IntegrationSettings>('/api/admin/integrations', { method: 'PUT', body: JSON.stringify(input) })
@@ -400,6 +410,9 @@ export const createTorrentIndexer = (input: { name: string; baseUrl: string; api
 export const deleteTorrentIndexer = (id: string) =>
   request<void>(`/api/torrent-indexers/${id}`, { method: 'DELETE' })
 
+export const testTorrentIndexer = (input: { baseUrl: string; apiKey?: string }) =>
+  request<TestConnectionResult>('/api/torrent-indexers/test', { method: 'POST', body: JSON.stringify(input) })
+
 export interface NZBDownload {
   id: string
   libraryId?: string
@@ -459,19 +472,46 @@ export const createUsenetServer = (input: CreateUsenetServerInput) =>
 export const deleteUsenetServer = (id: string) =>
   request<void>(`/api/usenet-servers/${id}`, { method: 'DELETE' })
 
+export interface TestConnectionResult {
+  ok: boolean
+  error?: string
+}
+
+export interface TestUsenetServerInput {
+  host: string
+  port: number
+  useTls?: boolean
+  username?: string
+  password?: string
+}
+export const testUsenetServer = (input: TestUsenetServerInput) =>
+  request<TestConnectionResult>('/api/usenet-servers/test', { method: 'POST', body: JSON.stringify(input) })
+
+export type DebridProvider = 'realdebrid' | 'torbox' | 'alldebrid' | 'premiumize' | 'debridlink'
+
 export interface DebridAccount {
   id: string
-  provider: 'realdebrid' | 'torbox'
+  provider: DebridProvider
   enabled: boolean
   createdAt: string
 }
 export const listDebridAccounts = () => request<DebridAccount[]>('/api/debrid-accounts')
 
-export const createDebridAccount = (input: { provider: 'realdebrid' | 'torbox'; apiKey: string }) =>
+export const createDebridAccount = (input: { provider: DebridProvider; apiKey: string }) =>
   request<DebridAccount>('/api/debrid-accounts', { method: 'POST', body: JSON.stringify(input) })
 
 export const deleteDebridAccount = (id: string) =>
   request<void>(`/api/debrid-accounts/${id}`, { method: 'DELETE' })
+
+export interface TestDebridAccountResult {
+  ok: boolean
+  error?: string
+  username?: string
+  premium?: boolean
+  detail?: string
+}
+export const testDebridAccount = (input: { provider: DebridProvider; apiKey: string }) =>
+  request<TestDebridAccountResult>('/api/debrid-accounts/test', { method: 'POST', body: JSON.stringify(input) })
 
 export interface DebridItem {
   id: string

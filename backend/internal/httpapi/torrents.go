@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/store"
+	"github.com/eoghan2t9/vorn-media-server/backend/internal/torrent"
 )
 
 const torrentServiceUnavailable = "torrent acquisition is not configured (set VORN_TORRENT_ENABLED=true)"
@@ -246,6 +247,35 @@ func (s *Server) handleCreateTorrentIndexer(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	writeJSON(w, http.StatusCreated, toTorrentIndexerResponse(idx))
+}
+
+type testIndexerRequest struct {
+	BaseURL string `json:"baseUrl"`
+	APIKey  string `json:"apiKey"`
+}
+
+// handleTestTorrentIndexer checks a Torznab indexer's base URL/API key
+// (via its capabilities document) using whatever's currently in the
+// add-indexer form, without requiring it to be saved first.
+func (s *Server) handleTestTorrentIndexer(w http.ResponseWriter, r *http.Request) {
+	if s.torrentSvc == nil {
+		writeError(w, http.StatusServiceUnavailable, torrentServiceUnavailable)
+		return
+	}
+	var req testIndexerRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.BaseURL == "" {
+		writeError(w, http.StatusBadRequest, "baseUrl is required")
+		return
+	}
+	if err := torrent.TestIndexer(r.Context(), req.BaseURL, req.APIKey); err != nil {
+		writeJSON(w, http.StatusOK, testResultResponse{OK: false, Error: err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, testResultResponse{OK: true})
 }
 
 func (s *Server) handleDeleteTorrentIndexer(w http.ResponseWriter, r *http.Request) {

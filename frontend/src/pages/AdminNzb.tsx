@@ -8,6 +8,7 @@ import {
   listNZBDownloads,
   listUsenetServers,
   removeNZBDownload,
+  testUsenetServer,
   type Library,
   type NZBDownload,
   type UsenetServer,
@@ -40,6 +41,8 @@ export function AdminNzb() {
   const [serverUsername, setServerUsername] = useState('')
   const [serverPassword, setServerPassword] = useState('')
   const [serverMaxConnections, setServerMaxConnections] = useState('10')
+  const [testingServer, setTestingServer] = useState(false)
+  const [serverTestResult, setServerTestResult] = useState<{ ok: boolean; message: string } | null>(null)
 
   async function refreshDownloads() {
     setDownloads(await listNZBDownloads())
@@ -98,6 +101,27 @@ export function AdminNzb() {
       setServerPassword('')
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to add usenet server')
+    }
+  }
+
+  async function handleTestServer() {
+    setServerTestResult(null)
+    setTestingServer(true)
+    try {
+      const result = await testUsenetServer({
+        host: serverHost,
+        port: Number(serverPort),
+        useTls: serverUseTls,
+        username: serverUsername || undefined,
+        password: serverPassword || undefined,
+      })
+      setServerTestResult(
+        result.ok ? { ok: true, message: 'Connected and authenticated successfully.' } : { ok: false, message: result.error ?? 'Connection failed.' },
+      )
+    } catch (err) {
+      setServerTestResult({ ok: false, message: err instanceof ApiError ? err.message : 'Failed to test connection' })
+    } finally {
+      setTestingServer(false)
     }
   }
 
@@ -243,8 +267,16 @@ export function AdminNzb() {
             onChange={(e) => setServerMaxConnections(e.target.value)}
             style={{ width: '8rem' }}
           />
+          <button type="button" onClick={handleTestServer} disabled={testingServer || !serverHost || !serverPort}>
+            {testingServer ? 'Testing…' : 'Test'}
+          </button>
           <button type="submit">Add server</button>
         </form>
+        {serverTestResult && (
+          <p className={serverTestResult.ok ? 'vorn-test-result-ok' : 'vorn-form-error'} style={{ marginTop: '0.6rem' }}>
+            {serverTestResult.message}
+          </p>
+        )}
       </div>
     </section>
   )

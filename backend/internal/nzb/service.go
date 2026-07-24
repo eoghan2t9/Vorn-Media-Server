@@ -260,6 +260,20 @@ func (svc *Service) dialServer(server *store.UsenetServer, group string) (*Conn,
 	return c, nil
 }
 
+// TestServer dials and authenticates against a Usenet server without
+// requiring it to be saved first, so an admin can validate host/port/TLS/
+// credentials from the add-server form before committing to them.
+func (svc *Service) TestServer(host string, port int, useTLS bool, username, password string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), dialTimeout)
+	defer cancel()
+	c, err := Dial(ctx, host, port, useTLS)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	return c.Authenticate(username, password)
+}
+
 func (svc *Service) pickServer() (*store.UsenetServer, error) {
 	servers, err := svc.store.ListUsenetServers()
 	if err != nil {

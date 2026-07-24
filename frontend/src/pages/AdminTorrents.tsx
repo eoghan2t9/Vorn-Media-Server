@@ -10,6 +10,7 @@ import {
   listTorrents,
   removeTorrent,
   searchTorrents,
+  testTorrentIndexer,
   type Library,
   type Torrent,
   type TorrentIndexer,
@@ -26,6 +27,24 @@ function formatBytes(n: number) {
   return `${(n / 1024 ** i).toFixed(1)} ${units[i]}`
 }
 
+// Torznab is the protocol indexer-manager apps expose, not something public
+// trackers speak directly -- these presets fill in the fixed structural
+// part of each app's per-indexer Torznab URL (which SearchIndexer/TestIndexer
+// complete by appending "/api"), leaving the <...> placeholder for the admin
+// to swap for their own indexer's id/slug from that app's UI.
+const INDEXER_PRESETS: { label: string; name: string; baseUrl: string }[] = [
+  {
+    label: 'Jackett',
+    name: 'Jackett',
+    baseUrl: 'http://localhost:9117/api/v2.0/indexers/<indexer-id>/results/torznab',
+  },
+  {
+    label: 'Prowlarr',
+    name: 'Prowlarr',
+    baseUrl: 'http://localhost:9696/<indexer-id>',
+  },
+]
+
 export function AdminTorrents() {
   const [torrents, setTorrents] = useState<Torrent[]>([])
   const [libraries, setLibraries] = useState<Library[]>([])
@@ -38,9 +57,12 @@ export function AdminTorrents() {
   const [submitting, setSubmitting] = useState(false)
   const dropzoneRef = useRef<FileDropzoneHandle>(null)
 
+  const [indexerPreset, setIndexerPreset] = useState('')
   const [indexerName, setIndexerName] = useState('')
   const [indexerBaseUrl, setIndexerBaseUrl] = useState('')
   const [indexerApiKey, setIndexerApiKey] = useState('')
+  const [testingIndexer, setTestingIndexer] = useState(false)
+  const [indexerTestResult, setIndexerTestResult] = useState<{ ok: boolean; message: string } | null>(null)
 
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<TorrentSearchResult[] | null>(null)
@@ -98,17 +120,44 @@ export function AdminTorrents() {
     }
   }
 
+  function handleIndexerPreset(id: string) {
+    setIndexerPreset(id)
+    const preset = INDEXER_PRESETS.find((p) => p.label === id)
+    if (preset) {
+      setIndexerName(preset.name)
+      setIndexerBaseUrl(preset.baseUrl)
+      setIndexerTestResult(null)
+    }
+  }
+
   async function handleAddIndexer(e: FormEvent) {
     e.preventDefault()
     setError(null)
     try {
       const idx = await createTorrentIndexer({ name: indexerName, baseUrl: indexerBaseUrl, apiKey: indexerApiKey })
       setIndexers((list) => [...list, idx])
+      setIndexerPreset('')
       setIndexerName('')
       setIndexerBaseUrl('')
       setIndexerApiKey('')
+      setIndexerTestResult(null)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to add indexer')
+    }
+  }
+
+  async function handleTestIndexer() {
+    setIndexerTestResult(null)
+    setTestingIndexer(true)
+    try {
+      const result = await testTorrentIndexer({ baseUrl: indexerBaseUrl, apiKey: indexerApiKey || undefined })
+      setIndexerTestResult(
+        result.ok ? { ok: true, message: 'Indexer responded successfully.' } : { ok: false, message: result.error ?? 'Test failed.' },
+      )
+    } catch (err) {
+      setIndexerTestResult({ ok: false, message: err instanceof ApiError ? err.message : 'Failed to test indexer' })
+    } finally {
+      setTestingIndexer(false)
     }
   }
 
@@ -306,6 +355,12 @@ export function AdminTorrents() {
         </table>
         </div>
         <form className="vorn-inline-form" onSubmit={handleAddIndexer} style={{ marginTop: '1rem' }}>
+          <Select
+            value={indexerPreset}
+            onChange={handleIndexerPreset}
+            placeholder="Preset (optional)"
+            options={INDEXER_PRESETS.map((p) => ({ value: p.label, label: p.label }))}
+          />
           <input placeholder="Name" value={indexerName} onChange={(e) => setIndexerName(e.target.value)} required />
           <input
             placeholder="Torznab base URL"
@@ -315,8 +370,22 @@ export function AdminTorrents() {
             required
           />
           <input placeholder="API key (optional)" value={indexerApiKey} onChange={(e) => setIndexerApiKey(e.target.value)} />
+          <button type="button" onClick={handleTestIndexer} disabled={testingIndexer || !indexerBaseUrl}>
+            {testingIndexer ? 'Testing…' : 'Test'}
+          </button>
           <button type="submit">Add indexer</button>
         </form>
+        {indexerPreset && (
+          <p className="vorn-panel-subtitle" style={{ margin: '0.6rem 0 0' }}>
+            Replace <code>&lt;indexer-id&gt;</code> in the base URL with the id/slug shown for this indexer in{' '}
+            {indexerPreset}'s own UI.
+          </p>
+        )}
+        {indexerTestResult && (
+          <p className={indexerTestResult.ok ? 'vorn-test-result-ok' : 'vorn-form-error'} style={{ marginTop: '0.6rem' }}>
+            {indexerTestResult.message}
+          </p>
+        )}
       </div>
     </section>
   )

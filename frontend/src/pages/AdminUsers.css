@@ -247,6 +247,16 @@
   margin-top: 0;
 }
 
+/* Shared success-state message for "Test connection"-style buttons (Usenet
+   servers, torrent indexers, debrid accounts) -- same shape/sizing as
+   .vorn-form-error (forms.css) but green instead of red, so a test result
+   panel doesn't jump size depending on whether it passed or failed. */
+.vorn-test-result-ok {
+  color: #34d399;
+  font-size: 0.85rem;
+  margin: 0;
+}
+
 .vorn-status-line {
   display: flex;
   align-items: center;

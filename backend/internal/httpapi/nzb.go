@@ -189,6 +189,44 @@ func (s *Server) handleCreateUsenetServer(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusCreated, toUsenetServerResponse(u))
 }
 
+type testUsenetServerRequest struct {
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	UseTLS   bool   `json:"useTls"`
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+type testResultResponse struct {
+	OK    bool   `json:"ok"`
+	Error string `json:"error,omitempty"`
+}
+
+// handleTestUsenetServer dials and authenticates against a Usenet server
+// using whatever's currently in the add-server form, without requiring it
+// to be saved first -- a bad host/port/credential combo otherwise wouldn't
+// surface until the first real download attempt fails.
+func (s *Server) handleTestUsenetServer(w http.ResponseWriter, r *http.Request) {
+	if s.nzbSvc == nil {
+		writeError(w, http.StatusServiceUnavailable, nzbServiceUnavailable)
+		return
+	}
+	var req testUsenetServerRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Host == "" || req.Port == 0 {
+		writeError(w, http.StatusBadRequest, "host and port are required")
+		return
+	}
+	if err := s.nzbSvc.TestServer(req.Host, req.Port, req.UseTLS, req.Username, req.Password); err != nil {
+		writeJSON(w, http.StatusOK, testResultResponse{OK: false, Error: err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, testResultResponse{OK: true})
+}
+
 func (s *Server) handleDeleteUsenetServer(w http.ResponseWriter, r *http.Request) {
 	if s.nzbSvc == nil {
 		writeError(w, http.StatusServiceUnavailable, nzbServiceUnavailable)

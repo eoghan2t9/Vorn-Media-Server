@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/xml"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -53,6 +54,56 @@ func (it torznabItem) attr(name string) string {
 		}
 	}
 	return ""
+}
+
+// torznabError models the standard Newznab/Torznab XML error response
+// (<error code="..." description="..."/>), which several indexers return
+// with an HTTP 200 status even on a bad API key -- checking the status
+// code alone isn't enough to detect a failure.
+type torznabError struct {
+	XMLName     xml.Name `xml:"error"`
+	Code        string   `xml:"code,attr"`
+	Description string   `xml:"description,attr"`
+}
+
+// TestIndexer verifies a Torznab indexer's base URL and API key by
+// requesting its capabilities document (t=caps) -- the standard Torznab
+// way to check connectivity/auth without running a real search.
+func TestIndexer(ctx context.Context, baseURL, apiKey string) error {
+	u, err := url.Parse(strings.TrimRight(baseURL, "/") + "/api")
+	if err != nil {
+		return fmt.Errorf("torrent: parsing indexer URL: %w", err)
+	}
+	q := u.Query()
+	q.Set("t", "caps")
+	if apiKey != "" {
+		q.Set("apikey", apiKey)
+	}
+	u.RawQuery = q.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("torrent: contacting indexer: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return fmt.Errorf("torrent: reading indexer response: %w", err)
+	}
+
+	var torznabErr torznabError
+	if xml.Unmarshal(body, &torznabErr) == nil && torznabErr.Description != "" {
+		return fmt.Errorf("torrent: indexer rejected request: %s", torznabErr.Description)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("torrent: indexer returned status %d", resp.StatusCode)
+	}
+	return nil
 }
 
 // SearchIndexer queries a single Torznab-compatible indexer for a title.
