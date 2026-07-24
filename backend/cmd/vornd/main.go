@@ -9,6 +9,7 @@ import (
 	"os"
 
 	"github.com/caddyserver/certmagic"
+	"github.com/eoghan2t9/vorn-media-server/backend/internal/backup"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/config"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/debrid"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/httpapi"
@@ -209,9 +210,16 @@ func main() {
 	}
 	sysStatsSampler := sysstats.NewSampler(diskStatsPath)
 
+	// Disabled by default (see store.GetBackupSettings' zero value) -- the
+	// scheduler itself always runs, re-checking BackupSettings every 15
+	// minutes, so toggling it on/off or changing the interval from Admin >
+	// Backups takes effect without a restart.
+	go backup.NewScheduler(cfg.PostgresDSN, cfg.BackupDir, st).Run(context.Background())
+
 	router := httpapi.NewRouter(httpapi.Deps{
 		Store:        st,
 		PostgresDSN:  cfg.PostgresDSN,
+		BackupDir:    cfg.BackupDir,
 		Scanner:      scanSvc,
 		Metadata:     metadataSvc,
 		TMDb:         tmdbClient,

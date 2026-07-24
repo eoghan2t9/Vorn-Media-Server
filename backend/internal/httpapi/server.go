@@ -33,6 +33,7 @@ const sessionCookieName = "vorn_session"
 type Deps struct {
 	Store        *store.Store
 	PostgresDSN  string
+	BackupDir    string
 	Scanner      *scanner.Service
 	Metadata     *metadata.Service
 	TMDb         *metadata.TMDbClient
@@ -51,6 +52,7 @@ type Deps struct {
 type Server struct {
 	store        *store.Store
 	postgresDSN  string
+	backupDir    string
 	scanner      *scanner.Service
 	metadataSvc  *metadata.Service
 	tmdb         *metadata.TMDbClient
@@ -78,6 +80,7 @@ func NewServer(deps Deps) *Server {
 	s := &Server{
 		store:        deps.Store,
 		postgresDSN:  deps.PostgresDSN,
+		backupDir:    deps.BackupDir,
 		scanner:      deps.Scanner,
 		metadataSvc:  deps.Metadata,
 		tmdb:         deps.TMDb,
@@ -296,6 +299,13 @@ func NewRouter(deps Deps) http.Handler {
 
 	mux.HandleFunc("GET /api/admin/backup", s.withAdmin(s.handleDownloadBackup))
 	mux.HandleFunc("POST /api/admin/backup/restore", s.withAdmin(s.handleRestoreBackup))
+
+	mux.HandleFunc("GET /api/admin/backups/settings", s.withAdmin(s.handleGetBackupSettings))
+	mux.HandleFunc("PUT /api/admin/backups/settings", s.withAdmin(s.handleUpdateBackupSettings))
+	mux.HandleFunc("GET /api/admin/backups", s.withAdmin(s.handleListAutoBackups))
+	mux.HandleFunc("GET /api/admin/backups/{filename}", s.withAdmin(s.handleDownloadAutoBackup))
+	mux.HandleFunc("DELETE /api/admin/backups/{filename}", s.withAdmin(s.handleDeleteAutoBackup))
+	mux.HandleFunc("POST /api/admin/backups/{filename}/restore", s.withAdmin(s.handleRestoreAutoBackup))
 
 	return s.accessLog(withCORS(mux, deps.CORSOrigin))
 }

@@ -116,3 +116,26 @@
   box-shadow: 0 10px 30px rgba(139, 92, 246, 0.45);
   transform: translateY(-1px);
 }
+
+/* A plain/secondary counterpart to .vorn-link-button, matching the base
+   `button` element's own look (index.css) -- for a download link sitting
+   in a .vorn-button-group next to plain <button>s (e.g. a per-row action
+   in a table), where the bold gradient of .vorn-link-button would stand
+   out more than the surrounding actions warrant. */
+.vorn-link-button-plain {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.45rem 0.85rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--vorn-border);
+  background: var(--vorn-bg-elevated);
+  color: var(--vorn-text);
+  font-size: 0.9rem;
+  text-decoration: none;
+  transition: border-color var(--vorn-transition), box-shadow var(--vorn-transition);
+}
+
+.vorn-link-button-plain:hover {
+  border-color: var(--vorn-accent);
+  box-shadow: var(--vorn-glow);
+}

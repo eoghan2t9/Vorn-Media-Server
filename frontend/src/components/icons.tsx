@@ -54,6 +54,16 @@ export function InboxIcon(props: IconProps) {
   )
 }
 
+export function ArchiveIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <rect x="3" y="3.5" width="18" height="4.5" rx="1.2" />
+      <path d="M4.5 8v10a1.5 1.5 0 0 0 1.5 1.5h12a1.5 1.5 0 0 0 1.5-1.5V8" />
+      <path d="M10 13h4" />
+    </svg>
+  )
+}
+
 export function EyeIcon(props: IconProps) {
   return (
     <svg {...base} {...props}>

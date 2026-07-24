@@ -572,6 +572,30 @@ export const restoreBackup = async (file: File) => {
   return body as { message: string }
 }
 
+export interface BackupSettings {
+  enabled: boolean
+  intervalHours: number
+}
+export const fetchBackupSettings = () => request<BackupSettings>('/api/admin/backups/settings')
+export const updateBackupSettings = (input: BackupSettings) =>
+  request<BackupSettings>('/api/admin/backups/settings', { method: 'PUT', body: JSON.stringify(input) })
+
+export interface AutoBackup {
+  filename: string
+  sizeBytes: number
+  createdAt: string
+}
+export const listAutoBackups = () => request<AutoBackup[]>('/api/admin/backups')
+
+// Same plain-URL-for-navigation approach as backupDownloadUrl above.
+export const autoBackupDownloadUrl = (filename: string) => `${API_BASE}/api/admin/backups/${encodeURIComponent(filename)}`
+
+export const deleteAutoBackup = (filename: string) =>
+  request<void>(`/api/admin/backups/${encodeURIComponent(filename)}`, { method: 'DELETE' })
+
+export const restoreAutoBackup = (filename: string) =>
+  request<{ message: string }>(`/api/admin/backups/${encodeURIComponent(filename)}/restore`, { method: 'POST' })
+
 // logsStreamUrl builds the WebSocket URL for the live admin log viewer,
 // carrying API_BASE's scheme (ws/wss mirrors http/https) since the log
 // stream is a WebSocket, not a plain fetch.

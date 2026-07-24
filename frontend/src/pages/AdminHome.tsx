@@ -1,14 +1,11 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import {
-  ApiError,
-  backupDownloadUrl,
   fetchSystemStats,
   fetchTranscodeCapabilities,
   listCurrentlyWatching,
   listLibraries,
   listUsers,
   restartServer,
-  restoreBackup,
   type SystemStats,
 } from '../api/client'
 import { ConfirmDialog } from '../components/ConfirmDialog'
@@ -88,12 +85,6 @@ export function AdminHome() {
   const [restartConfirmOpen, setRestartConfirmOpen] = useState(false)
   const [restartMessage, setRestartMessage] = useState<string | null>(null)
 
-  const [restoreFile, setRestoreFile] = useState<File | null>(null)
-  const [restoreConfirmOpen, setRestoreConfirmOpen] = useState(false)
-  const [restoring, setRestoring] = useState(false)
-  const [restoreMessage, setRestoreMessage] = useState<{ ok: boolean; text: string } | null>(null)
-  const restoreFileInputRef = useRef<HTMLInputElement>(null)
-
   useEffect(() => {
     fetchTranscodeCapabilities()
       .then((c) => setBackends(c.backends ?? []))
@@ -143,23 +134,6 @@ export function AdminHome() {
     setRestartConfirmOpen(false)
     setRestarting(false)
     setRestartMessage('Restart initiated. The server should be back within a few seconds; this page will stop responding until then.')
-  }
-
-  async function handleRestore() {
-    if (!restoreFile) return
-    setRestoring(true)
-    setRestoreMessage(null)
-    try {
-      await restoreBackup(restoreFile)
-      setRestoreMessage({ ok: true, text: 'Restore completed. The server is restarting; this page will stop responding for a few seconds.' })
-    } catch (err) {
-      setRestoreMessage({ ok: false, text: err instanceof ApiError ? err.message : 'Restore failed' })
-    } finally {
-      setRestoreConfirmOpen(false)
-      setRestoring(false)
-      setRestoreFile(null)
-      if (restoreFileInputRef.current) restoreFileInputRef.current.value = ''
-    }
   }
 
   return (
@@ -247,45 +221,6 @@ export function AdminHome() {
 
       <div className="vorn-panel">
         <div className="vorn-panel-header">
-          <h2>Backup &amp; restore</h2>
-        </div>
-        <p className="vorn-panel-subtitle">
-          Everything Vorn stores — users, libraries, media metadata, and every admin credential (TMDb, debrid
-          accounts, Usenet servers, ...) — lives in one Postgres database, so this backup is a complete snapshot,
-          not just the media library. Treat the downloaded file as sensitive: it contains those credentials in
-          plain text.
-        </p>
-        <div className="vorn-button-group">
-          <a href={backupDownloadUrl()} className="vorn-link-button" download>
-            Download backup
-          </a>
-        </div>
-        <p className="vorn-panel-subtitle" style={{ marginTop: '1.25rem' }}>
-          Restoring <strong>replaces the entire database</strong> with the contents of the uploaded file, discarding
-          everything currently in it, then restarts the server. There is no undo — take a fresh backup first if
-          you're not certain.
-        </p>
-        <div className="vorn-button-group">
-          <input
-            ref={restoreFileInputRef}
-            type="file"
-            accept=".sql"
-            onChange={(e) => setRestoreFile(e.target.files?.[0] ?? null)}
-          />
-          <button
-            type="button"
-            className="vorn-btn-danger"
-            onClick={() => setRestoreConfirmOpen(true)}
-            disabled={!restoreFile || restoring}
-          >
-            {restoring ? 'Restoring…' : 'Restore from backup'}
-          </button>
-        </div>
-        {restoreMessage && <p className={restoreMessage.ok ? 'vorn-test-result-ok' : 'vorn-form-error'}>{restoreMessage.text}</p>}
-      </div>
-
-      <div className="vorn-panel">
-        <div className="vorn-panel-header">
           <h2>Server</h2>
         </div>
         <p className="vorn-panel-subtitle">
@@ -298,18 +233,6 @@ export function AdminHome() {
         </button>
         {restartMessage && <p>{restartMessage}</p>}
       </div>
-
-      {restoreConfirmOpen && (
-        <ConfirmDialog
-          title="Restore from backup?"
-          message={`This replaces the entire database with "${restoreFile?.name}", permanently discarding everything currently in it (users, libraries, all settings), then restarts the server. This cannot be undone.`}
-          confirmLabel="Restore"
-          danger
-          busy={restoring}
-          onConfirm={handleRestore}
-          onCancel={() => setRestoreConfirmOpen(false)}
-        />
-      )}
 
       {restartConfirmOpen && (
         <ConfirmDialog

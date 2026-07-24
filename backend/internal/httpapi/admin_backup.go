@@ -3,6 +3,7 @@ package httpapi
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -70,11 +71,9 @@ func (s *Server) handleDownloadBackup(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleRestoreBackup replaces the entire database with a previously
-// downloaded backup by piping the uploaded SQL straight into psql's
-// stdin, wrapped in a single transaction (--single-transaction) so a
-// corrupt/partial upload rolls back cleanly instead of leaving the
-// database half-restored. This is deliberately destructive -- the
-// frontend must get explicit confirmation before ever calling this.
+// downloaded backup uploaded in the request body. This is deliberately
+// destructive -- the frontend must get explicit confirmation before ever
+// calling this.
 func (s *Server) handleRestoreBackup(w http.ResponseWriter, r *http.Request) {
 	if _, err := exec.LookPath("psql"); err != nil {
 		writeError(w, http.StatusServiceUnavailable, "psql is not installed on this server (the Docker image includes it; a native install needs the postgresql-client package)")
@@ -83,22 +82,35 @@ func (s *Server) handleRestoreBackup(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), backupTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "psql", "--single-transaction", "-v", "ON_ERROR_STOP=1", s.postgresDSN, "-f", "-")
-	cmd.Stdin = io.LimitReader(r.Body, 1<<30) // 1GiB cap -- generous for a metadata DB, just a backstop
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		writeError(w, http.StatusBadRequest, "restore failed: "+strings.TrimSpace(stderr.String()))
+	if err := s.restoreFrom(ctx, io.LimitReader(r.Body, 1<<30)); err != nil { // 1GiB cap -- generous for a metadata DB, just a backstop
+		writeError(w, http.StatusBadRequest, "restore failed: "+err.Error())
 		return
 	}
-
 	writeJSON(w, http.StatusOK, map[string]string{"message": "restore completed, server is restarting"})
+	scheduleRestartAfterRestore()
+}
 
-	// Same "exit and let the platform restart me" contract as the manual
-	// restart button (handleRestartServer) -- after a full database swap,
-	// every in-memory session/cache and the migrate.Up() version table
-	// need a genuinely fresh process, not just a fresh Postgres connection.
+// restoreFrom pipes sqlSource into psql, replacing the entire database.
+// Wrapped in a single transaction (--single-transaction) so a corrupt/
+// partial source rolls back cleanly instead of leaving the database
+// half-restored. Shared by handleRestoreBackup (an uploaded file) and
+// handleRestoreAutoBackup (an on-disk automated backup, admin_backups.go).
+func (s *Server) restoreFrom(ctx context.Context, sqlSource io.Reader) error {
+	cmd := exec.CommandContext(ctx, "psql", "--single-transaction", "-v", "ON_ERROR_STOP=1", s.postgresDSN, "-f", "-")
+	cmd.Stdin = sqlSource
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return errors.New(strings.TrimSpace(stderr.String()))
+	}
+	return nil
+}
+
+// scheduleRestartAfterRestore mirrors handleRestartServer's "exit and let
+// the platform restart me" contract -- after a full database swap, every
+// in-memory session/cache and the migrate.Up() version table need a
+// genuinely fresh process, not just a fresh Postgres connection.
+func scheduleRestartAfterRestore() {
 	go func() {
 		time.Sleep(300 * time.Millisecond)
 		os.Exit(0)
