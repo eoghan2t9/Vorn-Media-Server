@@ -9,6 +9,7 @@ import (
 	"os"
 
 	"github.com/caddyserver/certmagic"
+	"github.com/eoghan2t9/vorn-media-server/backend/internal/acquisition"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/backup"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/config"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/debrid"
@@ -185,6 +186,17 @@ func main() {
 	// configures at least one account.
 	debridSvc := debrid.NewService(st)
 
+	// On-demand acquisition (browse-and-play) needs both a TMDb key (to
+	// materialize placeholders) and torrent indexer search (to find a
+	// release) -- without either, browse/play-triggers-acquisition just
+	// isn't offered rather than failing at request time.
+	var acquisitionSvc *acquisition.Service
+	if tmdbClient != nil && torrentSvc != nil {
+		acquisitionSvc = acquisition.NewService(st, tmdbClient, torrentSvc, debridSvc)
+	} else {
+		log.Print("TMDb API key and/or torrent indexers not configured: on-demand acquisition (browse-and-play) is disabled")
+	}
+
 	var subtitlesSvc *subtitles.Service
 	if cfg.OpenSubtitlesAPIKey != "" && cfg.OpenSubtitlesUser != "" {
 		subtitlesSvc, err = subtitles.NewService(cfg.OpenSubtitlesAPIKey, cfg.OpenSubtitlesUser, cfg.OpenSubtitlesPass, cfg.SubtitlesCacheDir)
@@ -227,6 +239,7 @@ func main() {
 		Torrent:      torrentSvc,
 		NZB:          nzbSvc,
 		Debrid:       debridSvc,
+		Acquisition:  acquisitionSvc,
 		Subtitles:    subtitlesSvc,
 		Update:       updateSvc,
 		LogBuffer:    logBuffer,

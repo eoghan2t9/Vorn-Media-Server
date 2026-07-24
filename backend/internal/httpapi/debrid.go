@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/eoghan2t9/vorn-media-server/backend/internal/debrid"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/store"
 )
 
@@ -193,7 +194,12 @@ func (s *Server) handleAddDebridLink(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	item, err := s.debridSvc.AddLink(req.AccountID, req.SourceRef, req.Name, req.LibraryID)
+	item, err := s.debridSvc.AddLink(debrid.AddLinkInput{
+		AccountID: req.AccountID,
+		SourceRef: req.SourceRef,
+		Name:      req.Name,
+		LibraryID: req.LibraryID,
+	})
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "debrid account not found")

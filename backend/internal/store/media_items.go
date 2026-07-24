@@ -29,17 +29,51 @@ type MediaItem struct {
 	LogoURL              string // from Fanart.tv enrichment, from metadata->>'logoUrl'
 	RatingIMDb           string // from OMDb enrichment, from metadata->>'ratingImdb'
 	RatingRottenTomatoes string // from OMDb enrichment, from metadata->>'ratingRottenTomatoes'
+	AcquisitionStatus    string // "owned" | "placeholder" | "searching" | "acquiring" | "error"
+	AcquisitionError     string
 }
 
 const mediaItemColumns = `id, library_id, parent_id, kind, title, sort_title, overview, season_number, episode_number,
 	release_date, path, tmdb_id, metadata_locked, added_at, updated_at,
 	coalesce(metadata->>'posterUrl', ''), coalesce(metadata->>'backdropUrl', ''), coalesce(metadata->>'author', ''),
-	coalesce(metadata->>'logoUrl', ''), coalesce(metadata->>'ratingImdb', ''), coalesce(metadata->>'ratingRottenTomatoes', '')`
+	coalesce(metadata->>'logoUrl', ''), coalesce(metadata->>'ratingImdb', ''), coalesce(metadata->>'ratingRottenTomatoes', ''),
+	acquisition_status, acquisition_error`
 
 func scanMediaItem(row interface{ Scan(...any) error }, m *MediaItem) error {
 	return row.Scan(&m.ID, &m.LibraryID, &m.ParentID, &m.Kind, &m.Title, &m.SortTitle, &m.Overview,
 		&m.SeasonNumber, &m.EpisodeNumber, &m.ReleaseDate, &m.Path, &m.TmdbID, &m.MetadataLocked, &m.AddedAt, &m.UpdatedAt,
-		&m.PosterURL, &m.BackdropURL, &m.Author, &m.LogoURL, &m.RatingIMDb, &m.RatingRottenTomatoes)
+		&m.PosterURL, &m.BackdropURL, &m.Author, &m.LogoURL, &m.RatingIMDb, &m.RatingRottenTomatoes,
+		&m.AcquisitionStatus, &m.AcquisitionError)
+}
+
+// SetMediaItemPath is called once acquisition produces a real file/stream
+// URL for a placeholder item, flipping it back to the normal "owned" state
+// -- the same state every scan/torrent/NZB-promoted item has always been in.
+func (s *Store) SetMediaItemPath(id, path string) error {
+	_, err := s.db.Exec(
+		`UPDATE media_items SET path = $1, acquisition_status = 'owned', acquisition_error = '', updated_at = now() WHERE id = $2`,
+		path, id,
+	)
+	return err
+}
+
+// SetMediaItemAcquisitionError records a failed acquisition attempt so a
+// polling client sees the failure instead of the item hanging on
+// "acquiring" forever.
+func (s *Store) SetMediaItemAcquisitionError(id, message string) error {
+	_, err := s.db.Exec(
+		`UPDATE media_items SET acquisition_status = 'error', acquisition_error = $1, updated_at = now() WHERE id = $2`,
+		message, id,
+	)
+	return err
+}
+
+// SetMediaItemAcquisitionStatus transitions a placeholder item's status
+// (e.g. 'placeholder' -> 'searching' -> 'acquiring') without touching path
+// or error.
+func (s *Store) SetMediaItemAcquisitionStatus(id, status string) error {
+	_, err := s.db.Exec(`UPDATE media_items SET acquisition_status = $1, updated_at = now() WHERE id = $2`, status, id)
+	return err
 }
 
 // findOrCreateMediaItem looks up a media item by its natural identity
@@ -56,7 +90,12 @@ func findOrCreateMediaItem(tx *sql.Tx, libraryID string, parentID *string, kind,
 	).Scan(&id)
 	if err == nil {
 		if path != "" {
-			if _, err := tx.Exec(`UPDATE media_items SET path = $1, updated_at = now() WHERE id = $2`, path, id); err != nil {
+			// acquisition_status reset to 'owned' here too: a scan can land
+			// on a row that was previously created as an acquisition
+			// placeholder (e.g. the user added the file manually before
+			// on-demand acquisition finished), and a real file on disk
+			// always wins over placeholder bookkeeping.
+			if _, err := tx.Exec(`UPDATE media_items SET path = $1, acquisition_status = 'owned', updated_at = now() WHERE id = $2`, path, id); err != nil {
 				return "", err
 			}
 		}

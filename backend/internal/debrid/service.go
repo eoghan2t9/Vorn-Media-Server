@@ -34,29 +34,48 @@ func NewService(st *store.Store) *Service {
 			"debridlink": NewDebridLinkClient(),
 		},
 	}
-	svc.onComplete = func(item *store.DebridItem) { PromoteCompleted(st, item) }
+	svc.onComplete = func(item *store.DebridItem) {
+		if item.MediaItemID != nil {
+			PromoteToExistingItem(st, item)
+			return
+		}
+		PromoteCompleted(st, item)
+	}
 	return svc
 }
 
-// AddLink registers a magnet link or info-hash against accountID and starts
-// resolving it in the background.
-func (svc *Service) AddLink(accountID, sourceRef, name string, libraryID *string) (*store.DebridItem, error) {
-	account, err := svc.store.GetDebridAccount(accountID)
+// AddLinkInput is AddLink's request shape. MediaItemID is set only when
+// this resolve is fulfilling a specific on-demand-acquisition placeholder
+// (see the acquisition package) -- nil for manual/admin-added links, which
+// keep going through PromoteCompleted's filename-guessing promotion.
+type AddLinkInput struct {
+	AccountID   string
+	SourceRef   string
+	Name        string
+	LibraryID   *string
+	MediaItemID *string
+}
+
+// AddLink registers a magnet link or info-hash against an account and
+// starts resolving it in the background.
+func (svc *Service) AddLink(in AddLinkInput) (*store.DebridItem, error) {
+	account, err := svc.store.GetDebridAccount(in.AccountID)
 	if err != nil {
 		return nil, err
 	}
 	if !account.Enabled {
-		return nil, fmt.Errorf("debrid: account %s is disabled", accountID)
+		return nil, fmt.Errorf("debrid: account %s is disabled", in.AccountID)
 	}
 	if _, ok := svc.providers[account.Provider]; !ok {
 		return nil, fmt.Errorf("debrid: unknown provider %q", account.Provider)
 	}
 
 	item, err := svc.store.CreateDebridItem(store.CreateDebridItemInput{
-		LibraryID: libraryID,
-		AccountID: accountID,
-		SourceRef: sourceRef,
-		Name:      name,
+		LibraryID:   in.LibraryID,
+		AccountID:   in.AccountID,
+		SourceRef:   in.SourceRef,
+		Name:        in.Name,
+		MediaItemID: in.MediaItemID,
 	})
 	if err != nil {
 		return nil, err
@@ -76,6 +95,11 @@ func (svc *Service) run(item *store.DebridItem, account *store.DebridAccount) {
 	if err != nil {
 		if ferr := svc.store.FinishDebridItem(item.ID, err); ferr != nil {
 			log.Printf("debrid: finishing %s: %v", item.ID, ferr)
+		}
+		if item.MediaItemID != nil {
+			if serr := svc.store.SetMediaItemAcquisitionError(*item.MediaItemID, err.Error()); serr != nil {
+				log.Printf("debrid: setting acquisition error on %s: %v", *item.MediaItemID, serr)
+			}
 		}
 		return
 	}

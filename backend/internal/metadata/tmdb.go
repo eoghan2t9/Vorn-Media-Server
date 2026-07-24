@@ -153,6 +153,210 @@ func (c *TMDbClient) DiscoverSeries(ctx context.Context, query string) ([]Search
 	return out, nil
 }
 
+// PagedResult is one page of a paginated TMDb listing (popular/trending),
+// distinct from SearchResult's caller-facing shape only in that it also
+// carries TMDb's own pagination bookkeeping so a browse UI knows whether
+// there's a next page to load.
+type PagedResult struct {
+	Results    []SearchResult
+	Page       int
+	TotalPages int
+}
+
+type tmdbPagedResponse[T any] struct {
+	Page         int `json:"page"`
+	Results      []T `json:"results"`
+	TotalPages   int `json:"total_pages"`
+	TotalResults int `json:"total_results"`
+}
+
+func pageQuery(page int) url.Values {
+	if page < 1 {
+		page = 1
+	}
+	return url.Values{"page": {strconv.Itoa(page)}}
+}
+
+// PopularMovies returns one page of TMDb's currently popular movies, for a
+// live catalog-browse view (no local persistence -- unlike DiscoverMovies,
+// this isn't a text search, it's an always-fresh ranked listing).
+func (c *TMDbClient) PopularMovies(ctx context.Context, page int) (PagedResult, error) {
+	var resp tmdbPagedResponse[tmdbMovieResult]
+	if err := c.get(ctx, "/movie/popular", pageQuery(page), &resp); err != nil {
+		return PagedResult{}, err
+	}
+	out := PagedResult{Page: resp.Page, TotalPages: resp.TotalPages}
+	for _, r := range resp.Results {
+		out.Results = append(out.Results, SearchResult{TmdbID: r.ID, Title: r.Title, Overview: r.Overview, ReleaseDate: r.ReleaseDate, PosterURL: imageURL(r.PosterPath)})
+	}
+	return out, nil
+}
+
+// PopularSeries is PopularMovies' TV equivalent (GET /tv/popular).
+func (c *TMDbClient) PopularSeries(ctx context.Context, page int) (PagedResult, error) {
+	var resp tmdbPagedResponse[tmdbTVResult]
+	if err := c.get(ctx, "/tv/popular", pageQuery(page), &resp); err != nil {
+		return PagedResult{}, err
+	}
+	out := PagedResult{Page: resp.Page, TotalPages: resp.TotalPages}
+	for _, r := range resp.Results {
+		out.Results = append(out.Results, SearchResult{TmdbID: r.ID, Title: r.Name, Overview: r.Overview, ReleaseDate: r.FirstAirDate, PosterURL: imageURL(r.PosterPath)})
+	}
+	return out, nil
+}
+
+// TrendingMovies returns TMDb's trending-this-week movies (GET
+// /trending/movie/week) -- a faster-moving, more "what's hot right now"
+// counterpart to PopularMovies' steadier all-time-popularity ranking.
+func (c *TMDbClient) TrendingMovies(ctx context.Context, page int) (PagedResult, error) {
+	var resp tmdbPagedResponse[tmdbMovieResult]
+	if err := c.get(ctx, "/trending/movie/week", pageQuery(page), &resp); err != nil {
+		return PagedResult{}, err
+	}
+	out := PagedResult{Page: resp.Page, TotalPages: resp.TotalPages}
+	for _, r := range resp.Results {
+		out.Results = append(out.Results, SearchResult{TmdbID: r.ID, Title: r.Title, Overview: r.Overview, ReleaseDate: r.ReleaseDate, PosterURL: imageURL(r.PosterPath)})
+	}
+	return out, nil
+}
+
+// TrendingSeries is TrendingMovies' TV equivalent (GET /trending/tv/week).
+func (c *TMDbClient) TrendingSeries(ctx context.Context, page int) (PagedResult, error) {
+	var resp tmdbPagedResponse[tmdbTVResult]
+	if err := c.get(ctx, "/trending/tv/week", pageQuery(page), &resp); err != nil {
+		return PagedResult{}, err
+	}
+	out := PagedResult{Page: resp.Page, TotalPages: resp.TotalPages}
+	for _, r := range resp.Results {
+		out.Results = append(out.Results, SearchResult{TmdbID: r.ID, Title: r.Name, Overview: r.Overview, ReleaseDate: r.FirstAirDate, PosterURL: imageURL(r.PosterPath)})
+	}
+	return out, nil
+}
+
+// MovieDetails is the by-ID detail shape needed to materialize a local
+// placeholder media_item from a browse card -- SearchMovie/DiscoverMovies
+// only search by title, but a browse card already knows its exact TMDb ID.
+type MovieDetails struct {
+	TmdbID      int
+	Title       string
+	Overview    string
+	ReleaseDate string
+	PosterURL   string
+	BackdropURL string
+}
+
+type tmdbMovieDetailsResult struct {
+	ID           int    `json:"id"`
+	Title        string `json:"title"`
+	Overview     string `json:"overview"`
+	ReleaseDate  string `json:"release_date"`
+	PosterPath   string `json:"poster_path"`
+	BackdropPath string `json:"backdrop_path"`
+}
+
+// GetMovieDetails fetches GET /movie/{id}.
+func (c *TMDbClient) GetMovieDetails(ctx context.Context, tmdbID int) (*MovieDetails, error) {
+	var resp tmdbMovieDetailsResult
+	if err := c.get(ctx, fmt.Sprintf("/movie/%d", tmdbID), url.Values{}, &resp); err != nil {
+		return nil, err
+	}
+	return &MovieDetails{
+		TmdbID: resp.ID, Title: resp.Title, Overview: resp.Overview, ReleaseDate: resp.ReleaseDate,
+		PosterURL: imageURL(resp.PosterPath), BackdropURL: imageURL(resp.BackdropPath),
+	}, nil
+}
+
+// SeasonSummary is one entry of SeriesDetails.Seasons -- just enough to
+// know which season numbers exist and how many episodes to expect before
+// fetching each season's own episode list via GetSeasonDetails.
+type SeasonSummary struct {
+	SeasonNumber int
+	EpisodeCount int
+}
+
+// SeriesDetails is GetMovieDetails' TV equivalent, plus the season list
+// needed to sync a placeholder series' episode tree.
+type SeriesDetails struct {
+	TmdbID       int
+	Title        string
+	Overview     string
+	FirstAirDate string
+	PosterURL    string
+	BackdropURL  string
+	Seasons      []SeasonSummary
+}
+
+type tmdbSeriesDetailsResult struct {
+	ID           int    `json:"id"`
+	Name         string `json:"name"`
+	Overview     string `json:"overview"`
+	FirstAirDate string `json:"first_air_date"`
+	PosterPath   string `json:"poster_path"`
+	BackdropPath string `json:"backdrop_path"`
+	Seasons      []struct {
+		SeasonNumber int `json:"season_number"`
+		EpisodeCount int `json:"episode_count"`
+	} `json:"seasons"`
+}
+
+// GetSeriesDetails fetches GET /tv/{id}. Season 0 ("specials") is dropped --
+// specials aren't part of the regular episode-acquisition flow and would
+// otherwise need special-casing everywhere a season number is used to build
+// a search query.
+func (c *TMDbClient) GetSeriesDetails(ctx context.Context, tmdbID int) (*SeriesDetails, error) {
+	var resp tmdbSeriesDetailsResult
+	if err := c.get(ctx, fmt.Sprintf("/tv/%d", tmdbID), url.Values{}, &resp); err != nil {
+		return nil, err
+	}
+	out := &SeriesDetails{
+		TmdbID: resp.ID, Title: resp.Name, Overview: resp.Overview, FirstAirDate: resp.FirstAirDate,
+		PosterURL: imageURL(resp.PosterPath), BackdropURL: imageURL(resp.BackdropPath),
+	}
+	for _, s := range resp.Seasons {
+		if s.SeasonNumber == 0 {
+			continue
+		}
+		out.Seasons = append(out.Seasons, SeasonSummary{SeasonNumber: s.SeasonNumber, EpisodeCount: s.EpisodeCount})
+	}
+	return out, nil
+}
+
+// EpisodeDetails is one episode entry from GetSeasonDetails.
+type EpisodeDetails struct {
+	SeasonNumber  int
+	EpisodeNumber int
+	Title         string
+	Overview      string
+	AirDate       string
+}
+
+type tmdbSeasonResult struct {
+	Episodes []struct {
+		SeasonNumber  int    `json:"season_number"`
+		EpisodeNumber int    `json:"episode_number"`
+		Name          string `json:"name"`
+		Overview      string `json:"overview"`
+		AirDate       string `json:"air_date"`
+	} `json:"episodes"`
+}
+
+// GetSeasonDetails fetches GET /tv/{id}/season/{seasonNumber} for the
+// season's full episode list.
+func (c *TMDbClient) GetSeasonDetails(ctx context.Context, tmdbID, seasonNumber int) ([]EpisodeDetails, error) {
+	var resp tmdbSeasonResult
+	if err := c.get(ctx, fmt.Sprintf("/tv/%d/season/%d", tmdbID, seasonNumber), url.Values{}, &resp); err != nil {
+		return nil, err
+	}
+	out := make([]EpisodeDetails, 0, len(resp.Episodes))
+	for _, e := range resp.Episodes {
+		out = append(out, EpisodeDetails{
+			SeasonNumber: e.SeasonNumber, EpisodeNumber: e.EpisodeNumber,
+			Title: e.Name, Overview: e.Overview, AirDate: e.AirDate,
+		})
+	}
+	return out, nil
+}
+
 // trailerURL fetches /movie/{id}/videos or /tv/{id}/videos and returns a
 // YouTube watch URL for the first official trailer, if any.
 func (c *TMDbClient) trailerURL(ctx context.Context, kind string, id int) (string, error) {

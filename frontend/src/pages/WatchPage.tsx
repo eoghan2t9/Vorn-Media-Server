@@ -11,12 +11,21 @@ import {
   subtitlesUrl,
   updateProgress,
   type MediaItem,
+  type PlayResponse,
 } from '../api/client'
 import { findNextEpisode } from '../player/nextEpisode'
 import './WatchPage.css'
 
 const PROGRESS_REPORT_INTERVAL_MS = 5000
 const NEAR_END_THRESHOLD_SECONDS = 30
+const ACQUISITION_POLL_INTERVAL_MS = 2000
+
+type AcquiringState = { status: 'searching' | 'acquiring' | 'error'; message?: string }
+
+const ACQUIRING_COPY: Record<'searching' | 'acquiring', string> = {
+  searching: 'Searching for a source…',
+  acquiring: 'Preparing your stream…',
+}
 
 const SUBTITLE_LANGUAGES = [
   { code: 'off', label: 'Off' },
@@ -42,6 +51,8 @@ export function WatchPage() {
   const [showUpNext, setShowUpNext] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [subtitleLanguage, setSubtitleLanguage] = useState('off')
+  const [acquiring, setAcquiring] = useState<AcquiringState | null>(null)
+  const [retryKey, setRetryKey] = useState(0)
 
   useEffect(() => {
     if (!id) return
@@ -50,6 +61,62 @@ export function WatchPage() {
 
     let cancelled = false
     let progressTimer: ReturnType<typeof setInterval> | undefined
+    let acquisitionTimer: ReturnType<typeof setInterval> | undefined
+
+    async function attach(video: HTMLVideoElement, play: PlayResponse) {
+      if (play.sessionId) sessionIdRef.current = play.sessionId
+      const url = play.mode === 'direct' ? `${API_BASE}${play.directUrl}` : `${API_BASE}${play.playlistUrl}`
+
+      if (play.mode === 'transcode' && Hls.isSupported()) {
+        const hls = new Hls()
+        hlsRef.current = hls
+        hls.loadSource(url)
+        hls.attachMedia(video)
+      } else {
+        video.src = url
+      }
+
+      const progress = await getProgress(id!)
+      if (progress.positionSeconds > 0) {
+        video.currentTime = progress.positionSeconds
+      }
+
+      video.play().catch(() => {
+        /* autoplay can be blocked by the browser; user can press play manually */
+      })
+
+      progressTimer = setInterval(() => {
+        if (video.duration > 0) {
+          updateProgress(id!, video.currentTime, video.duration).catch(() => {})
+        }
+      }, PROGRESS_REPORT_INTERVAL_MS)
+    }
+
+    // Polls the item itself rather than a dedicated status endpoint --
+    // GET /api/items/{id} already carries acquisitionStatus/acquisitionError
+    // and is cheap, so a separate endpoint would just duplicate this.
+    function pollAcquisition(video: HTMLVideoElement) {
+      acquisitionTimer = setInterval(async () => {
+        if (cancelled) return
+        try {
+          const fresh = await getItem(id!)
+          if (cancelled) return
+          if (fresh.acquisitionStatus === 'owned') {
+            clearInterval(acquisitionTimer)
+            setAcquiring(null)
+            const play = await playItem(id!)
+            if (!cancelled) await attach(video, play)
+          } else if (fresh.acquisitionStatus === 'error') {
+            clearInterval(acquisitionTimer)
+            setAcquiring({ status: 'error', message: fresh.acquisitionError || 'Acquisition failed.' })
+          } else {
+            setAcquiring({ status: fresh.acquisitionStatus as 'searching' | 'acquiring' })
+          }
+        } catch {
+          /* transient poll failure: try again next tick */
+        }
+      }, ACQUISITION_POLL_INTERVAL_MS)
+    }
 
     async function setup(video: HTMLVideoElement) {
       try {
@@ -60,33 +127,15 @@ export function WatchPage() {
 
         const play = await playItem(id!)
         if (cancelled) return
-        if (play.sessionId) sessionIdRef.current = play.sessionId
 
-        const url = play.mode === 'direct' ? `${API_BASE}${play.directUrl}` : `${API_BASE}${play.playlistUrl}`
-
-        if (play.mode === 'transcode' && Hls.isSupported()) {
-          const hls = new Hls()
-          hlsRef.current = hls
-          hls.loadSource(url)
-          hls.attachMedia(video)
-        } else {
-          video.src = url
+        if (play.mode === 'acquiring') {
+          setAcquiring({ status: play.acquisitionStatus ?? 'searching', message: play.acquisitionError })
+          if (play.acquisitionStatus !== 'error') pollAcquisition(video)
+          return
         }
 
-        const progress = await getProgress(id!)
-        if (progress.positionSeconds > 0) {
-          video.currentTime = progress.positionSeconds
-        }
-
-        video.play().catch(() => {
-          /* autoplay can be blocked by the browser; user can press play manually */
-        })
-
-        progressTimer = setInterval(() => {
-          if (video.duration > 0) {
-            updateProgress(id!, video.currentTime, video.duration).catch(() => {})
-          }
-        }, PROGRESS_REPORT_INTERVAL_MS)
+        setAcquiring(null)
+        await attach(video, play)
       } catch (err) {
         if (!cancelled) setError(err instanceof ApiError ? err.message : String(err))
       }
@@ -97,6 +146,7 @@ export function WatchPage() {
     return () => {
       cancelled = true
       if (progressTimer) clearInterval(progressTimer)
+      if (acquisitionTimer) clearInterval(acquisitionTimer)
       hlsRef.current?.destroy()
       hlsRef.current = null
       if (sessionIdRef.current) {
@@ -107,7 +157,7 @@ export function WatchPage() {
         updateProgress(id!, video.currentTime, video.duration).catch(() => {})
       }
     }
-  }, [id])
+  }, [id, retryKey])
 
   function handleTimeUpdate() {
     const video = videoRef.current
@@ -119,6 +169,12 @@ export function WatchPage() {
     if (nextEpisode) navigate(`/watch/${nextEpisode.id}`, { replace: true })
   }
 
+  function handleRetryAcquisition() {
+    setError(null)
+    setAcquiring(null)
+    setRetryKey((k) => k + 1)
+  }
+
   if (error) return <p className="vorn-form-error">{error}</p>
 
   return (
@@ -127,7 +183,7 @@ export function WatchPage() {
         <video
           ref={videoRef}
           className="vorn-video"
-          controls
+          controls={!acquiring}
           onTimeUpdate={handleTimeUpdate}
           onEnded={goToNextEpisode}
         >
@@ -135,6 +191,24 @@ export function WatchPage() {
             <track key={subtitleLanguage} kind="subtitles" src={subtitlesUrl(id, subtitleLanguage)} srcLang={subtitleLanguage} default />
           )}
         </video>
+
+        {acquiring && (
+          <div className="vorn-acquiring-overlay">
+            {acquiring.status === 'error' ? (
+              <>
+                <p>{acquiring.message}</p>
+                <button type="button" onClick={handleRetryAcquisition}>
+                  Retry
+                </button>
+              </>
+            ) : (
+              <>
+                <span className="vorn-acquiring-spinner" aria-hidden="true" />
+                <p>{ACQUIRING_COPY[acquiring.status]}</p>
+              </>
+            )}
+          </div>
+        )}
 
         {showUpNext && nextEpisode && (
           <div className="vorn-up-next">

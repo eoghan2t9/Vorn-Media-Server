@@ -37,6 +37,9 @@ export function AppShell({ children }: { children: ReactNode }) {
             <NavLink to="/" end className={({ isActive }) => (isActive ? 'vorn-nav-active' : '')}>
               Home
             </NavLink>
+            <NavLink to="/browse" className={({ isActive }) => (isActive ? 'vorn-nav-active' : '')}>
+              Browse
+            </NavLink>
             <NavLink to="/requests" className={({ isActive }) => (isActive ? 'vorn-nav-active' : '')}>
               Requests
             </NavLink>

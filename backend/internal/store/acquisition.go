@@ -1,0 +1,83 @@
+package store
+
+import (
+	"database/sql"
+	"errors"
+)
+
+// GetMediaItemByTmdbID finds a library's top-level (parent_id IS NULL)
+// movie or series row by its TMDb ID -- the identity key on-demand
+// acquisition uses instead of title matching, since a TMDb ID is exact
+// where a title can collide.
+func (s *Store) GetMediaItemByTmdbID(libraryID string, tmdbID int, kind string) (*MediaItem, error) {
+	row := s.db.QueryRow(
+		`SELECT `+mediaItemColumns+` FROM media_items
+		 WHERE library_id = $1 AND kind = $2 AND tmdb_id = $3 AND parent_id IS NULL`,
+		libraryID, kind, tmdbID,
+	)
+	m := &MediaItem{}
+	if err := scanMediaItem(row, m); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return m, nil
+}
+
+// FindPlaceholderChild looks up an existing season/episode row under
+// parentID by the same natural-identity key findOrCreateMediaItem uses for
+// scan-promoted rows (library + kind + parent + title + season/episode),
+// so SyncSeriesTree can run repeatedly without duplicating rows, and a
+// season/episode that already has a real scanned file is found and left
+// alone rather than getting a duplicate placeholder sibling.
+func (s *Store) FindPlaceholderChild(libraryID string, parentID *string, kind, title string, seasonNumber, episodeNumber *int) (*MediaItem, error) {
+	row := s.db.QueryRow(
+		`SELECT `+mediaItemColumns+` FROM media_items
+		 WHERE library_id = $1 AND kind = $2 AND parent_id IS NOT DISTINCT FROM $3
+		   AND title = $4 AND season_number IS NOT DISTINCT FROM $5 AND episode_number IS NOT DISTINCT FROM $6`,
+		libraryID, kind, parentID, title, seasonNumber, episodeNumber,
+	)
+	m := &MediaItem{}
+	if err := scanMediaItem(row, m); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return m, nil
+}
+
+// CreatePlaceholderInput is the bare identity of a not-yet-owned
+// media_item -- full metadata (overview/poster/etc) is filled in
+// afterward via ApplyMetadata, reusing the same metadata-writing path the
+// regular TMDb sync job already uses rather than duplicating it here.
+type CreatePlaceholderInput struct {
+	LibraryID     string
+	ParentID      *string
+	Kind          string // "movie" | "series" | "season" | "episode"
+	Title         string
+	SortTitle     string
+	SeasonNumber  *int
+	EpisodeNumber *int
+	TmdbID        *int
+}
+
+// CreatePlaceholder inserts a media_item with no file/stream yet
+// (acquisition_status='placeholder', path left NULL).
+func (s *Store) CreatePlaceholder(in CreatePlaceholderInput) (*MediaItem, error) {
+	sortTitle := in.SortTitle
+	if sortTitle == "" {
+		sortTitle = in.Title
+	}
+	var id string
+	err := s.db.QueryRow(
+		`INSERT INTO media_items (library_id, parent_id, kind, title, sort_title, season_number, episode_number, tmdb_id, acquisition_status)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'placeholder') RETURNING id`,
+		in.LibraryID, in.ParentID, in.Kind, in.Title, sortTitle, in.SeasonNumber, in.EpisodeNumber, in.TmdbID,
+	).Scan(&id)
+	if err != nil {
+		return nil, err
+	}
+	return s.GetMediaItem(id)
+}

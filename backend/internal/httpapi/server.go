@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/eoghan2t9/vorn-media-server/backend/internal/acquisition"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/debrid"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/logging"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/metadata"
@@ -41,6 +42,7 @@ type Deps struct {
 	Torrent      *torrent.Service
 	NZB          *nzb.Service
 	Debrid       *debrid.Service
+	Acquisition  *acquisition.Service
 	Subtitles    *subtitles.Service
 	Update       *update.Service
 	LogBuffer    *logging.Buffer
@@ -60,6 +62,7 @@ type Server struct {
 	torrentSvc   *torrent.Service
 	nzbSvc       *nzb.Service
 	debridSvc    *debrid.Service
+	acquisition  *acquisition.Service
 	subtitlesSvc *subtitles.Service
 	updateSvc    *update.Service
 	logBuffer    *logging.Buffer
@@ -88,6 +91,7 @@ func NewServer(deps Deps) *Server {
 		torrentSvc:   deps.Torrent,
 		nzbSvc:       deps.NZB,
 		debridSvc:    deps.Debrid,
+		acquisition:  deps.Acquisition,
 		subtitlesSvc: deps.Subtitles,
 		updateSvc:    deps.Update,
 		logBuffer:    deps.LogBuffer,
@@ -186,6 +190,10 @@ func NewRouter(deps Deps) http.Handler {
 	mux.HandleFunc("GET /api/search", s.withAuth(s.handleSearch))
 
 	mux.HandleFunc("GET /api/discover/search", s.withAuth(s.handleDiscoverSearch))
+	mux.HandleFunc("GET /api/browse", s.withAuth(s.handleBrowseCatalog))
+	mux.HandleFunc("POST /api/browse/open", s.withAuth(s.handleOpenCatalogEntry))
+	mux.HandleFunc("GET /api/libraries/{id}/quality-profile", s.withAdmin(s.handleGetQualityProfile))
+	mux.HandleFunc("PUT /api/libraries/{id}/quality-profile", s.withAdmin(s.handleUpdateQualityProfile))
 	mux.HandleFunc("POST /api/requests", s.withAuth(s.handleCreateContentRequest))
 	mux.HandleFunc("GET /api/requests", s.withAuth(s.handleListMyContentRequests))
 	mux.HandleFunc("DELETE /api/requests/{id}", s.withAuth(s.handleDeleteContentRequest))

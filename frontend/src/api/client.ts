@@ -154,6 +154,8 @@ export interface MediaItem {
   backdropUrl?: string
   author?: string
   logoUrl?: string
+  acquisitionStatus: 'owned' | 'placeholder' | 'searching' | 'acquiring' | 'error'
+  acquisitionError?: string
   ratingImdb?: string
   ratingRottenTomatoes?: string
 }
@@ -242,10 +244,12 @@ export interface SystemStats {
 export const fetchSystemStats = () => request<SystemStats>('/api/admin/stats/system')
 
 export interface PlayResponse {
-  mode: 'direct' | 'transcode'
+  mode: 'direct' | 'transcode' | 'acquiring'
   directUrl?: string
   sessionId?: string
   playlistUrl?: string
+  acquisitionStatus?: 'searching' | 'acquiring' | 'error'
+  acquisitionError?: string
 }
 export const playItem = (id: string) => request<PlayResponse>(`/api/items/${id}/play`, { method: 'POST' })
 
@@ -473,9 +477,12 @@ export const deleteNZBIndexer = (id: string) => request<void>(`/api/nzb-indexers
 export const testNZBIndexer = (input: { baseUrl: string; apiKey?: string }) =>
   request<TestConnectionResult>('/api/nzb-indexers/test', { method: 'POST', body: JSON.stringify(input) })
 
+export type UsenetServerProvider = 'nntp' | 'torbox'
+
 export interface UsenetServer {
   id: string
   name: string
+  provider: UsenetServerProvider
   host: string
   port: number
   useTls: boolean
@@ -488,11 +495,13 @@ export const listUsenetServers = () => request<UsenetServer[]>('/api/usenet-serv
 
 export interface CreateUsenetServerInput {
   name: string
-  host: string
-  port: number
+  provider?: UsenetServerProvider
+  host?: string
+  port?: number
   useTls?: boolean
   username?: string
   password?: string
+  apiKey?: string
   maxConnections?: number
 }
 export const createUsenetServer = (input: CreateUsenetServerInput) =>
@@ -507,11 +516,13 @@ export interface TestConnectionResult {
 }
 
 export interface TestUsenetServerInput {
-  host: string
-  port: number
+  provider?: UsenetServerProvider
+  host?: string
+  port?: number
   useTls?: boolean
   username?: string
   password?: string
+  apiKey?: string
 }
 export const testUsenetServer = (input: TestUsenetServerInput) =>
   request<TestConnectionResult>('/api/usenet-servers/test', { method: 'POST', body: JSON.stringify(input) })
@@ -644,6 +655,37 @@ export interface DiscoverResult {
 }
 export const discoverSearch = (query: string, mediaType: 'movie' | 'series') =>
   request<DiscoverResult[]>(`/api/discover/search?q=${encodeURIComponent(query)}&type=${mediaType}`)
+
+export interface CatalogEntry {
+  tmdbId: number
+  title: string
+  overview?: string
+  releaseDate?: string
+  posterUrl?: string
+}
+export interface CatalogPage {
+  results: CatalogEntry[]
+  page: number
+  totalPages: number
+}
+export const listCatalog = (mediaType: 'movie' | 'series', sort: 'popular' | 'trending', page: number) =>
+  request<CatalogPage>(`/api/browse?type=${mediaType}&sort=${sort}&page=${page}`)
+
+export const openCatalogEntry = (input: { tmdbId: number; mediaType: 'movie' | 'series'; libraryId: string }) =>
+  request<MediaItem>('/api/browse/open', { method: 'POST', body: JSON.stringify(input) })
+
+export interface QualityProfile {
+  libraryId: string
+  minResolution: '480p' | '720p' | '1080p' | '2160p'
+  maxResolution: '480p' | '720p' | '1080p' | '2160p'
+  preferredCodec: '' | 'x264' | 'x265' | 'av1'
+  minSeeders: number
+  preferRemux: boolean
+}
+export const getQualityProfile = (libraryId: string) => request<QualityProfile>(`/api/libraries/${libraryId}/quality-profile`)
+
+export const updateQualityProfile = (libraryId: string, input: Omit<QualityProfile, 'libraryId'>) =>
+  request<QualityProfile>(`/api/libraries/${libraryId}/quality-profile`, { method: 'PUT', body: JSON.stringify(input) })
 
 export type ContentRequestStatus = 'pending' | 'approved' | 'declined'
 

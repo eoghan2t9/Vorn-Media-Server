@@ -60,36 +60,38 @@ func (s *Store) DeleteDebridAccount(id string) error {
 }
 
 type DebridItem struct {
-	ID        string
-	LibraryID *string
-	AccountID string
-	SourceRef string
-	Name      string
-	Status    string // "resolving" | "ready" | "error" | "removed"
-	Error     string
-	Promoted  bool
-	AddedAt   time.Time
+	ID          string
+	LibraryID   *string
+	AccountID   string
+	SourceRef   string
+	Name        string
+	Status      string // "resolving" | "ready" | "error" | "removed"
+	Error       string
+	Promoted    bool
+	AddedAt     time.Time
+	MediaItemID *string // set when this resolve is fulfilling a specific placeholder media_item, nil for manual/admin-added links
 }
 
 type CreateDebridItemInput struct {
-	LibraryID *string
-	AccountID string
-	SourceRef string
-	Name      string
+	LibraryID   *string
+	AccountID   string
+	SourceRef   string
+	Name        string
+	MediaItemID *string
 }
 
 func (s *Store) CreateDebridItem(in CreateDebridItemInput) (*DebridItem, error) {
-	item := &DebridItem{LibraryID: in.LibraryID, AccountID: in.AccountID, SourceRef: in.SourceRef, Name: in.Name, Status: "resolving"}
+	item := &DebridItem{LibraryID: in.LibraryID, AccountID: in.AccountID, SourceRef: in.SourceRef, Name: in.Name, Status: "resolving", MediaItemID: in.MediaItemID}
 	err := s.db.QueryRow(
-		`INSERT INTO debrid_items (library_id, account_id, source_ref, name) VALUES ($1, $2, $3, $4) RETURNING id, added_at`,
-		in.LibraryID, in.AccountID, in.SourceRef, in.Name,
+		`INSERT INTO debrid_items (library_id, account_id, source_ref, name, media_item_id) VALUES ($1, $2, $3, $4, $5) RETURNING id, added_at`,
+		in.LibraryID, in.AccountID, in.SourceRef, in.Name, in.MediaItemID,
 	).Scan(&item.ID, &item.AddedAt)
 	return item, err
 }
 
 func (s *Store) ListDebridItems() ([]*DebridItem, error) {
 	rows, err := s.db.Query(
-		`SELECT id, library_id, account_id, source_ref, name, status, error, promoted, added_at
+		`SELECT id, library_id, account_id, source_ref, name, status, error, promoted, added_at, media_item_id
 		 FROM debrid_items WHERE status != 'removed' ORDER BY added_at DESC`,
 	)
 	if err != nil {
@@ -100,7 +102,7 @@ func (s *Store) ListDebridItems() ([]*DebridItem, error) {
 	var out []*DebridItem
 	for rows.Next() {
 		item := &DebridItem{}
-		if err := rows.Scan(&item.ID, &item.LibraryID, &item.AccountID, &item.SourceRef, &item.Name, &item.Status, &item.Error, &item.Promoted, &item.AddedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.LibraryID, &item.AccountID, &item.SourceRef, &item.Name, &item.Status, &item.Error, &item.Promoted, &item.AddedAt, &item.MediaItemID); err != nil {
 			return nil, err
 		}
 		out = append(out, item)
@@ -111,8 +113,8 @@ func (s *Store) ListDebridItems() ([]*DebridItem, error) {
 func (s *Store) GetDebridItem(id string) (*DebridItem, error) {
 	item := &DebridItem{}
 	err := s.db.QueryRow(
-		`SELECT id, library_id, account_id, source_ref, name, status, error, promoted, added_at FROM debrid_items WHERE id = $1`, id,
-	).Scan(&item.ID, &item.LibraryID, &item.AccountID, &item.SourceRef, &item.Name, &item.Status, &item.Error, &item.Promoted, &item.AddedAt)
+		`SELECT id, library_id, account_id, source_ref, name, status, error, promoted, added_at, media_item_id FROM debrid_items WHERE id = $1`, id,
+	).Scan(&item.ID, &item.LibraryID, &item.AccountID, &item.SourceRef, &item.Name, &item.Status, &item.Error, &item.Promoted, &item.AddedAt, &item.MediaItemID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}

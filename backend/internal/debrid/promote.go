@@ -62,6 +62,43 @@ func PromoteCompleted(st *store.Store, item *store.DebridItem) {
 	}
 }
 
+// PromoteToExistingItem fulfils a specific placeholder media_item (created
+// by on-demand acquisition, see the acquisition package) rather than
+// filename-guessing a new one the way PromoteCompleted does for
+// manual/admin-added links -- item.MediaItemID is already known, so this
+// just needs to pick a file and point that exact row at it.
+func PromoteToExistingItem(st *store.Store, item *store.DebridItem) {
+	files, err := st.ListDebridFiles(item.ID)
+	if err != nil {
+		log.Printf("debrid: listing files for %s: %v", item.ID, err)
+		return
+	}
+
+	var best *store.DebridFile
+	for _, f := range files {
+		if !scanner.IsVideoFile(f.Name) {
+			continue
+		}
+		if best == nil || f.SizeBytes > best.SizeBytes {
+			best = f
+		}
+	}
+	if best == nil {
+		if err := st.SetMediaItemAcquisitionError(*item.MediaItemID, "resolved release had no video file"); err != nil {
+			log.Printf("debrid: setting acquisition error on %s: %v", *item.MediaItemID, err)
+		}
+		return
+	}
+
+	if err := st.SetMediaItemPath(*item.MediaItemID, best.StreamURL); err != nil {
+		log.Printf("debrid: setting path on %s: %v", *item.MediaItemID, err)
+		return
+	}
+	if err := st.MarkDebridItemPromoted(item.ID); err != nil {
+		log.Printf("debrid: marking %s promoted: %v", item.ID, err)
+	}
+}
+
 func yearPtr(y int) *int {
 	if y == 0 {
 		return nil

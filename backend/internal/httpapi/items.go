@@ -24,6 +24,8 @@ type mediaItemResponse struct {
 	LogoURL              string  `json:"logoUrl,omitempty"`
 	RatingIMDb           string  `json:"ratingImdb,omitempty"`
 	RatingRottenTomatoes string  `json:"ratingRottenTomatoes,omitempty"`
+	AcquisitionStatus    string  `json:"acquisitionStatus"`
+	AcquisitionError     string  `json:"acquisitionError,omitempty"`
 }
 
 func toMediaItemResponse(m *store.MediaItem) mediaItemResponse {
@@ -43,6 +45,8 @@ func toMediaItemResponse(m *store.MediaItem) mediaItemResponse {
 		LogoURL:              m.LogoURL,
 		RatingIMDb:           m.RatingIMDb,
 		RatingRottenTomatoes: m.RatingRottenTomatoes,
+		AcquisitionStatus:    m.AcquisitionStatus,
+		AcquisitionError:     m.AcquisitionError,
 	}
 	if m.ReleaseDate != nil {
 		d := m.ReleaseDate.Format("2006-01-02")

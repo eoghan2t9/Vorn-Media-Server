@@ -29,23 +29,25 @@ func (s *Server) handleTranscodeCapabilities(w http.ResponseWriter, r *http.Requ
 }
 
 type playResponse struct {
-	Mode        string `json:"mode"` // "direct" | "transcode"
-	DirectURL   string `json:"directUrl,omitempty"`
-	SessionID   string `json:"sessionId,omitempty"`
-	PlaylistURL string `json:"playlistUrl,omitempty"`
+	Mode              string `json:"mode"` // "direct" | "transcode" | "acquiring"
+	DirectURL         string `json:"directUrl,omitempty"`
+	SessionID         string `json:"sessionId,omitempty"`
+	PlaylistURL       string `json:"playlistUrl,omitempty"`
+	AcquisitionStatus string `json:"acquisitionStatus,omitempty"` // "searching" | "acquiring" | "error", only set when Mode == "acquiring"
+	AcquisitionError  string `json:"acquisitionError,omitempty"`
 }
 
-// itemForPlayback loads a media item, checks the caller has access to its
-// library, and returns it (or writes an error response and returns nil).
-func (s *Server) itemForPlayback(w http.ResponseWriter, r *http.Request, id string) *store.MediaItem {
+// loadItemForPlayback loads a media item and checks the caller has access
+// to its library (or writes an error response and returns nil). Whether a
+// playable file/stream actually exists yet is left to the caller: a
+// placeholder item legitimately has no path, and handlePlayItem needs to
+// treat that as "kick off acquisition" rather than an error the way
+// handleDirectStream still must.
+func (s *Server) loadItemForPlayback(w http.ResponseWriter, r *http.Request, id string) *store.MediaItem {
 	user := userFromContext(r.Context())
 	item, err := s.store.GetMediaItem(id)
 	if err != nil {
 		s.writeStoreErr(w, err, "loading item")
-		return nil
-	}
-	if item.Path == nil || *item.Path == "" {
-		writeError(w, http.StatusUnprocessableEntity, "item has no playable file")
 		return nil
 	}
 	ok, err := s.canAccessLibrary(user, item.LibraryID)
@@ -60,10 +62,31 @@ func (s *Server) itemForPlayback(w http.ResponseWriter, r *http.Request, id stri
 	return item
 }
 
+// itemForPlayback is loadItemForPlayback plus the strict "must already have
+// a file/stream" guard every caller except handlePlayItem still needs
+// (client-API-compat playback info, subtitle extraction, direct file
+// serving -- none of those know how to wait on an in-progress acquisition).
+func (s *Server) itemForPlayback(w http.ResponseWriter, r *http.Request, id string) *store.MediaItem {
+	item := s.loadItemForPlayback(w, r, id)
+	if item == nil {
+		return nil
+	}
+	if item.Path == nil || *item.Path == "" {
+		writeError(w, http.StatusUnprocessableEntity, "item has no playable file")
+		return nil
+	}
+	return item
+}
+
 func (s *Server) handlePlayItem(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	item := s.itemForPlayback(w, r, id)
+	item := s.loadItemForPlayback(w, r, id)
 	if item == nil {
+		return
+	}
+
+	if item.Path == nil || *item.Path == "" {
+		s.handleAcquiringPlay(w, r, item)
 		return
 	}
 
@@ -97,6 +120,34 @@ func (s *Server) handlePlayItem(w http.ResponseWriter, r *http.Request) {
 		SessionID:   sess.ID,
 		PlaylistURL: "/api/stream/session/" + sess.ID + "/playlist.m3u8",
 	})
+}
+
+// handleAcquiringPlay is handlePlayItem's branch for an item with no
+// path/stream yet: a freshly-opened placeholder starts acquisition, one
+// already in flight just reports its current status, and a previously
+// failed attempt is reported so the frontend can offer Retry (which lands
+// back here and re-tries since Acquire treats 'error' the same as
+// 'placeholder').
+func (s *Server) handleAcquiringPlay(w http.ResponseWriter, r *http.Request, item *store.MediaItem) {
+	switch item.AcquisitionStatus {
+	case "searching", "acquiring":
+		writeJSON(w, http.StatusAccepted, playResponse{Mode: "acquiring", AcquisitionStatus: item.AcquisitionStatus})
+	case "placeholder", "error":
+		if s.acquisition == nil {
+			writeError(w, http.StatusServiceUnavailable, "on-demand acquisition is not configured")
+			return
+		}
+		if err := s.acquisition.Acquire(r.Context(), item.ID); err != nil {
+			writeError(w, http.StatusInternalServerError, "starting acquisition")
+			return
+		}
+		writeJSON(w, http.StatusAccepted, playResponse{Mode: "acquiring", AcquisitionStatus: "searching"})
+	default:
+		// "owned" with no path is an inconsistent state that shouldn't
+		// happen -- surface the original hard failure rather than silently
+		// starting acquisition on an item that was never a placeholder.
+		writeError(w, http.StatusUnprocessableEntity, "item has no playable file")
+	}
 }
 
 func (s *Server) handleDirectStream(w http.ResponseWriter, r *http.Request) {

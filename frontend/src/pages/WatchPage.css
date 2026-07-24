@@ -81,3 +81,52 @@
     justify-content: center;
   }
 }
+
+/* Sits over the (still-mounted, controls-hidden) <video> element while its
+   content is being acquired -- position:absolute within .vorn-video-wrap so
+   it fills exactly the video's own box rather than the whole page. */
+.vorn-acquiring-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  background: black;
+  border-radius: var(--vorn-radius);
+  color: var(--vorn-text-muted);
+  text-align: center;
+  padding: 1.5rem;
+  z-index: 4;
+}
+
+.vorn-acquiring-overlay p {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.vorn-acquiring-overlay button {
+  padding: 0.5rem 1rem;
+  border-radius: 0.4rem;
+  border: none;
+  background: var(--vorn-gradient);
+  color: white;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.vorn-acquiring-spinner {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 50%;
+  border: 3px solid var(--vorn-border);
+  border-top-color: var(--vorn-accent, #8b5cf6);
+  animation: vorn-acquiring-spin 0.9s linear infinite;
+}
+
+@keyframes vorn-acquiring-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
