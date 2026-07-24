@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/eoghan2t9/vorn-media-server/backend/internal/nzb"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/store"
 )
 
@@ -235,6 +236,187 @@ func (s *Server) handleDeleteUsenetServer(w http.ResponseWriter, r *http.Request
 	id := r.PathValue("id")
 	if err := s.nzbSvc.RemoveServer(id); err != nil {
 		s.writeStoreErr(w, err, "deleting usenet server")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+type nzbSearchResult struct {
+	IndexerName string `json:"indexerName"`
+	Title       string `json:"title"`
+	SizeBytes   int64  `json:"sizeBytes"`
+	DownloadURL string `json:"downloadUrl"`
+	PublishedAt string `json:"publishedAt,omitempty"`
+}
+
+func (s *Server) handleNZBSearch(w http.ResponseWriter, r *http.Request) {
+	if s.nzbSvc == nil {
+		writeError(w, http.StatusServiceUnavailable, nzbServiceUnavailable)
+		return
+	}
+	q := r.URL.Query().Get("q")
+	if q == "" {
+		writeError(w, http.StatusBadRequest, "q is required")
+		return
+	}
+	results, err := s.nzbSvc.Search(r.Context(), q)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "searching indexers")
+		return
+	}
+	resp := make([]nzbSearchResult, 0, len(results))
+	for _, res := range results {
+		item := nzbSearchResult{
+			IndexerName: res.IndexerName,
+			Title:       res.Title,
+			SizeBytes:   res.SizeBytes,
+			DownloadURL: res.DownloadURL,
+		}
+		if !res.PublishedAt.IsZero() {
+			item.PublishedAt = res.PublishedAt.Format(time.RFC3339)
+		}
+		resp = append(resp, item)
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+type addNZBFromURLRequest struct {
+	DownloadURL string  `json:"downloadUrl"`
+	LibraryID   *string `json:"libraryId"`
+}
+
+// handleAddNZBFromURL fetches the .nzb file from a search result's download
+// URL server-side (indexers generally don't send permissive CORS headers,
+// and the URL already embeds that indexer's own API key) and starts
+// downloading it the same way an uploaded file would.
+func (s *Server) handleAddNZBFromURL(w http.ResponseWriter, r *http.Request) {
+	if s.nzbSvc == nil {
+		writeError(w, http.StatusServiceUnavailable, nzbServiceUnavailable)
+		return
+	}
+	var req addNZBFromURLRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.DownloadURL == "" {
+		writeError(w, http.StatusBadRequest, "downloadUrl is required")
+		return
+	}
+	if req.LibraryID != nil {
+		if _, err := s.store.GetLibrary(*req.LibraryID); err != nil {
+			s.writeStoreErr(w, err, "loading library")
+			return
+		}
+	}
+	n, err := s.nzbSvc.AddNZBFromURL(r.Context(), req.DownloadURL, req.LibraryID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusAccepted, toNZBDownloadResponse(n))
+}
+
+type nzbIndexerResponse struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	BaseURL   string `json:"baseUrl"`
+	Enabled   bool   `json:"enabled"`
+	CreatedAt string `json:"createdAt"`
+}
+
+func toNZBIndexerResponse(idx *store.NZBIndexer) nzbIndexerResponse {
+	return nzbIndexerResponse{
+		ID:        idx.ID,
+		Name:      idx.Name,
+		BaseURL:   idx.BaseURL,
+		Enabled:   idx.Enabled,
+		CreatedAt: idx.CreatedAt.Format(time.RFC3339),
+	}
+}
+
+func (s *Server) handleListNZBIndexers(w http.ResponseWriter, r *http.Request) {
+	if s.nzbSvc == nil {
+		writeJSON(w, http.StatusOK, []nzbIndexerResponse{})
+		return
+	}
+	indexers, err := s.nzbSvc.ListIndexers()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "listing indexers")
+		return
+	}
+	resp := make([]nzbIndexerResponse, 0, len(indexers))
+	for _, idx := range indexers {
+		resp = append(resp, toNZBIndexerResponse(idx))
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+type createNZBIndexerRequest struct {
+	Name    string `json:"name"`
+	BaseURL string `json:"baseUrl"`
+	APIKey  string `json:"apiKey"`
+}
+
+func (s *Server) handleCreateNZBIndexer(w http.ResponseWriter, r *http.Request) {
+	if s.nzbSvc == nil {
+		writeError(w, http.StatusServiceUnavailable, nzbServiceUnavailable)
+		return
+	}
+	var req createNZBIndexerRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Name == "" || req.BaseURL == "" {
+		writeError(w, http.StatusBadRequest, "name and baseUrl are required")
+		return
+	}
+	idx, err := s.nzbSvc.AddIndexer(req.Name, req.BaseURL, req.APIKey)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "creating indexer")
+		return
+	}
+	writeJSON(w, http.StatusCreated, toNZBIndexerResponse(idx))
+}
+
+type testNZBIndexerRequest struct {
+	BaseURL string `json:"baseUrl"`
+	APIKey  string `json:"apiKey"`
+}
+
+// handleTestNZBIndexer checks a Newznab indexer's base URL/API key (via its
+// capabilities document) using whatever's currently in the add-indexer
+// form, without requiring it to be saved first.
+func (s *Server) handleTestNZBIndexer(w http.ResponseWriter, r *http.Request) {
+	if s.nzbSvc == nil {
+		writeError(w, http.StatusServiceUnavailable, nzbServiceUnavailable)
+		return
+	}
+	var req testNZBIndexerRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.BaseURL == "" {
+		writeError(w, http.StatusBadRequest, "baseUrl is required")
+		return
+	}
+	if err := nzb.TestIndexer(r.Context(), req.BaseURL, req.APIKey); err != nil {
+		writeJSON(w, http.StatusOK, testResultResponse{OK: false, Error: err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, testResultResponse{OK: true})
+}
+
+func (s *Server) handleDeleteNZBIndexer(w http.ResponseWriter, r *http.Request) {
+	if s.nzbSvc == nil {
+		writeError(w, http.StatusServiceUnavailable, nzbServiceUnavailable)
+		return
+	}
+	id := r.PathValue("id")
+	if err := s.nzbSvc.RemoveIndexer(id); err != nil {
+		s.writeStoreErr(w, err, "deleting indexer")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

@@ -444,6 +444,35 @@ export const addNZBFile = async (file: File, opts?: { libraryId?: string }) => {
 export const removeNZBDownload = (id: string, deleteFiles = false) =>
   request<void>(`/api/nzb/${id}?deleteFiles=${deleteFiles}`, { method: 'DELETE' })
 
+export interface NZBSearchResult {
+  indexerName: string
+  title: string
+  sizeBytes: number
+  downloadUrl: string
+  publishedAt?: string
+}
+export const searchNZB = (q: string) => request<NZBSearchResult[]>(`/api/nzb/search?q=${encodeURIComponent(q)}`)
+
+export const addNZBFromURL = (input: { downloadUrl: string; libraryId?: string }) =>
+  request<NZBDownload>('/api/nzb/from-url', { method: 'POST', body: JSON.stringify(input) })
+
+export interface NZBIndexer {
+  id: string
+  name: string
+  baseUrl: string
+  enabled: boolean
+  createdAt: string
+}
+export const listNZBIndexers = () => request<NZBIndexer[]>('/api/nzb-indexers')
+
+export const createNZBIndexer = (input: { name: string; baseUrl: string; apiKey?: string }) =>
+  request<NZBIndexer>('/api/nzb-indexers', { method: 'POST', body: JSON.stringify(input) })
+
+export const deleteNZBIndexer = (id: string) => request<void>(`/api/nzb-indexers/${id}`, { method: 'DELETE' })
+
+export const testNZBIndexer = (input: { baseUrl: string; apiKey?: string }) =>
+  request<TestConnectionResult>('/api/nzb-indexers/test', { method: 'POST', body: JSON.stringify(input) })
+
 export interface UsenetServer {
   id: string
   name: string

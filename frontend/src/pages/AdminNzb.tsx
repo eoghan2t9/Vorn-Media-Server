@@ -2,15 +2,23 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import {
   ApiError,
   addNZBFile,
+  addNZBFromURL,
+  createNZBIndexer,
   createUsenetServer,
+  deleteNZBIndexer,
   deleteUsenetServer,
   listLibraries,
   listNZBDownloads,
+  listNZBIndexers,
   listUsenetServers,
   removeNZBDownload,
+  searchNZB,
+  testNZBIndexer,
   testUsenetServer,
   type Library,
   type NZBDownload,
+  type NZBIndexer,
+  type NZBSearchResult,
   type UsenetServer,
 } from '../api/client'
 import { FileDropzone, type FileDropzoneHandle } from '../components/FileDropzone'
@@ -44,6 +52,25 @@ const USENET_PRESETS: { label: string; name: string; host: string; port: string 
   { label: 'XS News', name: 'XS News', host: 'reader.xsnews.nl', port: '563' },
 ]
 
+// Base API URLs for popular hosted Newznab indexer *sites* (distinct from
+// the Usenet servers above -- these are search services you find releases
+// through, not where the actual article data comes from), verified live
+// against each service's own /api?t=caps endpoint (2026-07-24) except
+// NZBGeek, which is corroborated via Sonarr/SABnzbd's own documented
+// default rather than a direct fetch (its site blocks scripted requests).
+// An admin still needs their own account's API key -- these presets only
+// save looking up the base URL. Services that couldn't be confirmed live
+// (NZBCat, Miatrix) were left out rather than guessed.
+const NZB_INDEXER_PRESETS: { label: string; name: string; baseUrl: string }[] = [
+  { label: 'NZBGeek', name: 'NZBGeek', baseUrl: 'https://api.nzbgeek.info' },
+  { label: 'NZBFinder', name: 'NZBFinder', baseUrl: 'https://nzbfinder.ws' },
+  { label: 'NZBPlanet', name: 'NZBPlanet', baseUrl: 'https://nzbplanet.net' },
+  { label: 'DrunkenSlug', name: 'DrunkenSlug', baseUrl: 'https://drunkenslug.com' },
+  { label: 'DOGnzb', name: 'DOGnzb', baseUrl: 'https://api.dognzb.cr' },
+  { label: 'omgwtfnzbs', name: 'omgwtfnzbs', baseUrl: 'https://omgwtfnzbs.org' },
+  { label: 'Tabula Rasa', name: 'Tabula Rasa', baseUrl: 'https://tabula-rasa.pw' },
+]
+
 export function AdminNzb() {
   const [downloads, setDownloads] = useState<NZBDownload[]>([])
   const [libraries, setLibraries] = useState<Library[]>([])
@@ -65,14 +92,30 @@ export function AdminNzb() {
   const [testingServer, setTestingServer] = useState(false)
   const [serverTestResult, setServerTestResult] = useState<{ ok: boolean; message: string } | null>(null)
 
+  const [indexers, setIndexers] = useState<NZBIndexer[]>([])
+  const [indexerPreset, setIndexerPreset] = useState('')
+  const [indexerName, setIndexerName] = useState('')
+  const [indexerBaseUrl, setIndexerBaseUrl] = useState('')
+  const [indexerApiKey, setIndexerApiKey] = useState('')
+  const [testingIndexer, setTestingIndexer] = useState(false)
+  const [indexerTestResult, setIndexerTestResult] = useState<{ ok: boolean; message: string } | null>(null)
+
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState<NZBSearchResult[] | null>(null)
+  const [searching, setSearching] = useState(false)
+  const [downloadingResult, setDownloadingResult] = useState<string | null>(null)
+
   async function refreshDownloads() {
     setDownloads(await listNZBDownloads())
   }
 
   useEffect(() => {
-    Promise.all([refreshDownloads(), listLibraries().then(setLibraries), listUsenetServers().then(setServers)]).catch(
-      (err) => setError(err instanceof ApiError ? err.message : String(err)),
-    )
+    Promise.all([
+      refreshDownloads(),
+      listLibraries().then(setLibraries),
+      listUsenetServers().then(setServers),
+      listNZBIndexers().then(setIndexers),
+    ]).catch((err) => setError(err instanceof ApiError ? err.message : String(err)))
     const interval = setInterval(() => {
       refreshDownloads().catch(() => {})
     }, 2000)
@@ -169,6 +212,82 @@ export function AdminNzb() {
     }
   }
 
+  function handleIndexerPreset(id: string) {
+    setIndexerPreset(id)
+    const preset = NZB_INDEXER_PRESETS.find((p) => p.label === id)
+    if (preset) {
+      setIndexerName(preset.name)
+      setIndexerBaseUrl(preset.baseUrl)
+      setIndexerTestResult(null)
+    }
+  }
+
+  async function handleAddIndexer(e: FormEvent) {
+    e.preventDefault()
+    setError(null)
+    try {
+      const idx = await createNZBIndexer({ name: indexerName, baseUrl: indexerBaseUrl, apiKey: indexerApiKey })
+      setIndexers((list) => [...list, idx])
+      setIndexerPreset('')
+      setIndexerName('')
+      setIndexerBaseUrl('')
+      setIndexerApiKey('')
+      setIndexerTestResult(null)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to add indexer')
+    }
+  }
+
+  async function handleTestIndexer() {
+    setIndexerTestResult(null)
+    setTestingIndexer(true)
+    try {
+      const result = await testNZBIndexer({ baseUrl: indexerBaseUrl, apiKey: indexerApiKey || undefined })
+      setIndexerTestResult(
+        result.ok ? { ok: true, message: 'Indexer responded successfully.' } : { ok: false, message: result.error ?? 'Test failed.' },
+      )
+    } catch (err) {
+      setIndexerTestResult({ ok: false, message: err instanceof ApiError ? err.message : 'Failed to test indexer' })
+    } finally {
+      setTestingIndexer(false)
+    }
+  }
+
+  async function handleDeleteIndexer(id: string) {
+    try {
+      await deleteNZBIndexer(id)
+      setIndexers((list) => list.filter((i) => i.id !== id))
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to delete indexer')
+    }
+  }
+
+  async function handleSearch(e: FormEvent) {
+    e.preventDefault()
+    setError(null)
+    setSearching(true)
+    try {
+      setResults(await searchNZB(query))
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Search failed')
+    } finally {
+      setSearching(false)
+    }
+  }
+
+  async function handleDownloadResult(res: NZBSearchResult) {
+    setError(null)
+    setDownloadingResult(res.downloadUrl)
+    try {
+      await addNZBFromURL({ downloadUrl: res.downloadUrl, libraryId: libraryId || undefined })
+      await refreshDownloads()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to add nzb')
+    } finally {
+      setDownloadingResult(null)
+    }
+  }
+
   return (
     <section className="vorn-admin-page">
       <div className="vorn-admin-page-header">
@@ -238,6 +357,111 @@ export function AdminNzb() {
           disabled={submitting}
           onFile={handleFileSelected}
         />
+      </div>
+
+      <div className="vorn-panel">
+        <div className="vorn-panel-header">
+          <h2>Search indexers</h2>
+        </div>
+        <p className="vorn-panel-subtitle">Search releases across your configured NZB indexers below.</p>
+        <form className="vorn-inline-form" onSubmit={handleSearch}>
+          <input placeholder="Search query" value={query} onChange={(e) => setQuery(e.target.value)} required />
+          <button type="submit" disabled={searching}>
+            {searching ? 'Searching…' : 'Search'}
+          </button>
+        </form>
+        {results && (
+          <div className="vorn-table-wrap">
+          <table className="vorn-table">
+            <thead>
+              <tr>
+                <th>Title</th>
+                <th>Indexer</th>
+                <th>Size</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {results.map((r, i) => (
+                <tr key={i}>
+                  <td>{r.title}</td>
+                  <td>{r.indexerName}</td>
+                  <td>{formatBytes(r.sizeBytes)}</td>
+                  <td>
+                    <button
+                      type="button"
+                      onClick={() => handleDownloadResult(r)}
+                      disabled={downloadingResult === r.downloadUrl}
+                    >
+                      {downloadingResult === r.downloadUrl ? 'Adding…' : 'Download'}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          </div>
+        )}
+      </div>
+
+      <div className="vorn-panel">
+        <div className="vorn-panel-header">
+          <h2>NZB indexers</h2>
+        </div>
+        <p className="vorn-panel-subtitle">
+          Hosted Newznab search services like NZBGeek that let you find releases by name. Each needs an account and
+          API key from that service.
+        </p>
+        <div className="vorn-table-wrap">
+        <table className="vorn-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Base URL</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {indexers.map((idx) => (
+              <tr key={idx.id}>
+                <td>{idx.name}</td>
+                <td>{idx.baseUrl}</td>
+                <td>
+                  <button type="button" className="vorn-btn-danger" onClick={() => handleDeleteIndexer(idx.id)}>
+                    Delete
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        </div>
+        <form className="vorn-inline-form" onSubmit={handleAddIndexer} style={{ marginTop: '1rem' }}>
+          <Select
+            value={indexerPreset}
+            onChange={handleIndexerPreset}
+            placeholder="Preset (optional)"
+            options={NZB_INDEXER_PRESETS.map((p) => ({ value: p.label, label: p.label }))}
+          />
+          <input placeholder="Name" value={indexerName} onChange={(e) => setIndexerName(e.target.value)} required />
+          <input
+            placeholder="Newznab base URL"
+            value={indexerBaseUrl}
+            onChange={(e) => setIndexerBaseUrl(e.target.value)}
+            style={{ minWidth: '16rem' }}
+            required
+          />
+          <input placeholder="API key" value={indexerApiKey} onChange={(e) => setIndexerApiKey(e.target.value)} />
+          <button type="button" onClick={handleTestIndexer} disabled={testingIndexer || !indexerBaseUrl}>
+            {testingIndexer ? 'Testing…' : 'Test'}
+          </button>
+          <button type="submit">Add indexer</button>
+        </form>
+        {indexerTestResult && (
+          <p className={indexerTestResult.ok ? 'vorn-test-result-ok' : 'vorn-form-error'} style={{ marginTop: '0.6rem' }}>
+            {indexerTestResult.message}
+          </p>
+        )}
       </div>
 
       <div className="vorn-panel">

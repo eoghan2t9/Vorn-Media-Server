@@ -147,3 +147,44 @@ func (s *Store) RemoveNZBDownload(id string) error {
 	_, err := s.db.Exec(`UPDATE nzb_downloads SET status = 'removed' WHERE id = $1`, id)
 	return err
 }
+
+type NZBIndexer struct {
+	ID        string
+	Name      string
+	BaseURL   string
+	APIKey    string
+	Enabled   bool
+	CreatedAt time.Time
+}
+
+func (s *Store) CreateNZBIndexer(name, baseURL, apiKey string) (*NZBIndexer, error) {
+	idx := &NZBIndexer{Name: name, BaseURL: baseURL, APIKey: apiKey, Enabled: true}
+	err := s.db.QueryRow(
+		`INSERT INTO nzb_indexers (name, base_url, api_key) VALUES ($1, $2, $3) RETURNING id, created_at`,
+		name, baseURL, apiKey,
+	).Scan(&idx.ID, &idx.CreatedAt)
+	return idx, err
+}
+
+func (s *Store) ListNZBIndexers() ([]*NZBIndexer, error) {
+	rows, err := s.db.Query(`SELECT id, name, base_url, api_key, enabled, created_at FROM nzb_indexers ORDER BY created_at`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []*NZBIndexer
+	for rows.Next() {
+		idx := &NZBIndexer{}
+		if err := rows.Scan(&idx.ID, &idx.Name, &idx.BaseURL, &idx.APIKey, &idx.Enabled, &idx.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, idx)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) DeleteNZBIndexer(id string) error {
+	res, err := s.db.Exec(`DELETE FROM nzb_indexers WHERE id = $1`, id)
+	return checkRowsAffected(res, err)
+}
