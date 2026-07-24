@@ -287,6 +287,43 @@ func (s *Service) notifySend(event string, payload map[string]any) {
 	s.notify.Send(context.Background(), event, payload)
 }
 
+// FulfillRequest fans a content request out into whichever libraries are
+// configured as the default standard/4K targets for mediaType, materializing
+// a placeholder in each and starting acquisition -- movies acquire directly,
+// series are marked monitored so MonitorScheduler's next tick grabs their
+// episodes (a bare Acquire call on a series-kind item fails immediately,
+// since buildSearchQuery only knows how to search for a movie or episode).
+// Meant to be called via `go`: MaterializePlaceholder makes a blocking TMDb
+// call, and the HTTP handler that creates the request shouldn't wait on it.
+func (s *Service) FulfillRequest(ctx context.Context, requestID, mediaType string, tmdbID int) {
+	targets, err := s.store.ListDefaultRequestTargets(mediaType)
+	if err != nil {
+		log.Printf("acquisition: loading default request targets for %s: %v", mediaType, err)
+		return
+	}
+	for _, lib := range targets {
+		item, err := s.MaterializePlaceholder(ctx, lib.ID, tmdbID, mediaType)
+		if err != nil {
+			log.Printf("acquisition: fulfilling request %s into library %s: %v", requestID, lib.ID, err)
+			continue
+		}
+		if err := s.store.CreateContentRequestFulfillment(requestID, lib.ID, item.ID); err != nil {
+			log.Printf("acquisition: recording fulfillment for request %s in library %s: %v", requestID, lib.ID, err)
+		}
+
+		switch mediaType {
+		case "movie":
+			if err := s.Acquire(ctx, item.ID); err != nil {
+				log.Printf("acquisition: starting acquire for request %s in library %s: %v", requestID, lib.ID, err)
+			}
+		case "series":
+			if err := s.store.SetMediaItemMonitored(item.ID, true); err != nil {
+				log.Printf("acquisition: monitoring series for request %s in library %s: %v", requestID, lib.ID, err)
+			}
+		}
+	}
+}
+
 // AcquireSeasonPack tries to fulfil every still-placeholder episode of a
 // season with a single season-pack release rather than searching per
 // episode. Used only by MonitorScheduler when grabbing new episodes for a

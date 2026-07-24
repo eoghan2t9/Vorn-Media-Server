@@ -9,6 +9,7 @@ import {
   listLibraries,
   startLibraryScan,
   startMetadataSync,
+  updateLibrary,
   updateQualityProfile,
   type Library,
   type LibraryType,
@@ -61,6 +62,15 @@ export function AdminLibraries() {
       setError(err instanceof ApiError ? err.message : 'Failed to create library')
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  async function handleToggleDefaultTarget(l: Library) {
+    try {
+      await updateLibrary(l.id, { defaultRequestTarget: !l.defaultRequestTarget })
+      await refresh()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to update default request target')
     }
   }
 
@@ -176,6 +186,15 @@ export function AdminLibraries() {
                         4K
                       </span>
                     )}
+                    {l.defaultRequestTarget && (
+                      <span
+                        className="vorn-user-badge"
+                        style={{ marginLeft: '0.5rem' }}
+                        title="Content requests auto-fulfill into this library"
+                      >
+                        Default target
+                      </span>
+                    )}
                   </td>
                   <td>{l.type}</td>
                   <td>{l.folders.join(', ')}</td>
@@ -204,6 +223,15 @@ export function AdminLibraries() {
                       {(l.type === 'movie' || l.type === 'series') && (
                         <button type="button" onClick={() => handleToggleQuality(l.id)}>
                           {qualityOpenFor === l.id ? 'Hide quality profile' : 'Quality profile'}
+                        </button>
+                      )}
+                      {(l.type === 'movie' || l.type === 'series') && (
+                        <button
+                          type="button"
+                          onClick={() => handleToggleDefaultTarget(l)}
+                          title="Content requests for this media type and quality auto-fulfill into whichever library is the default target"
+                        >
+                          {l.defaultRequestTarget ? 'Unset default target' : 'Set as default target'}
                         </button>
                       )}
                       <button type="button" className="vorn-btn-danger" onClick={() => handleDelete(l.id)}>

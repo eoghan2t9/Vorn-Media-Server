@@ -146,6 +146,7 @@ export function Requests() {
                   <th>Title</th>
                   <th>Type</th>
                   <th>Status</th>
+                  <th>Acquisition</th>
                   <th></th>
                 </tr>
               </thead>
@@ -156,6 +157,23 @@ export function Requests() {
                     <td>{r.mediaType}</td>
                     <td>
                       <span className={`vorn-status-badge vorn-status-badge-${r.status}`}>{r.status}</span>
+                    </td>
+                    <td>
+                      {r.fulfillments.length === 0 ? (
+                        <span className="vorn-panel-subtitle">Starting…</span>
+                      ) : (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
+                          {r.fulfillments.map((f) => (
+                            <span
+                              key={f.libraryId}
+                              className="vorn-status-badge"
+                              title={f.acquisitionError || undefined}
+                            >
+                              {f.is4K ? '4K' : 'Standard'}: {f.acquisitionStatus}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </td>
                     <td>
                       {r.status === 'pending' && (

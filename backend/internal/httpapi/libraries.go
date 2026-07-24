@@ -8,15 +8,19 @@ import (
 )
 
 type libraryResponse struct {
-	ID      string   `json:"id"`
-	Name    string   `json:"name"`
-	Type    string   `json:"type"`
-	Is4K    bool     `json:"is4K"`
-	Folders []string `json:"folders"`
+	ID                   string   `json:"id"`
+	Name                 string   `json:"name"`
+	Type                 string   `json:"type"`
+	Is4K                 bool     `json:"is4K"`
+	DefaultRequestTarget bool     `json:"defaultRequestTarget"`
+	Folders              []string `json:"folders"`
 }
 
 func toLibraryResponse(l *store.Library) libraryResponse {
-	return libraryResponse{ID: l.ID, Name: l.Name, Type: l.Type, Is4K: l.Is4K, Folders: l.Folders}
+	return libraryResponse{
+		ID: l.ID, Name: l.Name, Type: l.Type, Is4K: l.Is4K,
+		DefaultRequestTarget: l.DefaultRequestTarget, Folders: l.Folders,
+	}
 }
 
 // canAccessLibrary reports whether user may see libraryID: admins see
@@ -146,9 +150,10 @@ func (s *Server) handleCreateLibrary(w http.ResponseWriter, r *http.Request) {
 }
 
 type updateLibraryRequest struct {
-	Name    string   `json:"name,omitempty"`
-	Is4K    *bool    `json:"is4K,omitempty"`
-	Folders []string `json:"folders,omitempty"`
+	Name                 string   `json:"name,omitempty"`
+	Is4K                 *bool    `json:"is4K,omitempty"`
+	DefaultRequestTarget *bool    `json:"defaultRequestTarget,omitempty"`
+	Folders              []string `json:"folders,omitempty"`
 }
 
 func (s *Server) handleUpdateLibrary(w http.ResponseWriter, r *http.Request) {
@@ -161,6 +166,14 @@ func (s *Server) handleUpdateLibrary(w http.ResponseWriter, r *http.Request) {
 	if err := s.store.UpdateLibrary(id, req.Name, req.Folders, req.Is4K); err != nil {
 		s.writeStoreErr(w, err, "updating library")
 		return
+	}
+	// Group-exclusive (at most one default per type+is_4k), so it goes
+	// through its own store method rather than the generic column setter.
+	if req.DefaultRequestTarget != nil {
+		if err := s.store.SetLibraryDefaultRequestTarget(id, *req.DefaultRequestTarget); err != nil {
+			s.writeStoreErr(w, err, "updating default request target")
+			return
+		}
 	}
 	lib, err := s.store.GetLibrary(id)
 	if err != nil {

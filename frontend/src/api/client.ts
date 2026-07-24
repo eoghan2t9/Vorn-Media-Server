@@ -20,6 +20,7 @@ export interface Library {
   name: string
   type: LibraryType
   is4K: boolean
+  defaultRequestTarget: boolean
   folders: string[]
 }
 
@@ -105,8 +106,10 @@ export interface CreateLibraryInput {
 export const createLibrary = (input: CreateLibraryInput) =>
   request<Library>('/api/libraries', { method: 'POST', body: JSON.stringify(input) })
 
-export const updateLibrary = (id: string, input: { name?: string; is4K?: boolean; folders?: string[] }) =>
-  request<Library>(`/api/libraries/${id}`, { method: 'PATCH', body: JSON.stringify(input) })
+export const updateLibrary = (
+  id: string,
+  input: { name?: string; is4K?: boolean; defaultRequestTarget?: boolean; folders?: string[] },
+) => request<Library>(`/api/libraries/${id}`, { method: 'PATCH', body: JSON.stringify(input) })
 
 export const deleteLibrary = (id: string) => request<void>(`/api/libraries/${id}`, { method: 'DELETE' })
 
@@ -709,6 +712,14 @@ export const updateQualityProfile = (libraryId: string, input: Omit<QualityProfi
 
 export type ContentRequestStatus = 'pending' | 'approved' | 'declined'
 
+export interface ContentRequestFulfillment {
+  libraryId: string
+  libraryName: string
+  is4K: boolean
+  acquisitionStatus: string
+  acquisitionError?: string
+}
+
 export interface ContentRequest {
   id: string
   requestedBy: string
@@ -722,6 +733,7 @@ export interface ContentRequest {
   status: ContentRequestStatus
   decidedAt?: string
   createdAt: string
+  fulfillments: ContentRequestFulfillment[]
 }
 
 export const createContentRequest = (input: {

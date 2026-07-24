@@ -7,12 +7,13 @@ import (
 )
 
 type Library struct {
-	ID        string
-	Name      string
-	Type      string // "movie" | "series" | "music" | "audiobook" (see httpapi.validLibraryTypes)
-	Is4K      bool   // purely a display label -- see the 000015 migration's comment
-	CreatedAt time.Time
-	Folders   []string
+	ID                   string
+	Name                 string
+	Type                 string // "movie" | "series" | "music" | "audiobook" (see httpapi.validLibraryTypes)
+	Is4K                 bool   // purely a display label -- see the 000015 migration's comment
+	DefaultRequestTarget bool   // where a content request auto-fulfills into, see 000016
+	CreatedAt            time.Time
+	Folders              []string
 }
 
 func (s *Store) CreateLibrary(name, kind string, folders []string, is4K bool) (*Library, error) {
@@ -45,7 +46,7 @@ func (s *Store) CreateLibrary(name, kind string, folders []string, is4K bool) (*
 }
 
 func (s *Store) ListLibraries() ([]*Library, error) {
-	rows, err := s.db.Query(`SELECT id, name, type, is_4k, created_at FROM libraries ORDER BY created_at`)
+	rows, err := s.db.Query(`SELECT id, name, type, is_4k, default_request_target, created_at FROM libraries ORDER BY created_at`)
 	if err != nil {
 		return nil, err
 	}
@@ -54,7 +55,7 @@ func (s *Store) ListLibraries() ([]*Library, error) {
 	var libs []*Library
 	for rows.Next() {
 		l := &Library{}
-		if err := rows.Scan(&l.ID, &l.Name, &l.Type, &l.Is4K, &l.CreatedAt); err != nil {
+		if err := rows.Scan(&l.ID, &l.Name, &l.Type, &l.Is4K, &l.DefaultRequestTarget, &l.CreatedAt); err != nil {
 			return nil, err
 		}
 		libs = append(libs, l)
@@ -76,8 +77,8 @@ func (s *Store) ListLibraries() ([]*Library, error) {
 func (s *Store) GetLibrary(id string) (*Library, error) {
 	l := &Library{}
 	err := s.db.QueryRow(
-		`SELECT id, name, type, is_4k, created_at FROM libraries WHERE id = $1`, id,
-	).Scan(&l.ID, &l.Name, &l.Type, &l.Is4K, &l.CreatedAt)
+		`SELECT id, name, type, is_4k, default_request_target, created_at FROM libraries WHERE id = $1`, id,
+	).Scan(&l.ID, &l.Name, &l.Type, &l.Is4K, &l.DefaultRequestTarget, &l.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -146,6 +147,61 @@ func (s *Store) UpdateLibrary(id string, name string, folders []string, is4K *bo
 	}
 
 	return tx.Commit()
+}
+
+// SetLibraryDefaultRequestTarget marks (or unmarks) id as the default
+// library a content request fans out into for its (type, is_4k) group.
+// Setting it true first clears any other library already default in that
+// same group, so the admin can just click a new one rather than having to
+// unset the old default first to dodge the partial unique index.
+func (s *Store) SetLibraryDefaultRequestTarget(id string, isDefault bool) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if isDefault {
+		if _, err := tx.Exec(
+			`UPDATE libraries SET default_request_target = false
+			 WHERE type = (SELECT type FROM libraries WHERE id = $1)
+			   AND is_4k = (SELECT is_4k FROM libraries WHERE id = $1)`,
+			id,
+		); err != nil {
+			return err
+		}
+	}
+
+	res, err := tx.Exec(`UPDATE libraries SET default_request_target = $1 WHERE id = $2`, isDefault, id)
+	if err := checkRowsAffected(res, err); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// ListDefaultRequestTargets returns the default library for each (is_4k)
+// bucket of mediaType -- 0, 1, or 2 rows (standard and/or 4K), whichever an
+// admin has configured.
+func (s *Store) ListDefaultRequestTargets(mediaType string) ([]*Library, error) {
+	rows, err := s.db.Query(
+		`SELECT id, name, type, is_4k, default_request_target, created_at FROM libraries
+		 WHERE type = $1 AND default_request_target = true ORDER BY is_4k`,
+		mediaType,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var libs []*Library
+	for rows.Next() {
+		l := &Library{}
+		if err := rows.Scan(&l.ID, &l.Name, &l.Type, &l.Is4K, &l.DefaultRequestTarget, &l.CreatedAt); err != nil {
+			return nil, err
+		}
+		libs = append(libs, l)
+	}
+	return libs, rows.Err()
 }
 
 func (s *Store) DeleteLibrary(id string) error {

@@ -1,7 +1,9 @@
 package httpapi
 
 import (
+	"context"
 	"errors"
+	"log"
 	"net/http"
 	"time"
 
@@ -58,40 +60,68 @@ func (s *Server) handleDiscoverSearch(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-type contentRequestResponse struct {
-	ID          string  `json:"id"`
-	RequestedBy string  `json:"requestedBy"`
-	Requester   string  `json:"requester"`
-	MediaType   string  `json:"mediaType"`
-	TmdbID      int     `json:"tmdbId"`
-	Title       string  `json:"title"`
-	Overview    string  `json:"overview,omitempty"`
-	ReleaseDate string  `json:"releaseDate,omitempty"`
-	PosterURL   string  `json:"posterUrl,omitempty"`
-	Status      string  `json:"status"`
-	DecidedAt   *string `json:"decidedAt,omitempty"`
-	CreatedAt   string  `json:"createdAt"`
+type fulfillmentResponse struct {
+	LibraryID         string `json:"libraryId"`
+	LibraryName       string `json:"libraryName"`
+	Is4K              bool   `json:"is4K"`
+	AcquisitionStatus string `json:"acquisitionStatus"`
+	AcquisitionError  string `json:"acquisitionError,omitempty"`
 }
 
-func toContentRequestResponse(r *store.ContentRequest) contentRequestResponse {
+type contentRequestResponse struct {
+	ID           string                `json:"id"`
+	RequestedBy  string                `json:"requestedBy"`
+	Requester    string                `json:"requester"`
+	MediaType    string                `json:"mediaType"`
+	TmdbID       int                   `json:"tmdbId"`
+	Title        string                `json:"title"`
+	Overview     string                `json:"overview,omitempty"`
+	ReleaseDate  string                `json:"releaseDate,omitempty"`
+	PosterURL    string                `json:"posterUrl,omitempty"`
+	Status       string                `json:"status"`
+	DecidedAt    *string               `json:"decidedAt,omitempty"`
+	CreatedAt    string                `json:"createdAt"`
+	Fulfillments []fulfillmentResponse `json:"fulfillments"`
+}
+
+func toContentRequestResponse(r *store.ContentRequest, fulfillments []*store.ContentRequestFulfillment) contentRequestResponse {
 	resp := contentRequestResponse{
-		ID:          r.ID,
-		RequestedBy: r.RequestedBy,
-		Requester:   r.RequestedByUsername,
-		MediaType:   r.MediaType,
-		TmdbID:      r.TmdbID,
-		Title:       r.Title,
-		Overview:    r.Overview,
-		ReleaseDate: r.ReleaseDate,
-		PosterURL:   r.PosterURL,
-		Status:      r.Status,
-		CreatedAt:   r.CreatedAt.Format(time.RFC3339),
+		ID:           r.ID,
+		RequestedBy:  r.RequestedBy,
+		Requester:    r.RequestedByUsername,
+		MediaType:    r.MediaType,
+		TmdbID:       r.TmdbID,
+		Title:        r.Title,
+		Overview:     r.Overview,
+		ReleaseDate:  r.ReleaseDate,
+		PosterURL:    r.PosterURL,
+		Status:       r.Status,
+		CreatedAt:    r.CreatedAt.Format(time.RFC3339),
+		Fulfillments: make([]fulfillmentResponse, 0, len(fulfillments)),
 	}
 	if r.DecidedAt != nil {
 		s := r.DecidedAt.Format(time.RFC3339)
 		resp.DecidedAt = &s
 	}
+	for _, f := range fulfillments {
+		resp.Fulfillments = append(resp.Fulfillments, fulfillmentResponse{
+			LibraryID: f.LibraryID, LibraryName: f.LibraryName, Is4K: f.Is4K,
+			AcquisitionStatus: f.AcquisitionStatus, AcquisitionError: f.AcquisitionError,
+		})
+	}
 	return resp
+}
+
+// loadFulfillments fetches r's fulfillments, logging and returning an empty
+// slice on error rather than failing the whole request listing over what's
+// secondary information.
+func (s *Server) loadFulfillments(r *store.ContentRequest) []*store.ContentRequestFulfillment {
+	f, err := s.store.ListContentRequestFulfillments(r.ID)
+	if err != nil {
+		log.Printf("content requests: loading fulfillments for %s: %v", r.ID, err)
+		return nil
+	}
+	return f
 }
 
 type createContentRequestRequest struct {
@@ -139,7 +169,16 @@ func (s *Server) handleCreateContentRequest(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusInternalServerError, "creating request")
 		return
 	}
-	writeJSON(w, http.StatusCreated, toContentRequestResponse(created))
+
+	// Fan out into whichever libraries are configured as default request
+	// targets, in the background -- MaterializePlaceholder makes a blocking
+	// TMDb call and the client shouldn't wait on it before seeing its
+	// request was recorded.
+	if s.acquisition != nil {
+		go s.acquisition.FulfillRequest(context.Background(), created.ID, created.MediaType, created.TmdbID)
+	}
+
+	writeJSON(w, http.StatusCreated, toContentRequestResponse(created, nil))
 }
 
 // handleListMyContentRequests is the viewer's own "my requests" list.
@@ -152,7 +191,7 @@ func (s *Server) handleListMyContentRequests(w http.ResponseWriter, r *http.Requ
 	}
 	resp := make([]contentRequestResponse, 0, len(requests))
 	for _, req := range requests {
-		resp = append(resp, toContentRequestResponse(req))
+		resp = append(resp, toContentRequestResponse(req, s.loadFulfillments(req)))
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -194,7 +233,7 @@ func (s *Server) handleListAdminContentRequests(w http.ResponseWriter, r *http.R
 	}
 	resp := make([]contentRequestResponse, 0, len(requests))
 	for _, req := range requests {
-		resp = append(resp, toContentRequestResponse(req))
+		resp = append(resp, toContentRequestResponse(req, s.loadFulfillments(req)))
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -222,5 +261,5 @@ func (s *Server) handleDecideContentRequest(w http.ResponseWriter, r *http.Reque
 		s.writeStoreErr(w, err, "deciding request")
 		return
 	}
-	writeJSON(w, http.StatusOK, toContentRequestResponse(updated))
+	writeJSON(w, http.StatusOK, toContentRequestResponse(updated, s.loadFulfillments(updated)))
 }
