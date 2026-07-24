@@ -78,10 +78,13 @@
   display: flex;
   flex-direction: column;
   gap: 0.15rem;
-  background: var(--vorn-bg-glass);
-  backdrop-filter: blur(16px) saturate(150%);
-  -webkit-backdrop-filter: blur(16px) saturate(150%);
-  border: 1px solid var(--vorn-border);
+  /* Solid, not the shared --vorn-bg-glass token the header/modal/watch
+     controls intentionally use -- this panel is portaled to document.body
+     (see Select.tsx) and can end up floating over anything, including a
+     backdrop image or the video underneath the Watch page's controls, and
+     translucent option text was hard to read against a busy background. */
+  background: var(--vorn-bg-elevated);
+  border: 1px solid var(--vorn-border-strong);
   border-radius: 0.6rem;
   box-shadow: var(--vorn-shadow-lg);
 }

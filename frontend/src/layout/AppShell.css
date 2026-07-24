@@ -139,10 +139,12 @@
   top: calc(100% + 0.35rem);
   left: 0;
   right: 0;
-  background: var(--vorn-bg-glass);
-  backdrop-filter: blur(16px) saturate(150%);
-  -webkit-backdrop-filter: blur(16px) saturate(150%);
-  border: 1px solid var(--vorn-border);
+  /* Solid, not the shared --vorn-bg-glass token the header itself uses --
+     this floats over whatever's below it in the page (nav links, other
+     header content on mobile), and translucent result text was hard to
+     read against that. */
+  background: var(--vorn-bg-elevated);
+  border: 1px solid var(--vorn-border-strong);
   border-radius: 0.6rem;
   list-style: none;
   margin: 0;

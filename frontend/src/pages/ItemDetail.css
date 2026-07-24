@@ -36,6 +36,12 @@
 .vorn-detail-info {
   color: #fff;
   padding-bottom: 0.25rem;
+  /* Flex items default to min-width: auto, sizing to their content's
+     intrinsic width -- without this, a wide logo image (see
+     .vorn-detail-logo below) would set that intrinsic width and could
+     force the whole hero row wider than the viewport on a narrow screen,
+     instead of shrinking to fit next to the fixed-width poster. */
+  min-width: 0;
 }
 
 .vorn-detail-info h1 {
@@ -57,7 +63,12 @@
    unusually wide logo can't overflow onto the poster next to it. */
 .vorn-detail-logo {
   display: block;
-  max-width: 20rem;
+  /* Whichever is smaller: capped at 20rem on a wide screen so the logo
+     doesn't dominate the hero, but never wider than its (now min-width: 0)
+     flex container -- with a bare 20rem alone, a wide logo image on a
+     narrow phone screen would overflow past the poster instead of
+     shrinking to fit. */
+  max-width: min(20rem, 100%);
   max-height: 5rem;
   margin: 0 0 0.5rem;
   filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.5));
