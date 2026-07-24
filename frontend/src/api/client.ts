@@ -204,7 +204,10 @@ export interface ServerStats {
 }
 export const fetchServerStats = () => request<ServerStats>('/api/admin/stats')
 
-export const search = (q: string) => request<MediaItem[]>(`/api/search?q=${encodeURIComponent(q)}`)
+export interface SearchResult extends MediaItem {
+  is4K: boolean
+}
+export const search = (q: string) => request<SearchResult[]>(`/api/search?q=${encodeURIComponent(q)}`)
 
 export interface MetadataJob {
   id: string

@@ -69,10 +69,20 @@ func (s *Server) handleSystemStats(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// searchResultResponse adds Is4K on top of the normal item shape -- the
+// same title can legitimately exist as separate media_items rows in two
+// different libraries (a regular one and a "4K only" one, see
+// AdminLibraries' library creation toggle), and search needs to tell those
+// apart so a user can pick the version they actually want.
+type searchResultResponse struct {
+	mediaItemResponse
+	Is4K bool `json:"is4K"`
+}
+
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query().Get("q")
 	if query == "" {
-		writeJSON(w, http.StatusOK, []mediaItemResponse{})
+		writeJSON(w, http.StatusOK, []searchResultResponse{})
 		return
 	}
 	user := userFromContext(r.Context())
@@ -82,9 +92,20 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "searching")
 		return
 	}
-	resp := make([]mediaItemResponse, 0, len(items))
+
+	libs, err := s.store.ListLibraries()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "loading libraries")
+		return
+	}
+	is4KByLibrary := make(map[string]bool, len(libs))
+	for _, l := range libs {
+		is4KByLibrary[l.ID] = l.Is4K
+	}
+
+	resp := make([]searchResultResponse, 0, len(items))
 	for _, m := range items {
-		resp = append(resp, toMediaItemResponse(m))
+		resp = append(resp, searchResultResponse{mediaItemResponse: toMediaItemResponse(m), Is4K: is4KByLibrary[m.LibraryID]})
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { search, type MediaItem } from '../api/client'
+import { search, type SearchResult } from '../api/client'
 
 export function HeaderSearch() {
   const [query, setQuery] = useState('')
-  const [results, setResults] = useState<MediaItem[]>([])
+  const [results, setResults] = useState<SearchResult[]>([])
   const [open, setOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
@@ -56,7 +56,14 @@ export function HeaderSearch() {
             <li key={r.id}>
               <button type="button" onClick={() => goToItem(r.id)}>
                 {r.title}
-                <span className="vorn-search-kind">{r.kind}</span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <span className="vorn-search-kind">{r.kind}</span>
+                  {r.is4K && (
+                    <span className="vorn-user-badge" title="4K-only library">
+                      4K
+                    </span>
+                  )}
+                </span>
               </button>
             </li>
           ))}
