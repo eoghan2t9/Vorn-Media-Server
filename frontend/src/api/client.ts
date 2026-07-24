@@ -224,12 +224,17 @@ export interface TranscodeCapabilities {
 export const fetchTranscodeCapabilities = () => request<TranscodeCapabilities>('/api/transcode/capabilities')
 
 export interface SystemStats {
-  available: boolean
+  cpuAvailable: boolean
   cpuPercent: number
+  memAvailable: boolean
   memUsedBytes: number
   memTotalBytes: number
+  diskAvailable: boolean
   diskUsedBytes: number
   diskTotalBytes: number
+  netAvailable: boolean
+  netRxBytesPerSec: number
+  netTxBytesPerSec: number
 }
 export const fetchSystemStats = () => request<SystemStats>('/api/admin/stats/system')
 

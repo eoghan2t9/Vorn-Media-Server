@@ -27,13 +27,25 @@ func (s *Server) handleServerStats(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// systemStatsResponse reports availability per metric rather than one
+// blanket flag -- which stats are obtainable genuinely varies by host OS
+// (see the sysstats package), so e.g. macOS can report disk+memory but not
+// CPU or network with the approach used there.
 type systemStatsResponse struct {
-	Available      bool    `json:"available"`
-	CPUPercent     float64 `json:"cpuPercent"`
-	MemUsedBytes   uint64  `json:"memUsedBytes"`
-	MemTotalBytes  uint64  `json:"memTotalBytes"`
-	DiskUsedBytes  uint64  `json:"diskUsedBytes"`
-	DiskTotalBytes uint64  `json:"diskTotalBytes"`
+	CPUAvailable bool    `json:"cpuAvailable"`
+	CPUPercent   float64 `json:"cpuPercent"`
+
+	MemAvailable  bool   `json:"memAvailable"`
+	MemUsedBytes  uint64 `json:"memUsedBytes"`
+	MemTotalBytes uint64 `json:"memTotalBytes"`
+
+	DiskAvailable  bool   `json:"diskAvailable"`
+	DiskUsedBytes  uint64 `json:"diskUsedBytes"`
+	DiskTotalBytes uint64 `json:"diskTotalBytes"`
+
+	NetAvailable     bool    `json:"netAvailable"`
+	NetRxBytesPerSec float64 `json:"netRxBytesPerSec"`
+	NetTxBytesPerSec float64 `json:"netTxBytesPerSec"`
 }
 
 func (s *Server) handleSystemStats(w http.ResponseWriter, r *http.Request) {
@@ -43,12 +55,17 @@ func (s *Server) handleSystemStats(w http.ResponseWriter, r *http.Request) {
 	}
 	snap := s.sysStats.Latest()
 	writeJSON(w, http.StatusOK, systemStatsResponse{
-		Available:      snap.Available,
-		CPUPercent:     snap.CPUPercent,
-		MemUsedBytes:   snap.MemUsedBytes,
-		MemTotalBytes:  snap.MemTotalBytes,
-		DiskUsedBytes:  snap.DiskUsedBytes,
-		DiskTotalBytes: snap.DiskTotalBytes,
+		CPUAvailable:     snap.CPUAvailable,
+		CPUPercent:       snap.CPUPercent,
+		MemAvailable:     snap.MemAvailable,
+		MemUsedBytes:     snap.MemUsedBytes,
+		MemTotalBytes:    snap.MemTotalBytes,
+		DiskAvailable:    snap.DiskAvailable,
+		DiskUsedBytes:    snap.DiskUsedBytes,
+		DiskTotalBytes:   snap.DiskTotalBytes,
+		NetAvailable:     snap.NetAvailable,
+		NetRxBytesPerSec: snap.NetRxBytesPerSec,
+		NetTxBytesPerSec: snap.NetTxBytesPerSec,
 	})
 }
 

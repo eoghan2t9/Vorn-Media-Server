@@ -49,6 +49,11 @@
   font-size: 1.2rem;
 }
 
+.vorn-stat-value-network {
+  font-size: 1.3rem;
+  white-space: nowrap;
+}
+
 .vorn-stat-label {
   margin-top: 0.3rem;
   color: var(--vorn-text-muted);

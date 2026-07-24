@@ -1,3 +1,5 @@
+//go:build linux
+
 package sysstats
 
 import (
@@ -54,10 +56,37 @@ func TestParseMemInfoMissingTotal(t *testing.T) {
 	}
 }
 
+func TestParseNetDev(t *testing.T) {
+	const fixture = `Inter-|   Receive                                                |  Transmit
+ face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
+    lo: 1000       10    0    0    0     0          0         0     1000       10    0    0    0     0       0          0
+  eth0: 500000    400    0    0    0     0          0         0    250000     300    0    0    0     0       0          0
+docker0: 999999    99    0    0    0     0          0         0    999999      99    0    0    0     0       0          0
+`
+	rx, tx, err := parseNetDev(strings.NewReader(fixture))
+	if err != nil {
+		t.Fatalf("parseNetDev: %v", err)
+	}
+	// Only eth0 should count: lo and docker0 are deliberately excluded.
+	if rx != 500000 || tx != 250000 {
+		t.Errorf("got rx=%d tx=%d, want rx=500000 tx=250000", rx, tx)
+	}
+}
+
+func TestParseNetDevNoUsableInterfaces(t *testing.T) {
+	const fixture = `Inter-|   Receive  |  Transmit
+ face |bytes packets |bytes packets
+    lo: 1000 10        1000 10
+`
+	if _, _, err := parseNetDev(strings.NewReader(fixture)); err == nil {
+		t.Error("expected an error when only loopback is present")
+	}
+}
+
 func TestSamplerLatestBeforeFirstSample(t *testing.T) {
 	s := &Sampler{}
 	snap := s.Latest()
-	if snap.Available {
-		t.Error("expected the zero-value Snapshot before any background sample has run")
+	if snap.CPUAvailable || snap.MemAvailable || snap.DiskAvailable || snap.NetAvailable {
+		t.Errorf("expected the zero-value Snapshot before any background sample has run, got %+v", snap)
 	}
 }

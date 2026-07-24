@@ -190,6 +190,15 @@ export function CpuIcon(props: IconProps) {
   )
 }
 
+export function NetworkIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M8 16V6M8 6L4.5 9.5M8 6l3.5 3.5" />
+      <path d="M16 8v10M16 18l3.5-3.5M16 18l-3.5-3.5" />
+    </svg>
+  )
+}
+
 export function MemoryIcon(props: IconProps) {
   return (
     <svg {...base} {...props}>

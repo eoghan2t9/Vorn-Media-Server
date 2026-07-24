@@ -9,7 +9,16 @@ import {
   type SystemStats,
 } from '../api/client'
 import { ConfirmDialog } from '../components/ConfirmDialog'
-import { CpuIcon, DashboardIcon, EyeIcon, HardDriveIcon, LibraryIcon, MemoryIcon, UsersIcon } from '../components/icons'
+import {
+  CpuIcon,
+  DashboardIcon,
+  EyeIcon,
+  HardDriveIcon,
+  LibraryIcon,
+  MemoryIcon,
+  NetworkIcon,
+  UsersIcon,
+} from '../components/icons'
 import './AdminHome.css'
 
 const STATS_POLL_INTERVAL_MS = 3000
@@ -19,6 +28,10 @@ function formatBytes(n: number) {
   const units = ['B', 'KB', 'MB', 'GB', 'TB']
   const i = Math.min(units.length - 1, Math.floor(Math.log(n) / Math.log(1024)))
   return `${(n / 1024 ** i).toFixed(1)} ${units[i]}`
+}
+
+function formatRate(bytesPerSec: number) {
+  return `${formatBytes(bytesPerSec)}/s`
 }
 
 function LoadStatCard({
@@ -46,6 +59,17 @@ function LoadStatCard({
         </div>
       )}
       {detail && <div className="vorn-stat-detail">{detail}</div>}
+    </div>
+  )
+}
+
+function NetworkStatCard({ available, rxBytesPerSec, txBytesPerSec }: { available: boolean; rxBytesPerSec: number; txBytesPerSec: number }) {
+  return (
+    <div className="vorn-stat-card">
+      <NetworkIcon className="vorn-stat-icon" />
+      <div className="vorn-stat-value vorn-stat-value-network">{available ? `↓ ${formatRate(rxBytesPerSec)}` : '—'}</div>
+      <div className="vorn-stat-label">Network</div>
+      {available && <div className="vorn-stat-detail">↑ {formatRate(txBytesPerSec)}</div>}
     </div>
   )
 }
@@ -89,11 +113,13 @@ export function AdminHome() {
 
   const transcoderReady = backends !== null && backends.length > 0
   const memPercent =
-    sysStats?.available && sysStats.memTotalBytes > 0 ? (sysStats.memUsedBytes / sysStats.memTotalBytes) * 100 : null
+    sysStats?.memAvailable && sysStats.memTotalBytes > 0 ? (sysStats.memUsedBytes / sysStats.memTotalBytes) * 100 : null
   const diskPercent =
-    sysStats?.available && sysStats.diskTotalBytes > 0
+    sysStats?.diskAvailable && sysStats.diskTotalBytes > 0
       ? (sysStats.diskUsedBytes / sysStats.diskTotalBytes) * 100
       : null
+  const anyStatUnavailable =
+    sysStats !== null && (!sysStats.cpuAvailable || !sysStats.memAvailable || !sysStats.diskAvailable || !sysStats.netAvailable)
 
   async function handleRestart() {
     setRestarting(true)
@@ -147,23 +173,29 @@ export function AdminHome() {
         <h2>Server load</h2>
       </div>
       <div className="vorn-stat-grid">
-        <LoadStatCard icon={CpuIcon} label="CPU" percent={sysStats?.available ? sysStats.cpuPercent : null} />
+        <LoadStatCard icon={CpuIcon} label="CPU" percent={sysStats?.cpuAvailable ? sysStats.cpuPercent : null} />
         <LoadStatCard
           icon={MemoryIcon}
           label="Memory"
           percent={memPercent}
-          detail={sysStats?.available ? `${formatBytes(sysStats.memUsedBytes)} / ${formatBytes(sysStats.memTotalBytes)}` : undefined}
+          detail={sysStats?.memAvailable ? `${formatBytes(sysStats.memUsedBytes)} / ${formatBytes(sysStats.memTotalBytes)}` : undefined}
         />
         <LoadStatCard
           icon={HardDriveIcon}
           label="Storage"
           percent={diskPercent}
-          detail={sysStats?.available ? `${formatBytes(sysStats.diskUsedBytes)} / ${formatBytes(sysStats.diskTotalBytes)}` : undefined}
+          detail={sysStats?.diskAvailable ? `${formatBytes(sysStats.diskUsedBytes)} / ${formatBytes(sysStats.diskTotalBytes)}` : undefined}
+        />
+        <NetworkStatCard
+          available={sysStats?.netAvailable ?? false}
+          rxBytesPerSec={sysStats?.netRxBytesPerSec ?? 0}
+          txBytesPerSec={sysStats?.netTxBytesPerSec ?? 0}
         />
       </div>
-      {sysStats !== null && !sysStats.available && (
+      {anyStatUnavailable && (
         <p className="vorn-panel-subtitle" style={{ margin: '-0.75rem 0 1.5rem' }}>
-          System stats aren't available on this host (requires /proc, i.e. Linux).
+          Some stats aren't available on this host's OS — CPU/memory/disk/network reporting varies by platform, and
+          this instance is running on one where not everything can be read.
         </p>
       )}
 
