@@ -100,7 +100,11 @@ func (s *Store) listLibraryFolders(libraryID string) ([]string, error) {
 	}
 	defer rows.Close()
 
-	var folders []string
+	// Non-nil even when empty -- a library with no folders (a debrid-only
+	// target) is legitimate since folders became optional for movie/series
+	// libraries, and a nil slice here would marshal to JSON `null`, which
+	// AdminLibraries.tsx's `l.folders.join(', ')` can't handle.
+	folders := []string{}
 	for rows.Next() {
 		var p string
 		if err := rows.Scan(&p); err != nil {
