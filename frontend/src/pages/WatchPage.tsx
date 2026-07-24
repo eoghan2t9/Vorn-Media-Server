@@ -18,6 +18,10 @@ import { findNextEpisode } from '../player/nextEpisode'
 import './WatchPage.css'
 
 const PROGRESS_REPORT_INTERVAL_MS = 5000
+// How long to wait before a single, non-chained retry of a failed periodic
+// progress report -- short enough to meaningfully shrink the unsaved-progress
+// window after a transient blip, without turning into its own retry storm.
+const PROGRESS_RETRY_DELAY_MS = 2000
 const NEAR_END_THRESHOLD_SECONDS = 30
 const ACQUISITION_POLL_INTERVAL_MS = 2000
 // Bounds how many times a single playback session auto-recovers from a
@@ -68,6 +72,8 @@ export function WatchPage() {
 
     let cancelled = false
     let progressTimer: ReturnType<typeof setInterval> | undefined
+    let progressRetryTimer: ReturnType<typeof setTimeout> | undefined
+    let progressInFlight = false
     let acquisitionTimer: ReturnType<typeof setInterval> | undefined
     // Recovery budget for THIS mount/retry cycle -- reset to 0 on every
     // successful handlePlayResponse (see below) rather than only once per
@@ -75,6 +81,32 @@ export function WatchPage() {
     // budget and leave a two-hour movie with no recovery left for later.
     let midStreamRetries = 0
     let recovering = false
+
+    // Serialized (progressInFlight) so a slow connection never has two
+    // updates in the air at once -- without that, a request sent later
+    // (newer position) can resolve before one sent earlier (older
+    // position), and the older one landing last in UpsertPlaybackState would
+    // silently overwrite a newer position with a stale one. On failure, one
+    // bounded quick retry with a freshly-read position closes most of the
+    // gap a transient blip would otherwise leave until the next periodic
+    // tick; it isn't chained further; a connection that's still bad after
+    // that just waits for the regular interval, same as before.
+    async function reportProgress(video: HTMLVideoElement) {
+      if (progressInFlight || video.duration <= 0) return
+      progressInFlight = true
+      try {
+        await updateProgress(id!, video.currentTime, video.duration)
+      } catch {
+        if (cancelled) return
+        await new Promise<void>((resolve) => {
+          progressRetryTimer = setTimeout(resolve, PROGRESS_RETRY_DELAY_MS)
+        })
+        if (cancelled) return
+        await updateProgress(id!, video.currentTime, video.duration).catch(() => {})
+      } finally {
+        progressInFlight = false
+      }
+    }
 
     async function attach(video: HTMLVideoElement, play: PlayResponse) {
       if (play.sessionId) sessionIdRef.current = play.sessionId
@@ -106,11 +138,7 @@ export function WatchPage() {
       })
 
       if (progressTimer) clearInterval(progressTimer)
-      progressTimer = setInterval(() => {
-        if (video.duration > 0) {
-          updateProgress(id!, video.currentTime, video.duration).catch(() => {})
-        }
-      }, PROGRESS_REPORT_INTERVAL_MS)
+      progressTimer = setInterval(() => reportProgress(video), PROGRESS_REPORT_INTERVAL_MS)
     }
 
     // Shared by both the initial setup() and the mid-stream recovery path:
@@ -249,6 +277,7 @@ export function WatchPage() {
       window.removeEventListener('pagehide', saveProgressViaBeacon)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
       if (progressTimer) clearInterval(progressTimer)
+      if (progressRetryTimer) clearTimeout(progressRetryTimer)
       if (acquisitionTimer) clearInterval(acquisitionTimer)
       hlsRef.current?.destroy()
       hlsRef.current = null
