@@ -1,8 +1,11 @@
 package httpapi
 
 import (
+	"bufio"
 	"encoding/json"
+	"errors"
 	"log"
+	"net"
 	"net/http"
 	"sync/atomic"
 	"time"
@@ -112,6 +115,22 @@ type statusRecorder struct {
 func (r *statusRecorder) WriteHeader(status int) {
 	r.status = status
 	r.ResponseWriter.WriteHeader(status)
+}
+
+// Hijack forwards to the underlying ResponseWriter's http.Hijacker.
+// Without this, statusRecorder only satisfies the plain http.ResponseWriter
+// interface (Go's interface embedding doesn't promote methods outside that
+// interface's own method set, regardless of what the wrapped concrete value
+// supports) -- so gorilla/websocket's Upgrade, which needs to hijack the
+// raw TCP connection, would fail its own internal type assertion and every
+// WebSocket route behind this middleware (e.g. the admin log stream) would
+// 500 on every connection attempt.
+func (r *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hj, ok := r.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, errors.New("underlying ResponseWriter does not support hijacking")
+	}
+	return hj.Hijack()
 }
 
 // NewRouter returns the root HTTP handler for the Vorn backend.
