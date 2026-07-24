@@ -19,6 +19,12 @@ import './WatchPage.css'
 const PROGRESS_REPORT_INTERVAL_MS = 5000
 const NEAR_END_THRESHOLD_SECONDS = 30
 const ACQUISITION_POLL_INTERVAL_MS = 2000
+// Bounds how many times a single playback session auto-recovers from a
+// mid-stream failure (e.g. a debrid link expiring while playing) before
+// giving up and asking the viewer to retry manually -- without a cap, a
+// provider that's genuinely down would retry-loop indefinitely instead of
+// surfacing that something's wrong.
+const MAX_MIDSTREAM_RETRIES = 2
 
 type AcquiringState = { status: 'searching' | 'acquiring' | 'error'; message?: string }
 
@@ -62,6 +68,12 @@ export function WatchPage() {
     let cancelled = false
     let progressTimer: ReturnType<typeof setInterval> | undefined
     let acquisitionTimer: ReturnType<typeof setInterval> | undefined
+    // Recovery budget for THIS mount/retry cycle -- reset to 0 on every
+    // successful handlePlayResponse (see below) rather than only once per
+    // page load, so a couple of early blips don't burn through the whole
+    // budget and leave a two-hour movie with no recovery left for later.
+    let midStreamRetries = 0
+    let recovering = false
 
     async function attach(video: HTMLVideoElement, play: PlayResponse) {
       if (play.sessionId) sessionIdRef.current = play.sessionId
@@ -70,6 +82,13 @@ export function WatchPage() {
       if (play.mode === 'transcode' && Hls.isSupported()) {
         const hls = new Hls()
         hlsRef.current = hls
+        // Only fatal errors -- hls.js already retries recoverable ones
+        // (a dropped segment, a transient stall) internally, so reacting to
+        // every error here would fight its own recovery instead of only
+        // stepping in once it's actually given up.
+        hls.on(Hls.Events.ERROR, (_event, data) => {
+          if (data.fatal) recoverFromPlaybackError()
+        })
         hls.loadSource(url)
         hls.attachMedia(video)
       } else {
@@ -85,11 +104,69 @@ export function WatchPage() {
         /* autoplay can be blocked by the browser; user can press play manually */
       })
 
+      if (progressTimer) clearInterval(progressTimer)
       progressTimer = setInterval(() => {
         if (video.duration > 0) {
           updateProgress(id!, video.currentTime, video.duration).catch(() => {})
         }
       }, PROGRESS_REPORT_INTERVAL_MS)
+    }
+
+    // Shared by both the initial setup() and the mid-stream recovery path:
+    // given a fresh playItem() response, either enter the acquiring
+    // overlay+poll (the backend decided the link is dead and is fetching a
+    // replacement) or attach and keep playing. Reaching here at all means
+    // the backend gave a real, current answer, so this is also where the
+    // retry budget resets.
+    async function handlePlayResponse(video: HTMLVideoElement, play: PlayResponse) {
+      midStreamRetries = 0
+      if (play.mode === 'acquiring') {
+        setAcquiring({ status: play.acquisitionStatus ?? 'searching', message: play.acquisitionError })
+        if (play.acquisitionStatus !== 'error') pollAcquisition(video)
+        return
+      }
+      setAcquiring(null)
+      await attach(video, play)
+    }
+
+    // Fired on a native <video> network/decode/source error (direct mode)
+    // or an hls.js fatal error (transcode mode) -- both mean the current
+    // stream died, which for a debrid-backed item is most likely an
+    // expired CDN link. Re-running playItem hands it back to the same
+    // ffprobe-based liveness check handlePlayItem already does on a fresh
+    // play click: if the link still works this reattaches seamlessly, and
+    // if it's genuinely dead the backend starts replacing it and this page
+    // shows the same acquiring overlay a first-time acquisition would.
+    async function recoverFromPlaybackError() {
+      if (cancelled || recovering) return
+      const video = videoRef.current
+      if (!video) return
+      if (midStreamRetries >= MAX_MIDSTREAM_RETRIES) {
+        setAcquiring({
+          status: 'error',
+          message: 'Playback was interrupted and could not recover automatically.',
+        })
+        return
+      }
+      recovering = true
+      midStreamRetries += 1
+      try {
+        hlsRef.current?.destroy()
+        hlsRef.current = null
+        if (progressTimer) clearInterval(progressTimer)
+        const play = await playItem(id!)
+        if (cancelled) return
+        await handlePlayResponse(video, play)
+      } catch (err) {
+        if (!cancelled) {
+          setAcquiring({
+            status: 'error',
+            message: err instanceof ApiError ? err.message : 'Playback was interrupted and could not recover automatically.',
+          })
+        }
+      } finally {
+        recovering = false
+      }
     }
 
     // Polls the item itself rather than a dedicated status endpoint --
@@ -103,9 +180,8 @@ export function WatchPage() {
           if (cancelled) return
           if (fresh.acquisitionStatus === 'owned') {
             clearInterval(acquisitionTimer)
-            setAcquiring(null)
             const play = await playItem(id!)
-            if (!cancelled) await attach(video, play)
+            if (!cancelled) await handlePlayResponse(video, play)
           } else if (fresh.acquisitionStatus === 'error') {
             clearInterval(acquisitionTimer)
             setAcquiring({ status: 'error', message: fresh.acquisitionError || 'Acquisition failed.' })
@@ -127,24 +203,28 @@ export function WatchPage() {
 
         const play = await playItem(id!)
         if (cancelled) return
-
-        if (play.mode === 'acquiring') {
-          setAcquiring({ status: play.acquisitionStatus ?? 'searching', message: play.acquisitionError })
-          if (play.acquisitionStatus !== 'error') pollAcquisition(video)
-          return
-        }
-
-        setAcquiring(null)
-        await attach(video, play)
+        await handlePlayResponse(video, play)
       } catch (err) {
         if (!cancelled) setError(err instanceof ApiError ? err.message : String(err))
       }
     }
 
+    // MEDIA_ERR_ABORTED (code 1) fires on legitimate navigation/unmount --
+    // the `cancelled` check inside recoverFromPlaybackError already guards
+    // that case, but excluding it here too avoids even attempting recovery
+    // while, say, the user is mid-navigation away from the page.
+    function handleVideoError() {
+      if (video!.error && video!.error.code !== video!.error.MEDIA_ERR_ABORTED) {
+        recoverFromPlaybackError()
+      }
+    }
+    video.addEventListener('error', handleVideoError)
+
     setup(video)
 
     return () => {
       cancelled = true
+      video.removeEventListener('error', handleVideoError)
       if (progressTimer) clearInterval(progressTimer)
       if (acquisitionTimer) clearInterval(acquisitionTimer)
       hlsRef.current?.destroy()
