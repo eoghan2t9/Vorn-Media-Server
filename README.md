@@ -2,7 +2,21 @@
   <img src="frontend/public/favicon.svg" alt="Vorn logo" width="96" height="96">
 </p>
 
-# Vorn Media Server
+<h1 align="center">Vorn Media Server</h1>
+
+<p align="center">
+  A self-hosted media server that speaks Plex, Emby, and Jellyfin natively, with a built-in
+  torrent/Usenet/debrid acquisition system — no separate *arr stack required.
+</p>
+
+<p align="center">
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/eoghan2t9/Vorn-Media-Server"></a>
+  <img alt="Go backend" src="https://img.shields.io/badge/backend-Go-00ADD8">
+  <img alt="React + TypeScript frontend" src="https://img.shields.io/badge/frontend-React%20%2B%20TypeScript-61DAFB">
+  <img alt="Docker ready" src="https://img.shields.io/badge/docker-ready-2496ED">
+  <img alt="Platforms" src="https://img.shields.io/badge/platforms-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey">
+  <a href="https://github.com/eoghan2t9/Vorn-Media-Server/issues"><img alt="PRs welcome" src="https://img.shields.io/badge/PRs-welcome-brightgreen"></a>
+</p>
 
 Vorn is a self-hosted media server: library management, GPU-accelerated transcoding, a modern
 web UI, and API compatibility with the official Plex, Emby, and Jellyfin apps — built to run
@@ -13,11 +27,28 @@ Vorn is under active, incremental development. This README and the feature list 
 as each phase lands — see [Feature Roadmap](#feature-roadmap) and [Since the roadmap](#since-the-roadmap)
 for what's done vs. planned.
 
+## Screenshots
+
+|                                                     |                                                       |
+| --------------------------------------------------- | ----------------------------------------------------- |
+| **Guided first-launch setup**<br>![Setup wizard](docs/screenshots/setup-wizard.png) | **Admin: libraries**<br>![Admin libraries](docs/screenshots/admin-libraries.png) |
+| **About & credits — light**<br>![About page, light theme](docs/screenshots/about-light.png) | **About & credits — dark**<br>![About page, dark theme](docs/screenshots/about-dark.png) |
+
 ## Why Vorn
 
 Existing self-hosted media servers each pick a lane: Jellyfin is fully open source but slower to
 add features some households want; Plex and Emby have client compatibility but aren't open source
-end-to-end. Vorn aims to be a single, fully open-source (AGPL-3.0) server that:
+end-to-end.
+
+| | Vorn | Plex | Jellyfin | Emby |
+| --- | --- | --- | --- | --- |
+| Fully open source (server + client protocol) | Yes (AGPL-3.0) | No | Yes | No |
+| Speaks Plex/Emby/Jellyfin apps natively | Yes, all three | Native | Native | Native |
+| Built-in torrent/NZB/debrid acquisition | Yes, no extra stack | No | Requires Sonarr/Radarr etc. | Requires Sonarr/Radarr etc. |
+| GPU transcoding across vendors | QuickSync, NVENC, AMF/VAAPI, VideoToolbox | Yes | Yes | Yes |
+| Runs bare-metal *and* Docker | Both, same binary | Both | Both | Both |
+
+Vorn aims to be a single, fully open-source server that:
 
 - Speaks the native API of Plex, Emby, *and* Jellyfin apps, so existing mobile/TV/web clients
   just work without waiting for a Vorn-specific client.
