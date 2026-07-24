@@ -26,7 +26,19 @@ type IntegrationSettings struct {
 	// not have it happen by default.
 	MusicMetadataEnabled     bool
 	AudiobookMetadataEnabled bool
-	UpdatedAt                time.Time
+	// FanartAPIKey and OMDbAPIKey are both optional enrichment layered onto
+	// an existing TMDb/TheTVDB match (higher-res art, ratings) -- empty
+	// means that enrichment step is simply skipped, same as TMDb being
+	// empty skips matching entirely.
+	FanartAPIKey string
+	OMDbAPIKey   string
+	// TVDbAPIKey/TVDbPin are an optional fallback series matcher, tried
+	// only when TMDb has no match for a series. TVDbPin is only needed for
+	// a "user-support" API key tied to an individual paid subscriber
+	// account -- a standard project key leaves it empty.
+	TVDbAPIKey string
+	TVDbPin    string
+	UpdatedAt  time.Time
 }
 
 type integrationSettingsValue struct {
@@ -36,6 +48,10 @@ type integrationSettingsValue struct {
 	OpenSubtitlesPassword    string `json:"openSubtitlesPassword"`
 	MusicMetadataEnabled     bool   `json:"musicMetadataEnabled"`
 	AudiobookMetadataEnabled bool   `json:"audiobookMetadataEnabled"`
+	FanartAPIKey             string `json:"fanartApiKey"`
+	OMDbAPIKey               string `json:"omdbApiKey"`
+	TVDbAPIKey               string `json:"tvdbApiKey"`
+	TVDbPin                  string `json:"tvdbPin"`
 }
 
 // GetIntegrationSettings returns the current settings, or their zero value
@@ -57,6 +73,10 @@ func (s *Store) GetIntegrationSettings() (*IntegrationSettings, error) {
 		OpenSubtitlesPassword:    v.OpenSubtitlesPassword,
 		MusicMetadataEnabled:     v.MusicMetadataEnabled,
 		AudiobookMetadataEnabled: v.AudiobookMetadataEnabled,
+		FanartAPIKey:             v.FanartAPIKey,
+		OMDbAPIKey:               v.OMDbAPIKey,
+		TVDbAPIKey:               v.TVDbAPIKey,
+		TVDbPin:                  v.TVDbPin,
 	}
 	// SetSetting's ON CONFLICT upsert always stamps updated_at, so this
 	// extra lookup is just to surface it -- GetSetting itself doesn't.
@@ -76,6 +96,10 @@ type UpdateIntegrationSettingsInput struct {
 	OpenSubtitlesPassword    *string
 	MusicMetadataEnabled     *bool
 	AudiobookMetadataEnabled *bool
+	FanartAPIKey             *string
+	OMDbAPIKey               *string
+	TVDbAPIKey               *string
+	TVDbPin                  *string
 }
 
 func (s *Store) UpdateIntegrationSettings(in UpdateIntegrationSettingsInput) (*IntegrationSettings, error) {
@@ -91,6 +115,10 @@ func (s *Store) UpdateIntegrationSettings(in UpdateIntegrationSettingsInput) (*I
 		OpenSubtitlesPassword:    current.OpenSubtitlesPassword,
 		MusicMetadataEnabled:     current.MusicMetadataEnabled,
 		AudiobookMetadataEnabled: current.AudiobookMetadataEnabled,
+		FanartAPIKey:             current.FanartAPIKey,
+		OMDbAPIKey:               current.OMDbAPIKey,
+		TVDbAPIKey:               current.TVDbAPIKey,
+		TVDbPin:                  current.TVDbPin,
 	}
 	if in.TMDbAPIKey != nil {
 		v.TMDbAPIKey = *in.TMDbAPIKey
@@ -109,6 +137,18 @@ func (s *Store) UpdateIntegrationSettings(in UpdateIntegrationSettingsInput) (*I
 	}
 	if in.AudiobookMetadataEnabled != nil {
 		v.AudiobookMetadataEnabled = *in.AudiobookMetadataEnabled
+	}
+	if in.FanartAPIKey != nil {
+		v.FanartAPIKey = *in.FanartAPIKey
+	}
+	if in.OMDbAPIKey != nil {
+		v.OMDbAPIKey = *in.OMDbAPIKey
+	}
+	if in.TVDbAPIKey != nil {
+		v.TVDbAPIKey = *in.TVDbAPIKey
+	}
+	if in.TVDbPin != nil {
+		v.TVDbPin = *in.TVDbPin
 	}
 
 	if err := s.SetSetting(integrationSettingsKey, v); err != nil {

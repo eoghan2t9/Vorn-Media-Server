@@ -79,9 +79,19 @@ export function ItemDetail() {
         <div className="vorn-detail-hero-content">
           <Poster title={item.title} posterUrl={item.posterUrl} className="vorn-detail-poster" />
           <div className="vorn-detail-info">
-            <h1>{item.title}</h1>
+            {item.logoUrl ? (
+              <img src={resolveMediaUrl(item.logoUrl)} alt={item.title} className="vorn-detail-logo" />
+            ) : (
+              <h1>{item.title}</h1>
+            )}
             {item.author && <p className="vorn-detail-year">by {item.author}</p>}
             {item.releaseDate && <p className="vorn-detail-year">{item.releaseDate.slice(0, 4)}</p>}
+            {(item.ratingImdb || item.ratingRottenTomatoes) && (
+              <p className="vorn-detail-ratings">
+                {item.ratingImdb && <span>IMDb {item.ratingImdb}</span>}
+                {item.ratingRottenTomatoes && <span>RT {item.ratingRottenTomatoes}</span>}
+              </p>
+            )}
             {(item.kind === 'movie' ||
               item.kind === 'episode' ||
               item.kind === 'track' ||

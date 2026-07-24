@@ -28,6 +28,10 @@ type Config struct {
 	SubtitlesCacheDir    string
 	ArtworkCacheDir      string
 	GitHubRepo           string
+	FanartAPIKey         string
+	OMDbAPIKey           string
+	TVDbAPIKey           string
+	TVDbPin              string
 }
 
 func Load() Config {
@@ -51,6 +55,10 @@ func Load() Config {
 		SubtitlesCacheDir:    getEnv("VORN_SUBTITLES_CACHE_DIR", "./data/subtitles-cache"),
 		ArtworkCacheDir:      getEnv("VORN_ARTWORK_CACHE_DIR", "./data/artwork-cache"),
 		GitHubRepo:           getEnv("VORN_GITHUB_REPO", "eoghan2t9/Vorn-Media-Server"),
+		FanartAPIKey:         getEnv("VORN_FANART_API_KEY", ""),
+		OMDbAPIKey:           getEnv("VORN_OMDB_API_KEY", ""),
+		TVDbAPIKey:           getEnv("VORN_TVDB_API_KEY", ""),
+		TVDbPin:              getEnv("VORN_TVDB_PIN", ""),
 	}
 }
 
@@ -86,6 +94,7 @@ func getIntEnv(key string, fallback int) int {
 }
 
 func (c Config) String() string {
-	return fmt.Sprintf("http_addr=%s postgres=<redacted> dragonfly=%s cors_origin=%s dev_mode=%v tmdb_configured=%v transcode_max_sessions=%d torrent_enabled=%v nzb_enabled=%v opensubtitles_configured=%v",
-		c.HTTPAddr, c.DragonflyAddr, c.CORSOrigin, c.DevMode, c.TMDbAPIKey != "", c.TranscodeMaxSessions, c.TorrentEnabled, c.NZBEnabled, c.OpenSubtitlesAPIKey != "")
+	return fmt.Sprintf("http_addr=%s postgres=<redacted> dragonfly=%s cors_origin=%s dev_mode=%v tmdb_configured=%v transcode_max_sessions=%d torrent_enabled=%v nzb_enabled=%v opensubtitles_configured=%v fanart_configured=%v omdb_configured=%v tvdb_configured=%v",
+		c.HTTPAddr, c.DragonflyAddr, c.CORSOrigin, c.DevMode, c.TMDbAPIKey != "", c.TranscodeMaxSessions, c.TorrentEnabled, c.NZBEnabled, c.OpenSubtitlesAPIKey != "",
+		c.FanartAPIKey != "", c.OMDbAPIKey != "", c.TVDbAPIKey != "")
 }

@@ -12,6 +12,21 @@ type Match struct {
 	PosterURL   string
 	BackdropURL string
 	TrailerURL  string
+
+	// IMDbID/TVDbID cross-reference this match against other providers
+	// keyed by a different ID than TMDb's own (OMDb needs an IMDb ID,
+	// Fanart.tv's TV endpoint needs a TheTVDB ID) -- populated from TMDb's
+	// /external_ids endpoint when available, empty/zero otherwise.
+	IMDbID string
+	TVDbID int
+
+	// LogoURL and the two Rating fields are optional enrichment from
+	// Fanart.tv and OMDb respectively, layered on top of a TMDb (or
+	// TheTVDB fallback) match rather than being providers of matches
+	// themselves -- both need an ID a plain title search can't produce.
+	LogoURL              string
+	RatingIMDb           string
+	RatingRottenTomatoes string
 }
 
 // Provider looks up movies and TV series against an external metadata
@@ -20,6 +35,14 @@ type Match struct {
 // without touching the sync job.
 type Provider interface {
 	MatchMovie(ctx context.Context, title string, year int) (*Match, error)
+	MatchSeries(ctx context.Context, title string) (*Match, error)
+}
+
+// SeriesProvider matches TV series only -- a narrower interface than
+// Provider so an optional fallback series-only source (TheTVDB) can be
+// attached to Service without needing to also implement MatchMovie. Any
+// Provider already satisfies this trivially.
+type SeriesProvider interface {
 	MatchSeries(ctx context.Context, title string) (*Match, error)
 }
 
@@ -40,7 +63,7 @@ func (p *TMDbProvider) MatchMovie(ctx context.Context, title string, year int) (
 		return nil, nil
 	}
 	trailer, _ := p.client.trailerURL(ctx, "movie", result.ID)
-	return &Match{
+	match := &Match{
 		ProviderID:  result.ID,
 		Title:       result.Title,
 		Overview:    result.Overview,
@@ -48,7 +71,11 @@ func (p *TMDbProvider) MatchMovie(ctx context.Context, title string, year int) (
 		PosterURL:   imageURL(result.PosterPath),
 		BackdropURL: imageURL(result.BackdropPath),
 		TrailerURL:  trailer,
-	}, nil
+	}
+	if ext, err := p.client.externalIDs(ctx, "movie", result.ID); err == nil {
+		match.IMDbID = ext.IMDbID
+	}
+	return match, nil
 }
 
 func (p *TMDbProvider) MatchSeries(ctx context.Context, title string) (*Match, error) {
@@ -60,7 +87,7 @@ func (p *TMDbProvider) MatchSeries(ctx context.Context, title string) (*Match, e
 		return nil, nil
 	}
 	trailer, _ := p.client.trailerURL(ctx, "tv", result.ID)
-	return &Match{
+	match := &Match{
 		ProviderID:  result.ID,
 		Title:       result.Name,
 		Overview:    result.Overview,
@@ -68,5 +95,10 @@ func (p *TMDbProvider) MatchSeries(ctx context.Context, title string) (*Match, e
 		PosterURL:   imageURL(result.PosterPath),
 		BackdropURL: imageURL(result.BackdropPath),
 		TrailerURL:  trailer,
-	}, nil
+	}
+	if ext, err := p.client.externalIDs(ctx, "tv", result.ID); err == nil {
+		match.IMDbID = ext.IMDbID
+		match.TVDbID = ext.TVDbID
+	}
+	return match, nil
 }

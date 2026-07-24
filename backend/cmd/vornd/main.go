@@ -88,6 +88,18 @@ func main() {
 		if intSettings.OpenSubtitlesPassword != "" {
 			cfg.OpenSubtitlesPass = intSettings.OpenSubtitlesPassword
 		}
+		if intSettings.FanartAPIKey != "" {
+			cfg.FanartAPIKey = intSettings.FanartAPIKey
+		}
+		if intSettings.OMDbAPIKey != "" {
+			cfg.OMDbAPIKey = intSettings.OMDbAPIKey
+		}
+		if intSettings.TVDbAPIKey != "" {
+			cfg.TVDbAPIKey = intSettings.TVDbAPIKey
+		}
+		if intSettings.TVDbPin != "" {
+			cfg.TVDbPin = intSettings.TVDbPin
+		}
 	}
 
 	scanSvc, err := scanner.NewService(st, queue, cfg.ArtworkCacheDir)
@@ -111,6 +123,15 @@ func main() {
 	}
 	metadataSvc.WithMusicProvider(metadata.NewMusicBrainzProvider())
 	metadataSvc.WithAudiobookProvider(metadata.NewOpenLibraryProvider())
+	if cfg.TVDbAPIKey != "" {
+		metadataSvc.WithFallbackSeriesProvider(metadata.NewTVDbProvider(cfg.TVDbAPIKey, cfg.TVDbPin))
+	}
+	if cfg.FanartAPIKey != "" {
+		metadataSvc.WithFanartClient(metadata.NewFanartClient(cfg.FanartAPIKey))
+	}
+	if cfg.OMDbAPIKey != "" {
+		metadataSvc.WithOMDbClient(metadata.NewOMDbClient(cfg.OMDbAPIKey))
+	}
 
 	var transcodeMgr *transcode.Manager
 	backends := transcode.DetectBackends(context.Background())

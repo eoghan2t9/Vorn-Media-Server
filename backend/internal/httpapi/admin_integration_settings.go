@@ -17,6 +17,9 @@ type integrationSettingsResponse struct {
 	OpenSubtitlesUsername    string `json:"openSubtitlesUsername,omitempty"`
 	MusicMetadataEnabled     bool   `json:"musicMetadataEnabled"`
 	AudiobookMetadataEnabled bool   `json:"audiobookMetadataEnabled"`
+	FanartConfigured         bool   `json:"fanartConfigured"`
+	OMDbConfigured           bool   `json:"omdbConfigured"`
+	TVDbConfigured           bool   `json:"tvdbConfigured"`
 	UpdatedAt                string `json:"updatedAt"`
 }
 
@@ -27,6 +30,9 @@ func toIntegrationSettingsResponse(is *store.IntegrationSettings) integrationSet
 		OpenSubtitlesUsername:    is.OpenSubtitlesUsername,
 		MusicMetadataEnabled:     is.MusicMetadataEnabled,
 		AudiobookMetadataEnabled: is.AudiobookMetadataEnabled,
+		FanartConfigured:         is.FanartAPIKey != "",
+		OMDbConfigured:           is.OMDbAPIKey != "",
+		TVDbConfigured:           is.TVDbAPIKey != "",
 		UpdatedAt:                is.UpdatedAt.Format(time.RFC3339),
 	}
 }
@@ -52,6 +58,10 @@ type updateIntegrationSettingsRequest struct {
 	OpenSubtitlesPassword    *string `json:"openSubtitlesPassword"`
 	MusicMetadataEnabled     *bool   `json:"musicMetadataEnabled"`
 	AudiobookMetadataEnabled *bool   `json:"audiobookMetadataEnabled"`
+	FanartAPIKey             *string `json:"fanartApiKey"`
+	OMDbAPIKey               *string `json:"omdbApiKey"`
+	TVDbAPIKey               *string `json:"tvdbApiKey"`
+	TVDbPin                  *string `json:"tvdbPin"`
 }
 
 func (s *Server) handleUpdateIntegrationSettings(w http.ResponseWriter, r *http.Request) {
@@ -68,6 +78,10 @@ func (s *Server) handleUpdateIntegrationSettings(w http.ResponseWriter, r *http.
 		OpenSubtitlesPassword:    req.OpenSubtitlesPassword,
 		MusicMetadataEnabled:     req.MusicMetadataEnabled,
 		AudiobookMetadataEnabled: req.AudiobookMetadataEnabled,
+		FanartAPIKey:             req.FanartAPIKey,
+		OMDbAPIKey:               req.OMDbAPIKey,
+		TVDbAPIKey:               req.TVDbAPIKey,
+		TVDbPin:                  req.TVDbPin,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "saving integration settings")

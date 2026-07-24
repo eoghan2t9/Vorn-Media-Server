@@ -130,6 +130,23 @@ func (c *TMDbClient) trailerURL(ctx context.Context, kind string, id int) (strin
 	return "", nil
 }
 
+type tmdbExternalIDs struct {
+	IMDbID string `json:"imdb_id"`
+	TVDbID int    `json:"tvdb_id"` // only ever populated on the /tv external_ids response
+}
+
+// externalIDs fetches /{kind}/{id}/external_ids -- the same well-documented,
+// stable TMDb endpoint Radarr/Sonarr use to cross-reference their own TMDb
+// matches against IMDb/TheTVDB. Errors are the caller's to decide whether
+// to ignore (this is enrichment, not the primary match).
+func (c *TMDbClient) externalIDs(ctx context.Context, kind string, id int) (*tmdbExternalIDs, error) {
+	var resp tmdbExternalIDs
+	if err := c.get(ctx, fmt.Sprintf("/%s/%d/external_ids", kind, id), url.Values{}, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
 func imageURL(path string) string {
 	if path == "" {
 		return ""

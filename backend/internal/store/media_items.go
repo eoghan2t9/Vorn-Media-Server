@@ -8,34 +8,38 @@ import (
 )
 
 type MediaItem struct {
-	ID             string
-	LibraryID      string
-	ParentID       *string
-	Kind           string // "movie" | "series" | "season" | "episode" | "artist" | "album" | "track" | "audiobook" | "book" | "chapter"
-	Title          string
-	SortTitle      string
-	Overview       string
-	SeasonNumber   *int
-	EpisodeNumber  *int
-	ReleaseDate    *time.Time
-	Path           *string
-	TmdbID         *int
-	MetadataLocked bool
-	AddedAt        time.Time
-	UpdatedAt      time.Time
-	PosterURL      string
-	BackdropURL    string
-	Author         string // audiobook/book only, from metadata->>'author'
+	ID                   string
+	LibraryID            string
+	ParentID             *string
+	Kind                 string // "movie" | "series" | "season" | "episode" | "artist" | "album" | "track" | "audiobook" | "book" | "chapter"
+	Title                string
+	SortTitle            string
+	Overview             string
+	SeasonNumber         *int
+	EpisodeNumber        *int
+	ReleaseDate          *time.Time
+	Path                 *string
+	TmdbID               *int
+	MetadataLocked       bool
+	AddedAt              time.Time
+	UpdatedAt            time.Time
+	PosterURL            string
+	BackdropURL          string
+	Author               string // audiobook/book only, from metadata->>'author'
+	LogoURL              string // from Fanart.tv enrichment, from metadata->>'logoUrl'
+	RatingIMDb           string // from OMDb enrichment, from metadata->>'ratingImdb'
+	RatingRottenTomatoes string // from OMDb enrichment, from metadata->>'ratingRottenTomatoes'
 }
 
 const mediaItemColumns = `id, library_id, parent_id, kind, title, sort_title, overview, season_number, episode_number,
 	release_date, path, tmdb_id, metadata_locked, added_at, updated_at,
-	coalesce(metadata->>'posterUrl', ''), coalesce(metadata->>'backdropUrl', ''), coalesce(metadata->>'author', '')`
+	coalesce(metadata->>'posterUrl', ''), coalesce(metadata->>'backdropUrl', ''), coalesce(metadata->>'author', ''),
+	coalesce(metadata->>'logoUrl', ''), coalesce(metadata->>'ratingImdb', ''), coalesce(metadata->>'ratingRottenTomatoes', '')`
 
 func scanMediaItem(row interface{ Scan(...any) error }, m *MediaItem) error {
 	return row.Scan(&m.ID, &m.LibraryID, &m.ParentID, &m.Kind, &m.Title, &m.SortTitle, &m.Overview,
 		&m.SeasonNumber, &m.EpisodeNumber, &m.ReleaseDate, &m.Path, &m.TmdbID, &m.MetadataLocked, &m.AddedAt, &m.UpdatedAt,
-		&m.PosterURL, &m.BackdropURL, &m.Author)
+		&m.PosterURL, &m.BackdropURL, &m.Author, &m.LogoURL, &m.RatingIMDb, &m.RatingRottenTomatoes)
 }
 
 // findOrCreateMediaItem looks up a media item by its natural identity

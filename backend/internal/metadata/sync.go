@@ -22,10 +22,13 @@ const requestSpacing = 300 * time.Millisecond
 // have TMDb, etc. -- matchItem below skips any kind whose provider is nil
 // rather than erroring.
 type Service struct {
-	store             *store.Store
-	provider          Provider
-	musicProvider     MusicProvider
-	audiobookProvider AudiobookProvider
+	store                  *store.Store
+	provider               Provider
+	musicProvider          MusicProvider
+	audiobookProvider      AudiobookProvider
+	fallbackSeriesProvider SeriesProvider
+	fanart                 *FanartClient
+	omdb                   *OMDbClient
 }
 
 func NewService(st *store.Store, provider Provider) *Service {
@@ -43,6 +46,29 @@ func (svc *Service) WithMusicProvider(p MusicProvider) *Service {
 
 func (svc *Service) WithAudiobookProvider(p AudiobookProvider) *Service {
 	svc.audiobookProvider = p
+	return svc
+}
+
+// WithFallbackSeriesProvider attaches a series-only matcher (TheTVDB) tried
+// only when the primary provider has no match for a series -- TMDb stays
+// the first attempt for every series regardless, since it's also where
+// movies and the IMDb/TheTVDB cross-reference IDs used by OMDb/Fanart.tv
+// come from.
+func (svc *Service) WithFallbackSeriesProvider(p SeriesProvider) *Service {
+	svc.fallbackSeriesProvider = p
+	return svc
+}
+
+// WithFanartClient / WithOMDbClient attach optional enrichment applied on
+// top of whatever movie/series match was found, layering higher-res
+// artwork and ratings on rather than replacing the match itself.
+func (svc *Service) WithFanartClient(c *FanartClient) *Service {
+	svc.fanart = c
+	return svc
+}
+
+func (svc *Service) WithOMDbClient(c *OMDbClient) *Service {
+	svc.omdb = c
 	return svc
 }
 
@@ -123,16 +149,31 @@ func (svc *Service) processItem(ctx context.Context, item *store.MediaItem, musi
 		if err != nil || match == nil {
 			return false, err
 		}
+		svc.enrich(ctx, "movie", match)
 		return true, svc.applyTMDbMatch(item.ID, match)
 
 	case "series":
-		if svc.provider == nil {
+		if svc.provider == nil && svc.fallbackSeriesProvider == nil {
 			return false, nil
 		}
-		match, err := svc.provider.MatchSeries(ctx, item.Title)
-		if err != nil || match == nil {
-			return false, err
+		var match *Match
+		var err error
+		if svc.provider != nil {
+			match, err = svc.provider.MatchSeries(ctx, item.Title)
+			if err != nil {
+				return false, err
+			}
 		}
+		if match == nil && svc.fallbackSeriesProvider != nil {
+			match, err = svc.fallbackSeriesProvider.MatchSeries(ctx, item.Title)
+			if err != nil || match == nil {
+				return false, err
+			}
+		}
+		if match == nil {
+			return false, nil
+		}
+		svc.enrich(ctx, "series", match)
 		return true, svc.applyTMDbMatch(item.ID, match)
 
 	case "album":
@@ -164,14 +205,60 @@ func (svc *Service) processItem(ctx context.Context, item *store.MediaItem, musi
 	}
 }
 
+// enrich layers Fanart.tv artwork and/or OMDb ratings onto an
+// already-found match, in place. Best-effort: any enrichment failure
+// (provider not configured, no cross-reference ID available, a transient
+// API error) just leaves those fields empty rather than failing the whole
+// match -- enrichment is a bonus on top of a real match, not a
+// requirement for one.
+func (svc *Service) enrich(ctx context.Context, kind string, match *Match) {
+	if svc.fanart != nil {
+		var poster, backdrop, logo string
+		var err error
+		switch kind {
+		case "movie":
+			if match.ProviderID > 0 {
+				poster, backdrop, logo, err = svc.fanart.MovieArt(ctx, match.ProviderID)
+			}
+		case "series":
+			if match.TVDbID > 0 {
+				poster, backdrop, logo, err = svc.fanart.SeriesArt(ctx, match.TVDbID)
+			}
+		}
+		if err == nil {
+			if poster != "" {
+				match.PosterURL = poster
+			}
+			if backdrop != "" {
+				match.BackdropURL = backdrop
+			}
+			match.LogoURL = logo
+		}
+	}
+
+	if svc.omdb != nil && match.IMDbID != "" {
+		if imdbRating, rt, err := svc.omdb.RatingsByIMDbID(ctx, match.IMDbID); err == nil {
+			match.RatingIMDb = imdbRating
+			match.RatingRottenTomatoes = rt
+		}
+	}
+}
+
 func (svc *Service) applyTMDbMatch(itemID string, match *Match) error {
 	update := store.MetadataUpdate{
-		TmdbID:      &match.ProviderID,
-		Title:       match.Title,
-		Overview:    match.Overview,
-		PosterURL:   match.PosterURL,
-		BackdropURL: match.BackdropURL,
-		TrailerURL:  match.TrailerURL,
+		Title:                match.Title,
+		Overview:             match.Overview,
+		PosterURL:            match.PosterURL,
+		BackdropURL:          match.BackdropURL,
+		TrailerURL:           match.TrailerURL,
+		LogoURL:              match.LogoURL,
+		RatingIMDb:           match.RatingIMDb,
+		RatingRottenTomatoes: match.RatingRottenTomatoes,
+	}
+	// ProviderID is 0 for a TheTVDB fallback match (no TMDb ID at all) --
+	// leaving TmdbID nil there instead of writing a bogus tmdb_id=0.
+	if match.ProviderID > 0 {
+		update.TmdbID = &match.ProviderID
 	}
 	if d, err := time.Parse("2006-01-02", match.ReleaseDate); err == nil {
 		update.ReleaseDate = &d

@@ -8,35 +8,41 @@ import (
 )
 
 type mediaItemResponse struct {
-	ID            string  `json:"id"`
-	LibraryID     string  `json:"libraryId"`
-	ParentID      *string `json:"parentId,omitempty"`
-	Kind          string  `json:"kind"`
-	Title         string  `json:"title"`
-	Overview      string  `json:"overview,omitempty"`
-	SeasonNumber  *int    `json:"seasonNumber,omitempty"`
-	EpisodeNumber *int    `json:"episodeNumber,omitempty"`
-	ReleaseDate   *string `json:"releaseDate,omitempty"`
-	AddedAt       string  `json:"addedAt"`
-	PosterURL     string  `json:"posterUrl,omitempty"`
-	BackdropURL   string  `json:"backdropUrl,omitempty"`
-	Author        string  `json:"author,omitempty"`
+	ID                   string  `json:"id"`
+	LibraryID            string  `json:"libraryId"`
+	ParentID             *string `json:"parentId,omitempty"`
+	Kind                 string  `json:"kind"`
+	Title                string  `json:"title"`
+	Overview             string  `json:"overview,omitempty"`
+	SeasonNumber         *int    `json:"seasonNumber,omitempty"`
+	EpisodeNumber        *int    `json:"episodeNumber,omitempty"`
+	ReleaseDate          *string `json:"releaseDate,omitempty"`
+	AddedAt              string  `json:"addedAt"`
+	PosterURL            string  `json:"posterUrl,omitempty"`
+	BackdropURL          string  `json:"backdropUrl,omitempty"`
+	Author               string  `json:"author,omitempty"`
+	LogoURL              string  `json:"logoUrl,omitempty"`
+	RatingIMDb           string  `json:"ratingImdb,omitempty"`
+	RatingRottenTomatoes string  `json:"ratingRottenTomatoes,omitempty"`
 }
 
 func toMediaItemResponse(m *store.MediaItem) mediaItemResponse {
 	resp := mediaItemResponse{
-		ID:            m.ID,
-		LibraryID:     m.LibraryID,
-		ParentID:      m.ParentID,
-		Kind:          m.Kind,
-		Title:         m.Title,
-		Overview:      m.Overview,
-		SeasonNumber:  m.SeasonNumber,
-		EpisodeNumber: m.EpisodeNumber,
-		AddedAt:       m.AddedAt.Format(time.RFC3339),
-		PosterURL:     m.PosterURL,
-		BackdropURL:   m.BackdropURL,
-		Author:        m.Author,
+		ID:                   m.ID,
+		LibraryID:            m.LibraryID,
+		ParentID:             m.ParentID,
+		Kind:                 m.Kind,
+		Title:                m.Title,
+		Overview:             m.Overview,
+		SeasonNumber:         m.SeasonNumber,
+		EpisodeNumber:        m.EpisodeNumber,
+		AddedAt:              m.AddedAt.Format(time.RFC3339),
+		PosterURL:            m.PosterURL,
+		BackdropURL:          m.BackdropURL,
+		Author:               m.Author,
+		LogoURL:              m.LogoURL,
+		RatingIMDb:           m.RatingIMDb,
+		RatingRottenTomatoes: m.RatingRottenTomatoes,
 	}
 	if m.ReleaseDate != nil {
 		d := m.ReleaseDate.Format("2006-01-02")

@@ -119,12 +119,22 @@ docker compose -f deploy/docker-compose.yml up --build
   content hash so a repeat request never touches the (metered) OpenSubtitles quota again (default:
   `./data/subtitles-cache`; the Docker Compose backend service always uses `/subtitles-cache`,
   backed by the `VORN_SUBTITLES_CACHE_PATH` host bind mount).
+- `VORN_FANART_API_KEY` — enables Fanart.tv artwork enrichment (higher-res posters/backdrops, clear
+  logos) layered on top of a TMDb/TheTVDB match during metadata sync. Without it, this enrichment
+  step is simply skipped; get a free key at https://fanart.tv/get-an-api-key/.
+- `VORN_OMDB_API_KEY` — enables OMDb ratings enrichment (IMDb + Rotten Tomatoes) layered onto a
+  movie/series match that has an IMDb ID. Without it, ratings are simply left blank; get a free key
+  (1,000 requests/day) at https://www.omdbapi.com/apikey.aspx.
+- `VORN_TVDB_API_KEY` / `VORN_TVDB_PIN` — enables TheTVDB as a fallback series matcher, tried only
+  when TMDb has no match for a series. `VORN_TVDB_PIN` is only needed for a "user-support" API key
+  tied to an individual paid subscriber account — a standard project key leaves it unset. Get a key
+  at https://thetvdb.com/api-information.
 
-Debrid (Real-Debrid/TorBox) acquisition (`/api/debrid-accounts`, `/api/debrid`) has no env var and
-is always available — it opens no listening port and holds no local state until the admin adds an
-account (with its API key) via the admin UI. Resolving a magnet/hash produces direct provider CDN
-stream URLs with no local download step, so playback of debrid content requires no download disk
-space.
+Debrid acquisition (`/api/debrid-accounts`, `/api/debrid`) has no env var and is always available —
+it opens no listening port and holds no local state until the admin adds an account (with its API
+key) via the admin UI. Real-Debrid, TorBox, AllDebrid, Premiumize, and Debrid-Link are all
+supported. Resolving a magnet/hash produces direct provider CDN stream URLs with no local download
+step, so playback of debrid content requires no download disk space.
 
 ### Client API compatibility
 

@@ -101,6 +101,13 @@ type MetadataUpdate struct {
 	BackdropURL string
 	TrailerURL  string
 	Author      string // audiobook/book only, stored in metadata jsonb
+
+	// Optional enrichment layered on top of a movie/series match --
+	// LogoURL from Fanart.tv, the two ratings from OMDb. All empty for a
+	// plain TMDb/TheTVDB match with no enrichment providers configured.
+	LogoURL              string
+	RatingIMDb           string
+	RatingRottenTomatoes string
 }
 
 // ApplyMetadata writes a provider match (or a manual admin correction) onto
@@ -122,6 +129,15 @@ func (s *Store) ApplyMetadata(itemID string, update MetadataUpdate, lock bool) e
 	}
 	if update.Author != "" {
 		metadataJSON["author"] = update.Author
+	}
+	if update.LogoURL != "" {
+		metadataJSON["logoUrl"] = update.LogoURL
+	}
+	if update.RatingIMDb != "" {
+		metadataJSON["ratingImdb"] = update.RatingIMDb
+	}
+	if update.RatingRottenTomatoes != "" {
+		metadataJSON["ratingRottenTomatoes"] = update.RatingRottenTomatoes
 	}
 
 	_, err := s.db.Exec(
