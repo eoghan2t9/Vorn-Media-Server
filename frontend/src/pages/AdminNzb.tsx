@@ -20,6 +20,7 @@ import {
   type NZBIndexer,
   type NZBSearchResult,
   type UsenetServer,
+  type UsenetServerProvider,
 } from '../api/client'
 import { FileDropzone, type FileDropzoneHandle } from '../components/FileDropzone'
 import { Select } from '../components/Select'
@@ -81,6 +82,7 @@ export function AdminNzb() {
   const [submitting, setSubmitting] = useState(false)
   const dropzoneRef = useRef<FileDropzoneHandle>(null)
 
+  const [serverProvider, setServerProvider] = useState<UsenetServerProvider>('nntp')
   const [serverPreset, setServerPreset] = useState('')
   const [serverName, setServerName] = useState('')
   const [serverHost, setServerHost] = useState('')
@@ -88,6 +90,7 @@ export function AdminNzb() {
   const [serverUseTls, setServerUseTls] = useState(true)
   const [serverUsername, setServerUsername] = useState('')
   const [serverPassword, setServerPassword] = useState('')
+  const [serverApiKey, setServerApiKey] = useState('')
   const [serverMaxConnections, setServerMaxConnections] = useState('10')
   const [testingServer, setTestingServer] = useState(false)
   const [serverTestResult, setServerTestResult] = useState<{ ok: boolean; message: string } | null>(null)
@@ -145,6 +148,15 @@ export function AdminNzb() {
     }
   }
 
+  function handleServerProvider(provider: UsenetServerProvider) {
+    setServerProvider(provider)
+    setServerPreset('')
+    setServerTestResult(null)
+    if (provider === 'torbox') {
+      setServerName((name) => name || 'TorBox')
+    }
+  }
+
   function handleServerPreset(id: string) {
     setServerPreset(id)
     const preset = USENET_PRESETS.find((p) => p.label === id)
@@ -161,21 +173,26 @@ export function AdminNzb() {
     e.preventDefault()
     setError(null)
     try {
-      const server = await createUsenetServer({
-        name: serverName,
-        host: serverHost,
-        port: Number(serverPort),
-        useTls: serverUseTls,
-        username: serverUsername || undefined,
-        password: serverPassword || undefined,
-        maxConnections: Number(serverMaxConnections),
-      })
+      const server =
+        serverProvider === 'torbox'
+          ? await createUsenetServer({ name: serverName, provider: 'torbox', apiKey: serverApiKey })
+          : await createUsenetServer({
+              name: serverName,
+              provider: 'nntp',
+              host: serverHost,
+              port: Number(serverPort),
+              useTls: serverUseTls,
+              username: serverUsername || undefined,
+              password: serverPassword || undefined,
+              maxConnections: Number(serverMaxConnections),
+            })
       setServers((list) => [...list, server])
       setServerPreset('')
       setServerName('')
       setServerHost('')
       setServerUsername('')
       setServerPassword('')
+      setServerApiKey('')
       setServerTestResult(null)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to add usenet server')
@@ -186,13 +203,17 @@ export function AdminNzb() {
     setServerTestResult(null)
     setTestingServer(true)
     try {
-      const result = await testUsenetServer({
-        host: serverHost,
-        port: Number(serverPort),
-        useTls: serverUseTls,
-        username: serverUsername || undefined,
-        password: serverPassword || undefined,
-      })
+      const result =
+        serverProvider === 'torbox'
+          ? await testUsenetServer({ provider: 'torbox', apiKey: serverApiKey })
+          : await testUsenetServer({
+              provider: 'nntp',
+              host: serverHost,
+              port: Number(serverPort),
+              useTls: serverUseTls,
+              username: serverUsername || undefined,
+              password: serverPassword || undefined,
+            })
       setServerTestResult(
         result.ok ? { ok: true, message: 'Connected and authenticated successfully.' } : { ok: false, message: result.error ?? 'Connection failed.' },
       )
@@ -468,11 +489,16 @@ export function AdminNzb() {
         <div className="vorn-panel-header">
           <h2>Usenet servers</h2>
         </div>
+        <p className="vorn-panel-subtitle">
+          Either a real Usenet server (NNTP), or a TorBox account -- TorBox fetches and repairs the NZB against its
+          own Usenet backend and hands back finished files, no NNTP credentials needed.
+        </p>
         <div className="vorn-table-wrap">
         <table className="vorn-table">
           <thead>
             <tr>
               <th>Name</th>
+              <th>Provider</th>
               <th>Host</th>
               <th>Port</th>
               <th>TLS</th>
@@ -484,10 +510,11 @@ export function AdminNzb() {
             {servers.map((s) => (
               <tr key={s.id}>
                 <td>{s.name}</td>
-                <td>{s.host}</td>
-                <td>{s.port}</td>
-                <td>{s.useTls ? 'yes' : 'no'}</td>
-                <td>{s.maxConnections}</td>
+                <td>{s.provider === 'torbox' ? 'TorBox' : 'NNTP'}</td>
+                <td>{s.provider === 'torbox' ? '—' : s.host}</td>
+                <td>{s.provider === 'torbox' ? '—' : s.port}</td>
+                <td>{s.provider === 'torbox' ? '—' : s.useTls ? 'yes' : 'no'}</td>
+                <td>{s.provider === 'torbox' ? '—' : s.maxConnections}</td>
                 <td>
                   <button type="button" className="vorn-btn-danger" onClick={() => handleDeleteServer(s.id)}>
                     Delete
@@ -500,39 +527,64 @@ export function AdminNzb() {
         </div>
         <form className="vorn-inline-form" onSubmit={handleAddServer} style={{ marginTop: '1rem' }}>
           <Select
-            value={serverPreset}
-            onChange={handleServerPreset}
-            placeholder="Preset (optional)"
-            options={USENET_PRESETS.map((p) => ({ value: p.label, label: p.label }))}
+            value={serverProvider}
+            onChange={(v) => handleServerProvider(v as UsenetServerProvider)}
+            options={[
+              { value: 'nntp', label: 'Usenet server (NNTP)' },
+              { value: 'torbox', label: 'TorBox' },
+            ]}
           />
           <input placeholder="Name" value={serverName} onChange={(e) => setServerName(e.target.value)} required />
-          <input placeholder="Host" value={serverHost} onChange={(e) => setServerHost(e.target.value)} required />
-          <input
-            placeholder="Port"
-            type="number"
-            value={serverPort}
-            onChange={(e) => setServerPort(e.target.value)}
-            style={{ width: '6rem' }}
-            required
-          />
-          <label>
-            <input type="checkbox" checked={serverUseTls} onChange={(e) => setServerUseTls(e.target.checked)} /> TLS
-          </label>
-          <input placeholder="Username (optional)" value={serverUsername} onChange={(e) => setServerUsername(e.target.value)} />
-          <input
-            placeholder="Password (optional)"
-            type="password"
-            value={serverPassword}
-            onChange={(e) => setServerPassword(e.target.value)}
-          />
-          <input
-            placeholder="Max connections"
-            type="number"
-            value={serverMaxConnections}
-            onChange={(e) => setServerMaxConnections(e.target.value)}
-            style={{ width: '8rem' }}
-          />
-          <button type="button" onClick={handleTestServer} disabled={testingServer || !serverHost || !serverPort}>
+          {serverProvider === 'torbox' ? (
+            <input
+              placeholder="TorBox API key"
+              type="password"
+              value={serverApiKey}
+              onChange={(e) => setServerApiKey(e.target.value)}
+              style={{ minWidth: '16rem' }}
+              required
+            />
+          ) : (
+            <>
+              <Select
+                value={serverPreset}
+                onChange={handleServerPreset}
+                placeholder="Preset (optional)"
+                options={USENET_PRESETS.map((p) => ({ value: p.label, label: p.label }))}
+              />
+              <input placeholder="Host" value={serverHost} onChange={(e) => setServerHost(e.target.value)} required />
+              <input
+                placeholder="Port"
+                type="number"
+                value={serverPort}
+                onChange={(e) => setServerPort(e.target.value)}
+                style={{ width: '6rem' }}
+                required
+              />
+              <label>
+                <input type="checkbox" checked={serverUseTls} onChange={(e) => setServerUseTls(e.target.checked)} /> TLS
+              </label>
+              <input placeholder="Username (optional)" value={serverUsername} onChange={(e) => setServerUsername(e.target.value)} />
+              <input
+                placeholder="Password (optional)"
+                type="password"
+                value={serverPassword}
+                onChange={(e) => setServerPassword(e.target.value)}
+              />
+              <input
+                placeholder="Max connections"
+                type="number"
+                value={serverMaxConnections}
+                onChange={(e) => setServerMaxConnections(e.target.value)}
+                style={{ width: '8rem' }}
+              />
+            </>
+          )}
+          <button
+            type="button"
+            onClick={handleTestServer}
+            disabled={testingServer || (serverProvider === 'torbox' ? !serverApiKey : !serverHost || !serverPort)}
+          >
             {testingServer ? 'Testing…' : 'Test'}
           </button>
           <button type="submit">Add server</button>

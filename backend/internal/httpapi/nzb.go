@@ -107,6 +107,7 @@ func (s *Server) handleRemoveNZB(w http.ResponseWriter, r *http.Request) {
 type usenetServerResponse struct {
 	ID             string `json:"id"`
 	Name           string `json:"name"`
+	Provider       string `json:"provider"`
 	Host           string `json:"host"`
 	Port           int    `json:"port"`
 	UseTLS         bool   `json:"useTls"`
@@ -120,6 +121,7 @@ func toUsenetServerResponse(u *store.UsenetServer) usenetServerResponse {
 	return usenetServerResponse{
 		ID:             u.ID,
 		Name:           u.Name,
+		Provider:       u.Provider,
 		Host:           u.Host,
 		Port:           u.Port,
 		UseTLS:         u.UseTLS,
@@ -149,11 +151,13 @@ func (s *Server) handleListUsenetServers(w http.ResponseWriter, r *http.Request)
 
 type createUsenetServerRequest struct {
 	Name           string `json:"name"`
+	Provider       string `json:"provider"`
 	Host           string `json:"host"`
 	Port           int    `json:"port"`
 	UseTLS         bool   `json:"useTls"`
 	Username       string `json:"username"`
 	Password       string `json:"password"`
+	APIKey         string `json:"apiKey"`
 	MaxConnections int    `json:"maxConnections"`
 }
 
@@ -167,8 +171,20 @@ func (s *Server) handleCreateUsenetServer(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if req.Name == "" || req.Host == "" || req.Port == 0 {
-		writeError(w, http.StatusBadRequest, "name, host, and port are required")
+	if req.Provider == "" {
+		req.Provider = "nntp"
+	}
+	if req.Name == "" {
+		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	if req.Provider == "torbox" {
+		if req.APIKey == "" {
+			writeError(w, http.StatusBadRequest, "apiKey is required")
+			return
+		}
+	} else if req.Host == "" || req.Port == 0 {
+		writeError(w, http.StatusBadRequest, "host and port are required")
 		return
 	}
 	if req.MaxConnections < 1 {
@@ -176,11 +192,13 @@ func (s *Server) handleCreateUsenetServer(w http.ResponseWriter, r *http.Request
 	}
 	u, err := s.nzbSvc.AddServer(store.UsenetServer{
 		Name:           req.Name,
+		Provider:       req.Provider,
 		Host:           req.Host,
 		Port:           req.Port,
 		UseTLS:         req.UseTLS,
 		Username:       req.Username,
 		Password:       req.Password,
+		APIKey:         req.APIKey,
 		MaxConnections: req.MaxConnections,
 	})
 	if err != nil {
@@ -191,11 +209,13 @@ func (s *Server) handleCreateUsenetServer(w http.ResponseWriter, r *http.Request
 }
 
 type testUsenetServerRequest struct {
+	Provider string `json:"provider"`
 	Host     string `json:"host"`
 	Port     int    `json:"port"`
 	UseTLS   bool   `json:"useTls"`
 	Username string `json:"username"`
 	Password string `json:"password"`
+	APIKey   string `json:"apiKey"`
 }
 
 type testResultResponse struct {
@@ -215,6 +235,18 @@ func (s *Server) handleTestUsenetServer(w http.ResponseWriter, r *http.Request) 
 	var req testUsenetServerRequest
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Provider == "torbox" {
+		if req.APIKey == "" {
+			writeError(w, http.StatusBadRequest, "apiKey is required")
+			return
+		}
+		if err := s.nzbSvc.TestTorBoxAccount(r.Context(), req.APIKey); err != nil {
+			writeJSON(w, http.StatusOK, testResultResponse{OK: false, Error: err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, testResultResponse{OK: true})
 		return
 	}
 	if req.Host == "" || req.Port == 0 {

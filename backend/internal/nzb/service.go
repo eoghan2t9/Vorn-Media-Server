@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/eoghan2t9/vorn-media-server/backend/internal/debrid"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/store"
 )
 
@@ -64,17 +65,25 @@ func (svc *Service) AddNZB(data []byte, libraryID *string) (*store.NZBDownload, 
 		return nil, err
 	}
 
-	go svc.run(rec, doc)
+	go svc.run(rec, doc, data)
 	return rec, nil
 }
 
-func (svc *Service) run(rec *store.NZBDownload, doc *NZB) {
+func (svc *Service) run(rec *store.NZBDownload, doc *NZB, data []byte) {
 	server, err := svc.pickServer()
 	if err != nil {
 		svc.finish(rec, err)
 		return
 	}
 
+	if server.Provider == "torbox" {
+		svc.runTorBox(rec, data, server)
+		return
+	}
+	svc.runNNTP(rec, doc, server)
+}
+
+func (svc *Service) runNNTP(rec *store.NZBDownload, doc *NZB, server *store.UsenetServer) {
 	var total int64
 	for _, f := range doc.Files {
 		for _, seg := range f.Segments {
@@ -272,6 +281,14 @@ func (svc *Service) TestServer(host string, port int, useTLS bool, username, pas
 	}
 	defer c.Close()
 	return c.Authenticate(username, password)
+}
+
+// TestTorBoxAccount verifies a TorBox API key by fetching account info,
+// without requiring it to be saved as a usenet server first -- mirrors
+// TestServer's role for the NNTP path.
+func (svc *Service) TestTorBoxAccount(ctx context.Context, apiKey string) error {
+	_, err := debrid.NewTorBoxClient().AccountInfo(ctx, apiKey)
+	return err
 }
 
 func (svc *Service) pickServer() (*store.UsenetServer, error) {

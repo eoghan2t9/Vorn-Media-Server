@@ -171,6 +171,114 @@ func (c *TorBoxClient) requestDownloadLink(ctx context.Context, apiKey string, t
 	return resp.Data, nil
 }
 
+type tbCreateUsenetData struct {
+	UsenetID float64 `json:"usenet_id"`
+	Hash     string  `json:"hash"`
+}
+
+// CreateUsenetDownload submits a raw .nzb file to TorBox's own Usenet
+// backend (POST /usenet/createusenetdownload): TorBox downloads, yEnc
+// decodes, and par2-repairs it server-side, the same as Vorn's local NNTP
+// path does, just off-box.
+func (c *TorBoxClient) CreateUsenetDownload(ctx context.Context, apiKey string, nzbData []byte, name string) (int, error) {
+	var body bytes.Buffer
+	w := multipart.NewWriter(&body)
+	part, err := w.CreateFormFile("file", name+".nzb")
+	if err != nil {
+		return 0, err
+	}
+	if _, err := part.Write(nzbData); err != nil {
+		return 0, err
+	}
+	if err := w.WriteField("name", name); err != nil {
+		return 0, err
+	}
+	if err := w.Close(); err != nil {
+		return 0, err
+	}
+
+	var resp tbEnvelope[tbCreateUsenetData]
+	if err := c.do(ctx, http.MethodPost, "/usenet/createusenetdownload", apiKey, w.FormDataContentType(), &body, &resp); err != nil {
+		return 0, err
+	}
+	if !resp.Success {
+		return 0, fmt.Errorf("torbox: %s", resp.Detail)
+	}
+	return int(resp.Data.UsenetID), nil
+}
+
+type tbUsenetInfo struct {
+	ID               int      `json:"id"`
+	DownloadFinished bool     `json:"download_finished"`
+	Progress         float64  `json:"progress"`
+	Files            []tbFile `json:"files"`
+}
+
+// WaitForUsenetCache polls GET /usenet/mylist until TorBox finishes
+// downloading and repairing usenetID, invoking progress (0..1) as it goes
+// so callers can mirror it into their own byte-progress tracking.
+func (c *TorBoxClient) WaitForUsenetCache(ctx context.Context, apiKey string, usenetID int, progress func(float64)) ([]tbFile, error) {
+	deadline := time.Now().Add(tbPollTimeout)
+	for {
+		item, err := c.usenetInfo(ctx, apiKey, usenetID)
+		if err != nil {
+			return nil, err
+		}
+		if item != nil {
+			if progress != nil {
+				progress(item.Progress)
+			}
+			if item.DownloadFinished {
+				return item.Files, nil
+			}
+		}
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("torbox: usenet download %d: timed out waiting for caching to finish", usenetID)
+		}
+		select {
+		case <-time.After(c.pollInterval):
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+}
+
+func (c *TorBoxClient) usenetInfo(ctx context.Context, apiKey string, usenetID int) (*tbUsenetInfo, error) {
+	path := "/usenet/mylist?bypass_cache=true&id=" + url.QueryEscape(strconv.Itoa(usenetID))
+	var resp tbEnvelope[[]tbUsenetInfo]
+	if err := c.do(ctx, http.MethodGet, path, apiKey, "", nil, &resp); err != nil {
+		return nil, err
+	}
+	if !resp.Success {
+		return nil, fmt.Errorf("torbox: %s", resp.Detail)
+	}
+	for _, item := range resp.Data {
+		if item.ID == usenetID {
+			return &item, nil
+		}
+	}
+	if len(resp.Data) > 0 {
+		return &resp.Data[0], nil
+	}
+	return nil, nil
+}
+
+// RequestUsenetDownloadLink mirrors requestDownloadLink but against the
+// Usenet endpoint (GET /usenet/requestdl), TorBox's documented equivalent
+// for files cached from an NZB rather than a torrent.
+func (c *TorBoxClient) RequestUsenetDownloadLink(ctx context.Context, apiKey string, usenetID, fileID int) (string, error) {
+	path := fmt.Sprintf("/usenet/requestdl?token=%s&usenet_id=%d&file_id=%d",
+		url.QueryEscape(apiKey), usenetID, fileID)
+	var resp tbEnvelope[string]
+	if err := c.do(ctx, http.MethodGet, path, "", "", nil, &resp); err != nil {
+		return "", err
+	}
+	if !resp.Success {
+		return "", fmt.Errorf("torbox: %s", resp.Detail)
+	}
+	return resp.Data, nil
+}
+
 type tbUserData struct {
 	Email            string  `json:"email"`
 	Plan             float64 `json:"plan"`

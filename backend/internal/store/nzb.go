@@ -9,11 +9,13 @@ import (
 type UsenetServer struct {
 	ID             string
 	Name           string
+	Provider       string // "nntp" (default, real Usenet server) | "torbox"
 	Host           string
 	Port           int
 	UseTLS         bool
 	Username       string
 	Password       string
+	APIKey         string // torbox only
 	MaxConnections int
 	Enabled        bool
 	CreatedAt      time.Time
@@ -21,17 +23,20 @@ type UsenetServer struct {
 
 func (s *Store) CreateUsenetServer(in UsenetServer) (*UsenetServer, error) {
 	out := in
+	if out.Provider == "" {
+		out.Provider = "nntp"
+	}
 	err := s.db.QueryRow(
-		`INSERT INTO usenet_servers (name, host, port, use_tls, username, password, max_connections)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, enabled, created_at`,
-		in.Name, in.Host, in.Port, in.UseTLS, in.Username, in.Password, in.MaxConnections,
+		`INSERT INTO usenet_servers (name, provider, host, port, use_tls, username, password, api_key, max_connections)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id, enabled, created_at`,
+		out.Name, out.Provider, out.Host, out.Port, out.UseTLS, out.Username, out.Password, out.APIKey, out.MaxConnections,
 	).Scan(&out.ID, &out.Enabled, &out.CreatedAt)
 	return &out, err
 }
 
 func (s *Store) ListUsenetServers() ([]*UsenetServer, error) {
 	rows, err := s.db.Query(
-		`SELECT id, name, host, port, use_tls, username, password, max_connections, enabled, created_at
+		`SELECT id, name, provider, host, port, use_tls, username, password, api_key, max_connections, enabled, created_at
 		 FROM usenet_servers ORDER BY created_at`,
 	)
 	if err != nil {
@@ -42,7 +47,7 @@ func (s *Store) ListUsenetServers() ([]*UsenetServer, error) {
 	var out []*UsenetServer
 	for rows.Next() {
 		u := &UsenetServer{}
-		if err := rows.Scan(&u.ID, &u.Name, &u.Host, &u.Port, &u.UseTLS, &u.Username, &u.Password, &u.MaxConnections, &u.Enabled, &u.CreatedAt); err != nil {
+		if err := rows.Scan(&u.ID, &u.Name, &u.Provider, &u.Host, &u.Port, &u.UseTLS, &u.Username, &u.Password, &u.APIKey, &u.MaxConnections, &u.Enabled, &u.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, u)
