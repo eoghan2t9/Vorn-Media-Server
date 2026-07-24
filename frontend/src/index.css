@@ -17,6 +17,11 @@
   --vorn-glow: 0 0 0 1px rgba(139, 92, 246, 0.35), 0 0 28px rgba(139, 92, 246, 0.22);
   --vorn-glow-cyan: 0 0 0 1px rgba(34, 211, 238, 0.35), 0 0 28px rgba(34, 211, 238, 0.2);
   --vorn-transition: 0.2s cubic-bezier(0.22, 0.8, 0.3, 1);
+  /* Approximate rendered height of .vorn-header at desktop widths (single
+     row, no wrap) -- used so the sticky admin sidebar can stick just below
+     the sticky header instead of at the literal viewport top, which would
+     put it underneath the header (higher z-index) once scrolled. */
+  --vorn-header-height: 4.25rem;
   font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 }
 

@@ -2,7 +2,15 @@
   display: flex;
   align-items: flex-start;
   gap: 2rem;
-  margin: -2rem;
+  /* Cancel .vorn-main's left/right/bottom padding only (so the sidebar's
+     border-right and the content area can both go full-bleed to the
+     .vorn-main edges) -- top padding is deliberately kept, as a single
+     source of truth for the gap under the header, applied once here rather
+     than re-added piecemeal by the sidebar/content/mobile-toggle below
+     (which is exactly how that gap went missing on mobile before: every
+     child needed its own top spacing and one didn't have it). */
+  margin: 0 -2rem -2rem -2rem;
+  padding-top: 2rem;
   min-height: calc(100vh - 4rem);
 }
 
@@ -11,11 +19,15 @@
 }
 
 .vorn-admin-sidebar {
+  /* Sticks just below the header rather than at the literal viewport top --
+     top: 0 would place it in the same spot the header sticks to, so once
+     scrolled it would end up visually underneath the header (which has a
+     higher z-index) instead of resting neatly below it. */
   position: sticky;
-  top: 0;
+  top: var(--vorn-header-height);
   flex: 0 0 15rem;
   width: 15rem;
-  padding: 2rem 1rem 2rem 2rem;
+  padding: 0 1rem 2rem 2rem;
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
@@ -90,13 +102,14 @@
 .vorn-admin-content {
   flex: 1;
   min-width: 0;
-  padding: 2rem 2rem 3rem 0;
+  padding: 0 2rem 3rem 0;
 }
 
 @media (max-width: 768px) {
   .vorn-admin-shell {
     display: block;
     margin: -1rem;
+    padding-top: 1.25rem;
     min-height: 0;
   }
 
