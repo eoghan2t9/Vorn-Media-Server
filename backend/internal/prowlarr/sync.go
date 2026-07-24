@@ -5,6 +5,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/eoghan2t9/vorn-media-server/backend/internal/nzb"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/torrent"
 )
 
@@ -14,14 +15,16 @@ const (
 	apiKeyTimeout = 5 * time.Minute
 )
 
-// SyncService periodically mirrors every enabled torrent-protocol indexer
-// configured inside Prowlarr into Vorn's own torrent indexer table, so
-// adding a tracker in Prowlarr's UI is all that's needed -- no manual
-// copy-paste into Vorn's Torrent Indexers admin page. Usenet-protocol
-// indexers configured in Prowlarr are left alone; NZB indexers are a
-// separate integration this doesn't touch.
+// SyncService periodically mirrors every enabled indexer configured inside
+// Prowlarr into Vorn's own indexer tables -- torrent-protocol ones into
+// Torrent Indexers, usenet-protocol ones into NZB Indexers -- so adding a
+// tracker or indexer in Prowlarr's UI is all that's needed; no manual
+// copy-paste into either of Vorn's admin pages. Either service may be nil
+// (that protocol just isn't synced) if Vorn's own torrent/NZB acquisition
+// isn't enabled.
 type SyncService struct {
 	torrent    *torrent.Service
+	nzb        *nzb.Service
 	baseURL    string
 	apiKey     string
 	configPath string
@@ -35,8 +38,8 @@ type SyncService struct {
 // profile mounts it read-only; a bare-metal deployment could point
 // configPath at wherever its own natively-installed Prowlarr keeps
 // config.xml).
-func NewSyncService(t *torrent.Service, baseURL, apiKey, configPath string) *SyncService {
-	return &SyncService{torrent: t, baseURL: baseURL, apiKey: apiKey, configPath: configPath}
+func NewSyncService(t *torrent.Service, n *nzb.Service, baseURL, apiKey, configPath string) *SyncService {
+	return &SyncService{torrent: t, nzb: n, baseURL: baseURL, apiKey: apiKey, configPath: configPath}
 }
 
 // Run blocks until ctx is done -- call it with `go`.
@@ -65,11 +68,12 @@ func (s *SyncService) Run(ctx context.Context) {
 }
 
 // tick fetches Prowlarr's current indexer list and registers any enabled
-// torrent-protocol one Vorn doesn't already have -- by name, "Prowlarr: "
-// prefixed, which doubles as both the dedupe key and a visible hint in the
-// Torrent Indexers admin page of where the entry came from. It never
-// removes or disables a Vorn indexer, even if it disappears from Prowlarr,
-// so a user who's since customized or manually re-added it isn't fought.
+// one Vorn doesn't already have into the matching service for its protocol
+// -- by name, "Prowlarr: " prefixed, which doubles as both the dedupe key
+// and a visible hint in Vorn's admin pages of where the entry came from. It
+// never removes or disables a Vorn indexer, even if it disappears from
+// Prowlarr, so a user who's since customized or manually re-added it isn't
+// fought.
 func (s *SyncService) tick(ctx context.Context, apiKey string) {
 	indexers, err := ListIndexers(ctx, s.baseURL, apiKey)
 	if err != nil {
@@ -77,6 +81,15 @@ func (s *SyncService) tick(ctx context.Context, apiKey string) {
 		return
 	}
 
+	if s.torrent != nil {
+		s.syncTorrent(indexers, apiKey)
+	}
+	if s.nzb != nil {
+		s.syncNZB(indexers, apiKey)
+	}
+}
+
+func (s *SyncService) syncTorrent(indexers []Indexer, apiKey string) {
 	existing, err := s.torrent.ListIndexers()
 	if err != nil {
 		log.Printf("prowlarr sync: listing existing torrent indexers: %v", err)
@@ -95,10 +108,37 @@ func (s *SyncService) tick(ctx context.Context, apiKey string) {
 		if existingNames[name] {
 			continue
 		}
-		if _, err := s.torrent.AddIndexer(name, TorznabBaseURL(s.baseURL, idx.ID), apiKey); err != nil {
-			log.Printf("prowlarr sync: adding indexer %q: %v", name, err)
+		if _, err := s.torrent.AddIndexer(name, IndexerProxyURL(s.baseURL, idx.ID), apiKey); err != nil {
+			log.Printf("prowlarr sync: adding torrent indexer %q: %v", name, err)
 			continue
 		}
-		log.Printf("prowlarr sync: registered indexer %q", name)
+		log.Printf("prowlarr sync: registered torrent indexer %q", name)
+	}
+}
+
+func (s *SyncService) syncNZB(indexers []Indexer, apiKey string) {
+	existing, err := s.nzb.ListIndexers()
+	if err != nil {
+		log.Printf("prowlarr sync: listing existing NZB indexers: %v", err)
+		return
+	}
+	existingNames := make(map[string]bool, len(existing))
+	for _, e := range existing {
+		existingNames[e.Name] = true
+	}
+
+	for _, idx := range indexers {
+		if !idx.Enable || idx.Protocol != "usenet" {
+			continue
+		}
+		name := "Prowlarr: " + idx.Name
+		if existingNames[name] {
+			continue
+		}
+		if _, err := s.nzb.AddIndexer(name, IndexerProxyURL(s.baseURL, idx.ID), apiKey); err != nil {
+			log.Printf("prowlarr sync: adding NZB indexer %q: %v", name, err)
+			continue
+		}
+		log.Printf("prowlarr sync: registered NZB indexer %q", name)
 	}
 }

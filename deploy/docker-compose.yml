@@ -54,12 +54,15 @@ services:
       VORN_TORRENT_ENABLED: "${VORN_TORRENT_ENABLED:-false}"
       VORN_TORRENT_DOWNLOAD_DIR: "/downloads"
       # Optional: auto-mirror indexers configured inside a Prowlarr instance
-      # into Vorn's own Torrent Indexers page -- set VORN_PROWLARR_BASE_URL
-      # (e.g. http://prowlarr:9696 when using the bundled "prowlarr" Compose
-      # profile below) to enable it. The API key is read automatically from
-      # Prowlarr's own config.xml via the read-only mount further down;
-      # VORN_PROWLARR_API_KEY can be set instead to skip that (e.g. pointing
-      # at an external Prowlarr you already run, without sharing its volume).
+      # into Vorn's own Torrent Indexers and/or NZB Indexers pages (Prowlarr
+      # manages both torrent trackers and Usenet indexers -- each syncs into
+      # whichever of VORN_TORRENT_ENABLED/VORN_NZB_ENABLED is turned on) --
+      # set VORN_PROWLARR_BASE_URL (e.g. http://prowlarr:9696 when using the
+      # bundled "prowlarr" Compose profile below) to enable it. The API key
+      # is read automatically from Prowlarr's own config.xml via the
+      # read-only mount further down; VORN_PROWLARR_API_KEY can be set
+      # instead to skip that (e.g. pointing at an external Prowlarr you
+      # already run, without sharing its volume).
       VORN_PROWLARR_BASE_URL: "${VORN_PROWLARR_BASE_URL:-}"
       VORN_PROWLARR_API_KEY: "${VORN_PROWLARR_API_KEY:-}"
       VORN_PROWLARR_CONFIG_PATH: "/prowlarr-config/config.xml"

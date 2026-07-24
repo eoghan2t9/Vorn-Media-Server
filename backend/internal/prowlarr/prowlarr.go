@@ -103,12 +103,13 @@ func ListIndexers(ctx context.Context, baseURL, apiKey string) ([]Indexer, error
 	return indexers, nil
 }
 
-// TorznabBaseURL builds the per-indexer URL Vorn's generic Torznab client
-// (internal/torrent) stores and completes by appending "/api" itself --
-// the same convention the manual Prowlarr preset on the Torrents admin page
-// already uses (frontend/src/pages/AdminTorrents.tsx), confirmed against
-// Prowlarr's own NewznabController, which dual-maps
-// "/api/v1/indexer/{id}/newznab" and "{id}/api" to the same handler.
-func TorznabBaseURL(prowlarrBaseURL string, indexerID int) string {
+// IndexerProxyURL builds the per-indexer URL Vorn's generic Torznab/Newznab
+// clients (internal/torrent, internal/nzb -- both complete it by appending
+// "/api" themselves, same convention the manual Prowlarr presets on the
+// Torrents/NZB admin pages already use) store as an indexer's base URL.
+// Confirmed against Prowlarr's own NewznabController, which dual-maps
+// "/api/v1/indexer/{id}/newznab" and "{id}/api" to the same handler
+// regardless of whether that indexer id is a torrent or usenet indexer.
+func IndexerProxyURL(prowlarrBaseURL string, indexerID int) string {
 	return fmt.Sprintf("%s/%d", strings.TrimRight(prowlarrBaseURL, "/"), indexerID)
 }

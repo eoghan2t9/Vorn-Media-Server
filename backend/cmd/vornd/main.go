@@ -169,18 +169,6 @@ func main() {
 			log.Fatalf("starting torrent service: %v", err)
 		}
 		defer torrentSvc.Close()
-
-		// Optional: mirror whatever indexers are configured inside a
-		// Prowlarr instance into Vorn's own torrent indexer table, so
-		// bundling Prowlarr (see deploy/docker-compose.yml's "prowlarr"
-		// Compose profile) doesn't also require manually copying each
-		// indexer's URL/API key in by hand. Needs at least a base URL and
-		// one of an API key or a path to Prowlarr's config.xml to read it
-		// from; silently does nothing otherwise; see internal/prowlarr.
-		if cfg.ProwlarrBaseURL != "" && (cfg.ProwlarrAPIKey != "" || cfg.ProwlarrConfigPath != "") {
-			go prowlarr.NewSyncService(torrentSvc, cfg.ProwlarrBaseURL, cfg.ProwlarrAPIKey, cfg.ProwlarrConfigPath).Run(context.Background())
-			log.Printf("prowlarr sync enabled: %s", cfg.ProwlarrBaseURL)
-		}
 	} else {
 		log.Print("VORN_TORRENT_ENABLED not set: torrent acquisition is disabled")
 	}
@@ -193,6 +181,20 @@ func main() {
 		}
 	} else {
 		log.Print("VORN_NZB_ENABLED not set: NZB acquisition is disabled")
+	}
+
+	// Optional: mirror whatever indexers are configured inside a Prowlarr
+	// instance into Vorn's own torrent/NZB indexer tables (torrent-protocol
+	// indexers into the former, usenet-protocol into the latter), so
+	// bundling Prowlarr (see deploy/docker-compose.yml's "prowlarr" Compose
+	// profile) doesn't also require manually copying each indexer's URL/API
+	// key in by hand. Needs at least a base URL and one of an API key or a
+	// path to Prowlarr's config.xml to read it from, plus at least one of
+	// torrent/NZB acquisition actually enabled (nothing to sync into
+	// otherwise); silently does nothing otherwise -- see internal/prowlarr.
+	if cfg.ProwlarrBaseURL != "" && (cfg.ProwlarrAPIKey != "" || cfg.ProwlarrConfigPath != "") && (torrentSvc != nil || nzbSvc != nil) {
+		go prowlarr.NewSyncService(torrentSvc, nzbSvc, cfg.ProwlarrBaseURL, cfg.ProwlarrAPIKey, cfg.ProwlarrConfigPath).Run(context.Background())
+		log.Printf("prowlarr sync enabled: %s", cfg.ProwlarrBaseURL)
 	}
 
 	// Debrid (Real-Debrid/TorBox) has no listening port or background
