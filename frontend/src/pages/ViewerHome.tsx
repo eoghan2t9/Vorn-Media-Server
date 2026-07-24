@@ -28,7 +28,14 @@ function LibraryRow({ library }: { library: Library }) {
   return (
     <section className="vorn-library-row">
       <div className="vorn-library-row-header">
-        <h2>{library.name}</h2>
+        <h2>
+          {library.name}
+          {library.is4K && (
+            <span className="vorn-user-badge" style={{ marginLeft: '0.5rem' }} title="4K-only library">
+              4K
+            </span>
+          )}
+        </h2>
         <select value={sort} onChange={(e) => setSort(e.target.value as SortMode)}>
           <option value="recent">Recently added</option>
           <option value="alpha">A–Z</option>

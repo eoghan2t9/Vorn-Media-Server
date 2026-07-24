@@ -84,7 +84,7 @@ func (s *Server) handleSetupInit(w http.ResponseWriter, r *http.Request) {
 		if libType == "" {
 			libType = "movie"
 		}
-		lib, err := s.store.CreateLibrary(req.LibraryName, libType, []string{req.LibraryPath})
+		lib, err := s.store.CreateLibrary(req.LibraryName, libType, []string{req.LibraryPath}, false)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "creating initial library")
 			return

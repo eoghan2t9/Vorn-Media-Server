@@ -19,6 +19,7 @@ export interface Library {
   id: string
   name: string
   type: LibraryType
+  is4K: boolean
   folders: string[]
 }
 
@@ -98,12 +99,13 @@ export const getLibrary = (id: string) => request<Library>(`/api/libraries/${id}
 export interface CreateLibraryInput {
   name: string
   type: LibraryType
+  is4K?: boolean
   folders: string[]
 }
 export const createLibrary = (input: CreateLibraryInput) =>
   request<Library>('/api/libraries', { method: 'POST', body: JSON.stringify(input) })
 
-export const updateLibrary = (id: string, input: { name?: string; folders?: string[] }) =>
+export const updateLibrary = (id: string, input: { name?: string; is4K?: boolean; folders?: string[] }) =>
   request<Library>(`/api/libraries/${id}`, { method: 'PATCH', body: JSON.stringify(input) })
 
 export const deleteLibrary = (id: string) => request<void>(`/api/libraries/${id}`, { method: 'DELETE' })

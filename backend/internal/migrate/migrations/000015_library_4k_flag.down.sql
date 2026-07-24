@@ -1,0 +1,1 @@
+ALTER TABLE libraries DROP COLUMN is_4k;

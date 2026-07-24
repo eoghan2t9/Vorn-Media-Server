@@ -10,21 +10,22 @@ type Library struct {
 	ID        string
 	Name      string
 	Type      string // "movie" | "series" | "music" | "audiobook" (see httpapi.validLibraryTypes)
+	Is4K      bool   // purely a display label -- see the 000015 migration's comment
 	CreatedAt time.Time
 	Folders   []string
 }
 
-func (s *Store) CreateLibrary(name, kind string, folders []string) (*Library, error) {
+func (s *Store) CreateLibrary(name, kind string, folders []string, is4K bool) (*Library, error) {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
 
-	lib := &Library{Name: name, Type: kind}
+	lib := &Library{Name: name, Type: kind, Is4K: is4K}
 	err = tx.QueryRow(
-		`INSERT INTO libraries (name, type) VALUES ($1, $2) RETURNING id, created_at`,
-		name, kind,
+		`INSERT INTO libraries (name, type, is_4k) VALUES ($1, $2, $3) RETURNING id, created_at`,
+		name, kind, is4K,
 	).Scan(&lib.ID, &lib.CreatedAt)
 	if err != nil {
 		return nil, err
@@ -44,7 +45,7 @@ func (s *Store) CreateLibrary(name, kind string, folders []string) (*Library, er
 }
 
 func (s *Store) ListLibraries() ([]*Library, error) {
-	rows, err := s.db.Query(`SELECT id, name, type, created_at FROM libraries ORDER BY created_at`)
+	rows, err := s.db.Query(`SELECT id, name, type, is_4k, created_at FROM libraries ORDER BY created_at`)
 	if err != nil {
 		return nil, err
 	}
@@ -53,7 +54,7 @@ func (s *Store) ListLibraries() ([]*Library, error) {
 	var libs []*Library
 	for rows.Next() {
 		l := &Library{}
-		if err := rows.Scan(&l.ID, &l.Name, &l.Type, &l.CreatedAt); err != nil {
+		if err := rows.Scan(&l.ID, &l.Name, &l.Type, &l.Is4K, &l.CreatedAt); err != nil {
 			return nil, err
 		}
 		libs = append(libs, l)
@@ -75,8 +76,8 @@ func (s *Store) ListLibraries() ([]*Library, error) {
 func (s *Store) GetLibrary(id string) (*Library, error) {
 	l := &Library{}
 	err := s.db.QueryRow(
-		`SELECT id, name, type, created_at FROM libraries WHERE id = $1`, id,
-	).Scan(&l.ID, &l.Name, &l.Type, &l.CreatedAt)
+		`SELECT id, name, type, is_4k, created_at FROM libraries WHERE id = $1`, id,
+	).Scan(&l.ID, &l.Name, &l.Type, &l.Is4K, &l.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -109,9 +110,10 @@ func (s *Store) listLibraryFolders(libraryID string) ([]string, error) {
 	return folders, rows.Err()
 }
 
-// UpdateLibrary renames a library and/or replaces its folder mappings
-// entirely (pass nil to leave folders untouched).
-func (s *Store) UpdateLibrary(id string, name string, folders []string) error {
+// UpdateLibrary renames a library, replaces its folder mappings entirely
+// (pass nil to leave folders untouched), and/or changes its 4K label (pass
+// nil to leave it untouched).
+func (s *Store) UpdateLibrary(id string, name string, folders []string, is4K *bool) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
@@ -120,6 +122,13 @@ func (s *Store) UpdateLibrary(id string, name string, folders []string) error {
 
 	if name != "" {
 		res, err := tx.Exec(`UPDATE libraries SET name = $1 WHERE id = $2`, name, id)
+		if err := checkRowsAffected(res, err); err != nil {
+			return err
+		}
+	}
+
+	if is4K != nil {
+		res, err := tx.Exec(`UPDATE libraries SET is_4k = $1 WHERE id = $2`, *is4K, id)
 		if err := checkRowsAffected(res, err); err != nil {
 			return err
 		}

@@ -29,6 +29,7 @@ export function AdminLibraries() {
 
   const [name, setName] = useState('')
   const [type, setType] = useState<LibraryType>('movie')
+  const [is4K, setIs4K] = useState(false)
   const [folder, setFolder] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [browserOpen, setBrowserOpen] = useState(false)
@@ -51,9 +52,10 @@ export function AdminLibraries() {
     setError(null)
     setSubmitting(true)
     try {
-      await createLibrary({ name, type, folders: [folder] })
+      await createLibrary({ name, type, is4K, folders: [folder] })
       setName('')
       setFolder('')
+      setIs4K(false)
       await refresh()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to create library')
@@ -167,7 +169,14 @@ export function AdminLibraries() {
             return (
               <Fragment key={l.id}>
                 <tr>
-                  <td>{l.name}</td>
+                  <td>
+                    {l.name}
+                    {l.is4K && (
+                      <span className="vorn-user-badge" style={{ marginLeft: '0.5rem' }} title="4K-only library">
+                        4K
+                      </span>
+                    )}
+                  </td>
                   <td>{l.type}</td>
                   <td>{l.folders.join(', ')}</td>
                   <td>
@@ -294,7 +303,10 @@ export function AdminLibraries() {
           <input placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} required />
           <Select
             value={type}
-            onChange={(v) => setType(v as LibraryType)}
+            onChange={(v) => {
+              setType(v as LibraryType)
+              if (v !== 'movie' && v !== 'series') setIs4K(false)
+            }}
             options={[
               { value: 'movie', label: 'Movies' },
               { value: 'series', label: 'Series' },
@@ -309,6 +321,11 @@ export function AdminLibraries() {
             style={{ minWidth: '16rem' }}
             required
           />
+          {(type === 'movie' || type === 'series') && (
+            <label title="Marks this library as 4K-only and sets its quality profile to only fetch 2160p releases">
+              <input type="checkbox" checked={is4K} onChange={(e) => setIs4K(e.target.checked)} /> 4K only
+            </label>
+          )}
           <button type="button" onClick={() => setBrowserOpen(true)}>
             <FolderIcon style={{ verticalAlign: '-0.15em', marginRight: '0.35rem' }} />
             Browse…

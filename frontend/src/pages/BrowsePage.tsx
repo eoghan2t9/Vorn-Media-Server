@@ -119,7 +119,7 @@ export function BrowsePage() {
               <Select
                 value={effectiveLibraryId}
                 onChange={setTargetLibraryId}
-                options={matchingLibraries.map((l) => ({ value: l.id, label: l.name }))}
+                options={matchingLibraries.map((l) => ({ value: l.id, label: l.is4K ? `${l.name} (4K)` : l.name }))}
               />
             )}
           </div>

@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"log"
 	"net/http"
 
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/store"
@@ -10,11 +11,12 @@ type libraryResponse struct {
 	ID      string   `json:"id"`
 	Name    string   `json:"name"`
 	Type    string   `json:"type"`
+	Is4K    bool     `json:"is4K"`
 	Folders []string `json:"folders"`
 }
 
 func toLibraryResponse(l *store.Library) libraryResponse {
-	return libraryResponse{ID: l.ID, Name: l.Name, Type: l.Type, Folders: l.Folders}
+	return libraryResponse{ID: l.ID, Name: l.Name, Type: l.Type, Is4K: l.Is4K, Folders: l.Folders}
 }
 
 // canAccessLibrary reports whether user may see libraryID: admins see
@@ -106,6 +108,7 @@ var validLibraryTypes = map[string]bool{
 type createLibraryRequest struct {
 	Name    string   `json:"name"`
 	Type    string   `json:"type"`
+	Is4K    bool     `json:"is4K"`
 	Folders []string `json:"folders"`
 }
 
@@ -120,16 +123,31 @@ func (s *Server) handleCreateLibrary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	lib, err := s.store.CreateLibrary(req.Name, req.Type, req.Folders)
+	lib, err := s.store.CreateLibrary(req.Name, req.Type, req.Folders, req.Is4K)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "creating library")
 		return
 	}
+
+	// Seed the quality profile to 2160p-only so the "4K" label is actually
+	// true of what acquisition fetches into it, not just cosmetic -- only
+	// on creation (a fresh library has no profile yet, so there's nothing
+	// to clobber); toggling Is4K later via update deliberately leaves an
+	// already-tuned profile alone.
+	if req.Is4K && (req.Type == "movie" || req.Type == "series") {
+		if _, err := s.store.UpsertQualityProfile(store.QualityProfile{
+			LibraryID: lib.ID, MinResolution: "2160p", MaxResolution: "2160p", MinSeeders: 1,
+		}); err != nil {
+			log.Printf("libraries: seeding 4K quality profile for %s: %v", lib.ID, err)
+		}
+	}
+
 	writeJSON(w, http.StatusCreated, toLibraryResponse(lib))
 }
 
 type updateLibraryRequest struct {
 	Name    string   `json:"name,omitempty"`
+	Is4K    *bool    `json:"is4K,omitempty"`
 	Folders []string `json:"folders,omitempty"`
 }
 
@@ -140,7 +158,7 @@ func (s *Server) handleUpdateLibrary(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if err := s.store.UpdateLibrary(id, req.Name, req.Folders); err != nil {
+	if err := s.store.UpdateLibrary(id, req.Name, req.Folders, req.Is4K); err != nil {
 		s.writeStoreErr(w, err, "updating library")
 		return
 	}
