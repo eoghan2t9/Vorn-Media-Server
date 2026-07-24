@@ -149,6 +149,28 @@
   margin-top: 1.5rem;
 }
 
+/* .vorn-play-button/.vorn-edit-toggle above are a <Link>/<button> --
+   trailers link out to YouTube, so this is an <a>, which doesn't inherit
+   the global `button {}` baseline chrome (index.css) the way a real
+   <button> element does. */
+.vorn-trailer-button {
+  display: inline-block;
+  padding: 0.45rem 0.85rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--vorn-border);
+  background: var(--vorn-bg-elevated);
+  color: var(--vorn-text);
+  font-size: 0.9rem;
+  text-decoration: none;
+  cursor: pointer;
+  transition: border-color var(--vorn-transition), box-shadow var(--vorn-transition);
+}
+
+.vorn-trailer-button:hover {
+  border-color: var(--vorn-accent);
+  box-shadow: var(--vorn-glow);
+}
+
 .vorn-play-button {
   display: inline-block;
   padding: 0.55rem 1.3rem;

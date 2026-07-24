@@ -166,6 +166,7 @@ export interface MediaItem {
   ratingImdb?: string
   ratingRottenTomatoes?: string
   ratingTmdb?: string
+  trailerUrl?: string
 }
 
 export interface CastMember {

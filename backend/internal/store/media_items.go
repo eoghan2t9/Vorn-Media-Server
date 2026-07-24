@@ -30,6 +30,7 @@ type MediaItem struct {
 	RatingIMDb           string // from OMDb enrichment, from metadata->>'ratingImdb'
 	RatingRottenTomatoes string // from OMDb enrichment, from metadata->>'ratingRottenTomatoes'
 	RatingTMDb           string // TMDb's own vote_average, from metadata->>'ratingTmdb' -- always available, no OMDb needed
+	TrailerURL           string // YouTube watch URL from TMDb, from metadata->>'trailerUrl'
 	AcquisitionStatus    string // "owned" | "placeholder" | "searching" | "acquiring" | "error"
 	AcquisitionError     string
 	ActiveDebridItemID   *string // fences which resolve attempt is currently authorized to write Path -- see SetMediaItemActiveDebridItem
@@ -41,13 +42,13 @@ const mediaItemColumns = `id, library_id, parent_id, kind, title, sort_title, ov
 	release_date, path, tmdb_id, metadata_locked, added_at, updated_at,
 	coalesce(metadata->>'posterUrl', ''), coalesce(metadata->>'backdropUrl', ''), coalesce(metadata->>'author', ''),
 	coalesce(metadata->>'logoUrl', ''), coalesce(metadata->>'ratingImdb', ''), coalesce(metadata->>'ratingRottenTomatoes', ''),
-	coalesce(metadata->>'ratingTmdb', ''),
+	coalesce(metadata->>'ratingTmdb', ''), coalesce(metadata->>'trailerUrl', ''),
 	acquisition_status, acquisition_error, active_debrid_item_id, monitored, current_release_title`
 
 func scanMediaItem(row interface{ Scan(...any) error }, m *MediaItem) error {
 	return row.Scan(&m.ID, &m.LibraryID, &m.ParentID, &m.Kind, &m.Title, &m.SortTitle, &m.Overview,
 		&m.SeasonNumber, &m.EpisodeNumber, &m.ReleaseDate, &m.Path, &m.TmdbID, &m.MetadataLocked, &m.AddedAt, &m.UpdatedAt,
-		&m.PosterURL, &m.BackdropURL, &m.Author, &m.LogoURL, &m.RatingIMDb, &m.RatingRottenTomatoes, &m.RatingTMDb,
+		&m.PosterURL, &m.BackdropURL, &m.Author, &m.LogoURL, &m.RatingIMDb, &m.RatingRottenTomatoes, &m.RatingTMDb, &m.TrailerURL,
 		&m.AcquisitionStatus, &m.AcquisitionError, &m.ActiveDebridItemID, &m.Monitored, &m.CurrentReleaseTitle)
 }
 

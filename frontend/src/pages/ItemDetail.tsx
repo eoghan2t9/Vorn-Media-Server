@@ -150,6 +150,11 @@ export function ItemDetail() {
                 ▶ Play
               </Link>
             )}
+            {item.trailerUrl && (
+              <a href={item.trailerUrl} target="_blank" rel="noopener noreferrer" className="vorn-trailer-button">
+                ▶ Watch Trailer
+              </a>
+            )}
             {(item.kind === 'movie' || item.kind === 'series') && (
               <button
                 type="button"
