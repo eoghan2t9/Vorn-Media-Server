@@ -24,6 +24,26 @@ function formatBytes(n: number) {
   return `${(n / 1024 ** i).toFixed(1)} ${units[i]}`
 }
 
+// Connection settings (hostname/port/TLS) for popular commercial Usenet
+// providers, verified directly against each provider's own support docs
+// (2026-07-24) -- an admin still supplies their own paid account's
+// username/password, this just saves looking up the server address. Port
+// 563 TLS is each provider's own recommended/primary method; providers
+// without a publicly-documented, independently-verifiable hostname (e.g.
+// Frugal Usenet, Usenet.nl -- both gated behind account login or routed
+// through a parent-brand domain) were deliberately left out rather than
+// guessed.
+const USENET_PRESETS: { label: string; name: string; host: string; port: string }[] = [
+  { label: 'Newshosting', name: 'Newshosting', host: 'news.newshosting.com', port: '563' },
+  { label: 'Eweka', name: 'Eweka', host: 'news.eweka.nl', port: '563' },
+  { label: 'UsenetServer', name: 'UsenetServer', host: 'news.usenetserver.com', port: '563' },
+  { label: 'Tweaknews', name: 'Tweaknews', host: 'news.tweaknews.eu', port: '563' },
+  { label: 'Easynews', name: 'Easynews', host: 'secure.news.easynews.com', port: '563' },
+  { label: 'Astraweb', name: 'Astraweb', host: 'news.astraweb.com', port: '563' },
+  { label: 'Giganews', name: 'Giganews', host: 'news.giganews.com', port: '563' },
+  { label: 'XS News', name: 'XS News', host: 'reader.xsnews.nl', port: '563' },
+]
+
 export function AdminNzb() {
   const [downloads, setDownloads] = useState<NZBDownload[]>([])
   const [libraries, setLibraries] = useState<Library[]>([])
@@ -34,6 +54,7 @@ export function AdminNzb() {
   const [submitting, setSubmitting] = useState(false)
   const dropzoneRef = useRef<FileDropzoneHandle>(null)
 
+  const [serverPreset, setServerPreset] = useState('')
   const [serverName, setServerName] = useState('')
   const [serverHost, setServerHost] = useState('')
   const [serverPort, setServerPort] = useState('563')
@@ -81,6 +102,18 @@ export function AdminNzb() {
     }
   }
 
+  function handleServerPreset(id: string) {
+    setServerPreset(id)
+    const preset = USENET_PRESETS.find((p) => p.label === id)
+    if (preset) {
+      setServerName(preset.name)
+      setServerHost(preset.host)
+      setServerPort(preset.port)
+      setServerUseTls(true)
+      setServerTestResult(null)
+    }
+  }
+
   async function handleAddServer(e: FormEvent) {
     e.preventDefault()
     setError(null)
@@ -95,10 +128,12 @@ export function AdminNzb() {
         maxConnections: Number(serverMaxConnections),
       })
       setServers((list) => [...list, server])
+      setServerPreset('')
       setServerName('')
       setServerHost('')
       setServerUsername('')
       setServerPassword('')
+      setServerTestResult(null)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to add usenet server')
     }
@@ -240,6 +275,12 @@ export function AdminNzb() {
         </table>
         </div>
         <form className="vorn-inline-form" onSubmit={handleAddServer} style={{ marginTop: '1rem' }}>
+          <Select
+            value={serverPreset}
+            onChange={handleServerPreset}
+            placeholder="Preset (optional)"
+            options={USENET_PRESETS.map((p) => ({ value: p.label, label: p.label }))}
+          />
           <input placeholder="Name" value={serverName} onChange={(e) => setServerName(e.target.value)} required />
           <input placeholder="Host" value={serverHost} onChange={(e) => setServerHost(e.target.value)} required />
           <input
