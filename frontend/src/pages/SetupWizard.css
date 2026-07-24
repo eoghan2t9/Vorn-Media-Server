@@ -1,0 +1,119 @@
+.vorn-setup-steps {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem;
+  list-style: none;
+  margin: 0 0 1.5rem;
+  padding: 0;
+  max-width: 40rem;
+}
+
+.vorn-setup-steps li {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  color: var(--vorn-text-muted);
+}
+
+.vorn-setup-steps li:not(:last-child)::after {
+  content: '';
+  width: 1.25rem;
+  height: 1px;
+  margin-left: 0.4rem;
+  background: var(--vorn-border);
+}
+
+.vorn-setup-step-dot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  border-radius: 50%;
+  border: 1px solid var(--vorn-border);
+  font-size: 0.72rem;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.vorn-setup-step-current .vorn-setup-step-dot {
+  border-color: var(--vorn-accent);
+  color: var(--vorn-accent);
+  box-shadow: var(--vorn-glow);
+}
+
+.vorn-setup-step-current .vorn-setup-step-label {
+  color: var(--vorn-text);
+  font-weight: 500;
+}
+
+.vorn-setup-step-done .vorn-setup-step-dot {
+  background: var(--vorn-gradient);
+  border-color: transparent;
+  color: #fff;
+}
+
+.vorn-setup-step-label {
+  display: none;
+}
+
+@media (min-width: 40rem) {
+  .vorn-setup-step-label {
+    display: inline;
+  }
+}
+
+.vorn-setup-form {
+  max-width: 40rem;
+}
+
+.vorn-setup-inline-form {
+  margin: 0.75rem 0 0;
+}
+
+.vorn-setup-checkbox-label {
+  display: flex;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+}
+
+.vorn-setup-added-list {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.88rem;
+  color: var(--vorn-text-muted);
+}
+
+.vorn-setup-subheading {
+  margin: 1.5rem 0 0;
+  font-size: 1rem;
+}
+
+.vorn-setup-summary {
+  margin: 1rem 0 1.5rem;
+  padding-left: 1.1rem;
+  font-size: 0.92rem;
+  line-height: 1.7;
+}
+
+.vorn-setup-nav {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 1.75rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--vorn-border);
+}
+
+.vorn-setup-back {
+  background: transparent;
+  border: 1px solid var(--vorn-border);
+  color: var(--vorn-text-muted);
+}
