@@ -198,13 +198,34 @@ func (s *Service) SyncSeriesTree(ctx context.Context, seriesItem *store.MediaIte
 // poll GetMediaItem for status, same pattern debrid.Service.AddLink already
 // uses for its own background resolve.
 func (s *Service) Acquire(ctx context.Context, itemID string) error {
+	return s.startAcquire(itemID, true)
+}
+
+// Reacquire is Acquire for an item that's already 'owned' but whose current
+// stream link has gone dead -- see httpapi.handlePlayItem, which calls this
+// when ffprobe can no longer open a debrid-backed item's URL. It runs the
+// exact same search->score->resolve pipeline as a fresh Acquire; the
+// existing active_debrid_item_id fencing (see tryCandidate/waitForOutcome)
+// is what makes it safe to overwrite an already-'owned' item's path.
+func (s *Service) Reacquire(ctx context.Context, itemID string) error {
+	return s.startAcquire(itemID, false)
+}
+
+// startAcquire is Acquire and Reacquire's shared body -- blockOwned is the
+// only thing distinguishing "don't touch it, it's already fulfilled" from
+// "it's fulfilled but no longer good, replace it".
+func (s *Service) startAcquire(itemID string, blockOwned bool) error {
 	item, err := s.store.GetMediaItem(itemID)
 	if err != nil {
 		return err
 	}
 	switch item.AcquisitionStatus {
-	case "owned", "searching", "acquiring":
-		return nil // nothing to do: already fulfilled or already in flight
+	case "searching", "acquiring":
+		return nil // already in flight
+	case "owned":
+		if blockOwned {
+			return nil
+		}
 	}
 
 	if err := s.store.SetMediaItemAcquisitionStatus(item.ID, "searching"); err != nil {

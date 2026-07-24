@@ -85,6 +85,15 @@ func (s *Server) handlePlayItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A reacquire triggered by a dead-link detection below leaves the old
+	// (dead) path in place while it runs -- check status before path so a
+	// second play click during that window reports progress instead of
+	// re-probing a link already known to be dead.
+	if item.AcquisitionStatus == "searching" || item.AcquisitionStatus == "acquiring" {
+		s.handleAcquiringPlay(w, r, item)
+		return
+	}
+
 	if item.Path == nil || *item.Path == "" {
 		s.handleAcquiringPlay(w, r, item)
 		return
@@ -95,6 +104,22 @@ func (s *Server) handlePlayItem(w http.ResponseWriter, r *http.Request) {
 
 	info, err := transcode.Probe(ctx, *item.Path)
 	if err != nil {
+		// A debrid-backed item's path is a provider CDN URL, not a local
+		// file -- those commonly expire between viewing sessions, so a
+		// probe failure there most likely means the link died, not that the
+		// file is actually gone. Kick off the same search->score->resolve
+		// pipeline a fresh acquisition uses to replace it, and report
+		// "acquiring" exactly like a first-time acquisition would --
+		// WatchPage's existing acquiring-overlay/poll loop handles this
+		// automatically, no frontend changes needed. A local scanned file
+		// failing to probe has no such replacement path, so that still
+		// falls through to the plain error below.
+		if s.acquisition != nil && item.AcquisitionStatus == "owned" && isRemoteURL(*item.Path) {
+			if rErr := s.acquisition.Reacquire(r.Context(), item.ID); rErr == nil {
+				writeJSON(w, http.StatusAccepted, playResponse{Mode: "acquiring", AcquisitionStatus: "searching"})
+				return
+			}
+		}
 		writeError(w, http.StatusUnprocessableEntity, "probing media file")
 		return
 	}
