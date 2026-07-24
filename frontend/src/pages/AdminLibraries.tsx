@@ -53,7 +53,7 @@ export function AdminLibraries() {
     setError(null)
     setSubmitting(true)
     try {
-      await createLibrary({ name, type, is4K, folders: [folder] })
+      await createLibrary({ name, type, is4K, folders: folder ? [folder] : [] })
       setName('')
       setFolder('')
       setIs4K(false)
@@ -343,11 +343,15 @@ export function AdminLibraries() {
             ]}
           />
           <input
-            placeholder="Folder path on the server"
+            placeholder={
+              type === 'movie' || type === 'series'
+                ? 'Folder path on the server (optional for a debrid-only library)'
+                : 'Folder path on the server'
+            }
             value={folder}
             onChange={(e) => setFolder(e.target.value)}
             style={{ minWidth: '16rem' }}
-            required
+            required={type === 'music' || type === 'audiobook'}
           />
           {(type === 'movie' || type === 'series') && (
             <label title="Marks this library as 4K-only and sets its quality profile to only fetch 2160p releases">
@@ -367,6 +371,13 @@ export function AdminLibraries() {
             Title/artist/album metadata is read from each file's embedded tags — there's no external
             metadata/cover-art provider for {type === 'music' ? 'music' : 'audiobooks'} yet, so items will show a
             plain fallback poster until one is added.
+          </p>
+        )}
+        {(type === 'movie' || type === 'series') && !folder && (
+          <p className="vorn-panel-subtitle" style={{ margin: '0.75rem 0 0' }}>
+            No folder means nothing to scan from disk — fine for a library meant purely as a debrid acquisition
+            target (e.g. one you'll set as the default target for content requests), since debrid-resolved items
+            stream directly from the provider and never touch a local folder.
           </p>
         )}
       </div>

@@ -122,8 +122,18 @@ func (s *Server) handleCreateLibrary(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if req.Name == "" || !validLibraryTypes[req.Type] || len(req.Folders) == 0 {
-		writeError(w, http.StatusBadRequest, "name, a valid type (movie, series, music, or audiobook), and at least one folder are required")
+	if req.Name == "" || !validLibraryTypes[req.Type] {
+		writeError(w, http.StatusBadRequest, "name and a valid type (movie, series, music, or audiobook) are required")
+		return
+	}
+	// Movie/series libraries can go folder-less -- they can be populated
+	// entirely by debrid acquisition (see internal/acquisition and
+	// internal/debrid), which writes each item's path as the provider's
+	// stream URL and never touches the library's folder or the scanner.
+	// Music/audiobook libraries have no such non-file acquisition path, so a
+	// folder to scan is still mandatory for them.
+	if (req.Type == "music" || req.Type == "audiobook") && len(req.Folders) == 0 {
+		writeError(w, http.StatusBadRequest, "a folder is required for music/audiobook libraries")
 		return
 	}
 
