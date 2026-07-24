@@ -133,6 +133,15 @@ func main() {
 		metadataSvc.WithOMDbClient(metadata.NewOMDbClient(cfg.OMDbAPIKey))
 	}
 
+	// A standalone client for the content-requests feature's discover
+	// search, independent of metadataSvc's own TMDbProvider (which is
+	// wired for library sync/matching, not free-text search for titles
+	// Vorn doesn't have yet).
+	var tmdbClient *metadata.TMDbClient
+	if cfg.TMDbAPIKey != "" {
+		tmdbClient = metadata.NewTMDbClient(cfg.TMDbAPIKey)
+	}
+
 	var transcodeMgr *transcode.Manager
 	backends := transcode.DetectBackends(context.Background())
 	if len(backends) == 0 {
@@ -202,8 +211,10 @@ func main() {
 
 	router := httpapi.NewRouter(httpapi.Deps{
 		Store:        st,
+		PostgresDSN:  cfg.PostgresDSN,
 		Scanner:      scanSvc,
 		Metadata:     metadataSvc,
+		TMDb:         tmdbClient,
 		TranscodeMgr: transcodeMgr,
 		Torrent:      torrentSvc,
 		NZB:          nzbSvc,

@@ -87,3 +87,32 @@
 .vorn-load-bar-fill-hot {
   background: linear-gradient(135deg, #f59e0b 0%, #ef4444 100%);
 }
+
+/* An <a> styled as a primary button -- unlike .vorn-btn-primary (a
+   modifier meant to sit alongside the base `button` element selector in
+   index.css for its padding/border-radius/etc), a plain anchor gets none
+   of that base styling, so this is self-contained like ItemDetail.css's
+   .vorn-play-button. Used for the backup download link, which is a real
+   navigation (so the browser handles the streamed file/Content-Disposition
+   natively) rather than a JS-driven action a <button> would suit better. */
+.vorn-link-button {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.45rem 0.85rem;
+  border-radius: 0.5rem;
+  background: var(--vorn-gradient);
+  background-size: 160% auto;
+  background-position: left center;
+  color: white;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 0.9rem;
+  box-shadow: 0 8px 24px rgba(139, 92, 246, 0.3);
+  transition: background-position var(--vorn-transition), box-shadow var(--vorn-transition), transform var(--vorn-transition);
+}
+
+.vorn-link-button:hover {
+  background-position: right center;
+  box-shadow: 0 10px 30px rgba(139, 92, 246, 0.45);
+  transform: translateY(-1px);
+}

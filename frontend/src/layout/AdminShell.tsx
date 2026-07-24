@@ -6,6 +6,7 @@ import {
   DashboardIcon,
   EyeIcon,
   GlobeIcon,
+  InboxIcon,
   LibraryIcon,
   MagnetIcon,
   MenuIcon,
@@ -26,6 +27,7 @@ const NAV_GROUPS: { label: string; items: { to: string; label: string; icon: (pr
       { to: '/admin/libraries', label: 'Libraries', icon: LibraryIcon },
       { to: '/admin/users', label: 'Users', icon: UsersIcon },
       { to: '/admin/currently-watching', label: 'Currently watching', icon: EyeIcon },
+      { to: '/admin/requests', label: 'Requests', icon: InboxIcon },
     ],
   },
   {

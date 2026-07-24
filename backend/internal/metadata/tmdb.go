@@ -115,6 +115,44 @@ func (c *TMDbClient) SearchTV(ctx context.Context, title string) (*tmdbTVResult,
 	return &resp.Results[0], nil
 }
 
+// SearchResult is a single TMDb search hit, exposed for callers (like the
+// content-request feature) that need to show a user several candidates to
+// pick from -- unlike SearchMovie/SearchTV above, which only return TMDb's
+// single best guess for automatic library matching.
+type SearchResult struct {
+	TmdbID      int
+	Title       string
+	Overview    string
+	ReleaseDate string
+	PosterURL   string
+}
+
+// DiscoverMovies returns every movie result TMDb has for query.
+func (c *TMDbClient) DiscoverMovies(ctx context.Context, query string) ([]SearchResult, error) {
+	var resp tmdbSearchResponse[tmdbMovieResult]
+	if err := c.get(ctx, "/search/movie", url.Values{"query": {query}}, &resp); err != nil {
+		return nil, err
+	}
+	out := make([]SearchResult, 0, len(resp.Results))
+	for _, r := range resp.Results {
+		out = append(out, SearchResult{TmdbID: r.ID, Title: r.Title, Overview: r.Overview, ReleaseDate: r.ReleaseDate, PosterURL: imageURL(r.PosterPath)})
+	}
+	return out, nil
+}
+
+// DiscoverSeries returns every TV result TMDb has for query.
+func (c *TMDbClient) DiscoverSeries(ctx context.Context, query string) ([]SearchResult, error) {
+	var resp tmdbSearchResponse[tmdbTVResult]
+	if err := c.get(ctx, "/search/tv", url.Values{"query": {query}}, &resp); err != nil {
+		return nil, err
+	}
+	out := make([]SearchResult, 0, len(resp.Results))
+	for _, r := range resp.Results {
+		out = append(out, SearchResult{TmdbID: r.ID, Title: r.Name, Overview: r.Overview, ReleaseDate: r.FirstAirDate, PosterURL: imageURL(r.PosterPath)})
+	}
+	return out, nil
+}
+
 // trailerURL fetches /movie/{id}/videos or /tv/{id}/videos and returns a
 // YouTube watch URL for the first official trailer, if any.
 func (c *TMDbClient) trailerURL(ctx context.Context, kind string, id int) (string, error) {

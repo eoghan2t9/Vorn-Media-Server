@@ -32,8 +32,10 @@ const sessionCookieName = "vorn_session"
 // gracefully (typically a 503) rather than assume it's present.
 type Deps struct {
 	Store        *store.Store
+	PostgresDSN  string
 	Scanner      *scanner.Service
 	Metadata     *metadata.Service
+	TMDb         *metadata.TMDbClient
 	TranscodeMgr *transcode.Manager
 	Torrent      *torrent.Service
 	NZB          *nzb.Service
@@ -48,8 +50,10 @@ type Deps struct {
 
 type Server struct {
 	store        *store.Store
+	postgresDSN  string
 	scanner      *scanner.Service
 	metadataSvc  *metadata.Service
+	tmdb         *metadata.TMDbClient
 	transcodeMgr *transcode.Manager
 	torrentSvc   *torrent.Service
 	nzbSvc       *nzb.Service
@@ -73,8 +77,10 @@ type Server struct {
 func NewServer(deps Deps) *Server {
 	s := &Server{
 		store:        deps.Store,
+		postgresDSN:  deps.PostgresDSN,
 		scanner:      deps.Scanner,
 		metadataSvc:  deps.Metadata,
+		tmdb:         deps.TMDb,
 		transcodeMgr: deps.TranscodeMgr,
 		torrentSvc:   deps.Torrent,
 		nzbSvc:       deps.NZB,
@@ -175,6 +181,13 @@ func NewRouter(deps Deps) http.Handler {
 	mux.HandleFunc("GET /api/admin/stats/system", s.withAdmin(s.handleSystemStats))
 	mux.HandleFunc("GET /api/admin/currently-watching", s.withAdmin(s.handleCurrentlyWatching))
 	mux.HandleFunc("GET /api/search", s.withAuth(s.handleSearch))
+
+	mux.HandleFunc("GET /api/discover/search", s.withAuth(s.handleDiscoverSearch))
+	mux.HandleFunc("POST /api/requests", s.withAuth(s.handleCreateContentRequest))
+	mux.HandleFunc("GET /api/requests", s.withAuth(s.handleListMyContentRequests))
+	mux.HandleFunc("DELETE /api/requests/{id}", s.withAuth(s.handleDeleteContentRequest))
+	mux.HandleFunc("GET /api/admin/requests", s.withAdmin(s.handleListAdminContentRequests))
+	mux.HandleFunc("PUT /api/admin/requests/{id}", s.withAdmin(s.handleDecideContentRequest))
 
 	mux.HandleFunc("POST /api/libraries/{id}/sync-metadata", s.withAdmin(s.handleStartMetadataSync))
 	mux.HandleFunc("GET /api/metadata-jobs/{id}", s.withAdmin(s.handleGetMetadataJob))
@@ -280,6 +293,9 @@ func NewRouter(deps Deps) http.Handler {
 	mux.HandleFunc("GET /api/admin/update/check", s.withAdmin(s.handleCheckForUpdate))
 	mux.HandleFunc("POST /api/admin/update/apply", s.withAdmin(s.handleApplyUpdate))
 	mux.HandleFunc("POST /api/admin/restart", s.withAdmin(s.handleRestartServer))
+
+	mux.HandleFunc("GET /api/admin/backup", s.withAdmin(s.handleDownloadBackup))
+	mux.HandleFunc("POST /api/admin/backup/restore", s.withAdmin(s.handleRestoreBackup))
 
 	return s.accessLog(withCORS(mux, deps.CORSOrigin))
 }

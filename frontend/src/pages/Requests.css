@@ -1,0 +1,11 @@
+/* .vorn-status-badge normally trails inline text (e.g. a username), hence
+   its built-in left margin -- reset that when it's the only/leading thing
+   in a request card or table cell. */
+.vorn-requests-page .vorn-card .vorn-status-badge,
+.vorn-requests-page td .vorn-status-badge {
+  margin-left: 0;
+}
+
+.vorn-requests-page .vorn-card button {
+  align-self: flex-start;
+}

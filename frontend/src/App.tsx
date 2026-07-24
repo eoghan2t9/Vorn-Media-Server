@@ -4,6 +4,8 @@ import { AuthProvider, useAuth } from './auth/AuthContext'
 import { AppShell } from './layout/AppShell'
 import { AdminShell } from './layout/AdminShell'
 import { ViewerHome } from './pages/ViewerHome'
+import { Requests } from './pages/Requests'
+import { AdminRequests } from './pages/AdminRequests'
 import { AdminHome } from './pages/AdminHome'
 import { AdminUsers } from './pages/AdminUsers'
 import { AdminLibraries } from './pages/AdminLibraries'
@@ -69,9 +71,11 @@ function AppRoutes() {
         <Route path="/" element={<ViewerHome />} />
         <Route path="/items/:id" element={<ItemDetail />} />
         <Route path="/watch/:id" element={<WatchPage />} />
+        <Route path="/requests" element={<Requests />} />
 
         <Route element={<AdminLayout />}>
           <Route path="/admin" element={<AdminHome />} />
+          <Route path="/admin/requests" element={<AdminRequests />} />
           <Route path="/admin/users" element={<AdminUsers />} />
           <Route path="/admin/libraries" element={<AdminLibraries />} />
           <Route path="/admin/currently-watching" element={<AdminCurrentlyWatching />} />

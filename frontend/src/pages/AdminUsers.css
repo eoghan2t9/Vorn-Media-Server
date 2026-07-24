@@ -209,6 +209,30 @@
   color: var(--vorn-text-muted);
 }
 
+/* Three-state variants for content requests (pending/approved/declined) --
+   distinct from -on/-off above since those read as a binary toggle, not a
+   pending-review workflow. Reuses the same green already used for a
+   passing test-connection result (.vorn-test-result-ok) and status dot
+   (.vorn-status-dot-on) so "approved"/"good" means the same color
+   everywhere in the app. */
+.vorn-status-badge-pending {
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  color: #f59e0b;
+}
+
+.vorn-status-badge-approved {
+  background: rgba(52, 211, 153, 0.15);
+  border: 1px solid rgba(52, 211, 153, 0.35);
+  color: #34d399;
+}
+
+.vorn-status-badge-declined {
+  background: rgba(248, 113, 113, 0.12);
+  border: 1px solid rgba(248, 113, 113, 0.3);
+  color: #f87171;
+}
+
 .vorn-btn-primary {
   border: none;
   background: var(--vorn-gradient);

@@ -554,6 +554,24 @@ export const clearScanCache = () =>
 export const clearTranscodeCache = () =>
   request<MaintenanceResult>('/api/admin/maintenance/clear-transcode-cache', { method: 'POST' })
 
+// backupDownloadUrl is a plain absolute URL, not a fetch wrapper -- the
+// download is triggered via a normal <a href> navigation so the browser
+// handles the streamed response + Content-Disposition attachment natively,
+// sending the session cookie the same way it would for any same-site link
+// click, rather than needing a fetch+blob dance.
+export const backupDownloadUrl = () => `${API_BASE}/api/admin/backup`
+
+export const restoreBackup = async (file: File) => {
+  const res = await fetch(`${API_BASE}/api/admin/backup/restore`, {
+    method: 'POST',
+    credentials: 'include',
+    body: await file.arrayBuffer(),
+  })
+  const body = await res.json().catch(() => ({}))
+  if (!res.ok) throw new ApiError(res.status, body.error ?? `request failed with ${res.status}`)
+  return body as { message: string }
+}
+
 // logsStreamUrl builds the WebSocket URL for the live admin log viewer,
 // carrying API_BASE's scheme (ws/wss mirrors http/https) since the log
 // stream is a WebSocket, not a plain fetch.
@@ -563,6 +581,52 @@ export const logsStreamUrl = () => `${API_BASE.replace(/^http/, 'ws')}/api/admin
 // (e.g. the HLS player, which hands the URL to hls.js/a <video> element
 // rather than fetching it themselves) can build one.
 export { API_BASE }
+
+export interface DiscoverResult {
+  tmdbId: number
+  title: string
+  overview?: string
+  releaseDate?: string
+  posterUrl?: string
+}
+export const discoverSearch = (query: string, mediaType: 'movie' | 'series') =>
+  request<DiscoverResult[]>(`/api/discover/search?q=${encodeURIComponent(query)}&type=${mediaType}`)
+
+export type ContentRequestStatus = 'pending' | 'approved' | 'declined'
+
+export interface ContentRequest {
+  id: string
+  requestedBy: string
+  requester: string
+  mediaType: 'movie' | 'series'
+  tmdbId: number
+  title: string
+  overview?: string
+  releaseDate?: string
+  posterUrl?: string
+  status: ContentRequestStatus
+  decidedAt?: string
+  createdAt: string
+}
+
+export const createContentRequest = (input: {
+  mediaType: 'movie' | 'series'
+  tmdbId: number
+  title: string
+  overview?: string
+  releaseDate?: string
+  posterUrl?: string
+}) => request<ContentRequest>('/api/requests', { method: 'POST', body: JSON.stringify(input) })
+
+export const listMyContentRequests = () => request<ContentRequest[]>('/api/requests')
+
+export const deleteContentRequest = (id: string) => request<void>(`/api/requests/${id}`, { method: 'DELETE' })
+
+export const listAdminContentRequests = (status?: ContentRequestStatus) =>
+  request<ContentRequest[]>(`/api/admin/requests${status ? `?status=${status}` : ''}`)
+
+export const decideContentRequest = (id: string, status: 'approved' | 'declined') =>
+  request<ContentRequest>(`/api/admin/requests/${id}`, { method: 'PUT', body: JSON.stringify({ status }) })
 
 // resolveMediaUrl normalizes a poster/backdrop URL for use as an <img src>.
 // TMDb-sourced art is already an absolute CDN URL and passes through

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   ApiError,
   addMagnet,
@@ -46,6 +47,7 @@ const INDEXER_PRESETS: { label: string; name: string; baseUrl: string }[] = [
 ]
 
 export function AdminTorrents() {
+  const [searchParams] = useSearchParams()
   const [torrents, setTorrents] = useState<Torrent[]>([])
   const [libraries, setLibraries] = useState<Library[]>([])
   const [indexers, setIndexers] = useState<TorrentIndexer[]>([])
@@ -64,7 +66,11 @@ export function AdminTorrents() {
   const [testingIndexer, setTestingIndexer] = useState(false)
   const [indexerTestResult, setIndexerTestResult] = useState<{ ok: boolean; message: string } | null>(null)
 
-  const [query, setQuery] = useState('')
+  // Prefilled from ?q=... when arriving via the "Search torrents" deep link
+  // on Admin > Requests -- the query still auto-runs below rather than just
+  // sitting in the box, since the whole point of that link is skipping the
+  // retype-and-hit-search step.
+  const [query, setQuery] = useState(() => searchParams.get('q') ?? '')
   const [results, setResults] = useState<TorrentSearchResult[] | null>(null)
   const [searching, setSearching] = useState(false)
 
@@ -170,18 +176,30 @@ export function AdminTorrents() {
     }
   }
 
-  async function handleSearch(e: FormEvent) {
-    e.preventDefault()
+  async function runSearch(q: string) {
     setError(null)
     setSearching(true)
     try {
-      setResults(await searchTorrents(query))
+      setResults(await searchTorrents(q))
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Search failed')
     } finally {
       setSearching(false)
     }
   }
+
+  async function handleSearch(e: FormEvent) {
+    e.preventDefault()
+    await runSearch(query)
+  }
+
+  useEffect(() => {
+    // Only for the deep-link case ("Search torrents" on Admin > Requests)
+    // -- searchParams never changes again after mount since nothing on
+    // this page calls setSearchParams, so this only ever runs once.
+    const q = searchParams.get('q')
+    if (q) runSearch(q)
+  }, [searchParams])
 
   async function handleDownloadResult(res: TorrentSearchResult) {
     if (!res.downloadUrl.startsWith('magnet:')) {
