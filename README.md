@@ -33,6 +33,8 @@ for what's done vs. planned.
 | --------------------------------------------------- | ----------------------------------------------------- |
 | **Guided first-launch setup**<br>![Setup wizard](docs/screenshots/setup-wizard.png) | **Admin: libraries**<br>![Admin libraries](docs/screenshots/admin-libraries.png) |
 | **About & credits — light**<br>![About page, light theme](docs/screenshots/about-light.png) | **About & credits — dark**<br>![About page, dark theme](docs/screenshots/about-dark.png) |
+| **Viewer: home**<br>![Viewer home](docs/screenshots/viewer-home.png) | **Viewer: browse**<br>![Viewer browse](docs/screenshots/viewer-browse.png) |
+| **Viewer: item detail**<br>![Viewer item detail](docs/screenshots/viewer-item-detail.png) | **Viewer: request a title**<br>![Viewer requests](docs/screenshots/viewer-requests.png) |
 
 ## Why Vorn
 
