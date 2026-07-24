@@ -62,16 +62,18 @@
   transform: rotate(180deg);
 }
 
+/* position/left/width/top-or-bottom/max-height all come from the inline
+   style Select.tsx computes per-open (see computePanelPosition) -- the
+   panel is portaled to document.body and positioned in viewport
+   coordinates so it can flip above the trigger on a short mobile screen,
+   and so it isn't clipped by a scrolling ancestor like .vorn-table-wrap
+   (whose own overflow-x: auto forces the CSS overflow spec to compute its
+   overflow-y as auto too, with no way to opt just that ancestor back out). */
 .vorn-select-panel {
-  position: absolute;
-  top: calc(100% + 0.35rem);
-  left: 0;
-  right: 0;
-  z-index: 40;
+  z-index: 200;
   margin: 0;
   padding: 0.3rem;
   list-style: none;
-  max-height: 16rem;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
