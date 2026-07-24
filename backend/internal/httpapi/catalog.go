@@ -15,11 +15,12 @@ import (
 const acquisitionNotConfigured = "on-demand acquisition is not configured (needs a TMDb API key and a torrent indexer)"
 
 type catalogEntryResponse struct {
-	TmdbID      int    `json:"tmdbId"`
-	Title       string `json:"title"`
-	Overview    string `json:"overview,omitempty"`
-	ReleaseDate string `json:"releaseDate,omitempty"`
-	PosterURL   string `json:"posterUrl,omitempty"`
+	TmdbID      int     `json:"tmdbId"`
+	Title       string  `json:"title"`
+	Overview    string  `json:"overview,omitempty"`
+	ReleaseDate string  `json:"releaseDate,omitempty"`
+	PosterURL   string  `json:"posterUrl,omitempty"`
+	Rating      float64 `json:"rating,omitempty"`
 }
 
 type catalogPageResponse struct {
@@ -67,7 +68,7 @@ func (s *Server) handleBrowseCatalog(w http.ResponseWriter, r *http.Request) {
 	resp := catalogPageResponse{Page: paged.Page, TotalPages: paged.TotalPages, Results: make([]catalogEntryResponse, 0, len(paged.Results))}
 	for _, r := range paged.Results {
 		resp.Results = append(resp.Results, catalogEntryResponse{
-			TmdbID: r.TmdbID, Title: r.Title, Overview: r.Overview, ReleaseDate: r.ReleaseDate, PosterURL: r.PosterURL,
+			TmdbID: r.TmdbID, Title: r.Title, Overview: r.Overview, ReleaseDate: r.ReleaseDate, PosterURL: r.PosterURL, Rating: r.Rating,
 		})
 	}
 	writeJSON(w, http.StatusOK, resp)

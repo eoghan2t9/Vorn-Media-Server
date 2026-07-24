@@ -10,6 +10,7 @@ import {
   type MediaItem,
 } from '../api/client'
 import { Poster } from '../components/Poster'
+import { RatingBadge } from '../components/RatingBadge'
 import './ViewerHome.css'
 
 type SortMode = 'recent' | 'alpha'
@@ -48,7 +49,9 @@ function LibraryRow({ library }: { library: Library }) {
         <div className="vorn-card-grid">
           {items.map((item) => (
             <Link to={`/items/${item.id}`} key={item.id} className="vorn-card">
-              <Poster title={item.title} posterUrl={item.posterUrl} />
+              <Poster title={item.title} posterUrl={item.posterUrl}>
+                <RatingBadge rating={item.ratingTmdb} />
+              </Poster>
               <div className="vorn-card-title">{item.title}</div>
               {item.releaseDate && <div className="vorn-card-meta">{item.releaseDate.slice(0, 4)}</div>}
             </Link>
@@ -72,6 +75,7 @@ function ContinueWatchingRow({ entries }: { entries: ContinueWatchingEntry[] }) 
           return (
             <Link to={`/items/${e.item.id}`} key={e.item.id} className="vorn-card">
               <Poster title={e.item.title} posterUrl={e.item.posterUrl}>
+                <RatingBadge rating={e.item.ratingTmdb} />
                 <div className="vorn-progress-bar">
                   <div className="vorn-progress-fill" style={{ width: `${pct}%` }} />
                 </div>

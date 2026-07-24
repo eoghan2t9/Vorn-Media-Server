@@ -165,6 +165,7 @@ export interface MediaItem {
   currentReleaseTitle?: string
   ratingImdb?: string
   ratingRottenTomatoes?: string
+  ratingTmdb?: string
 }
 
 export interface CastMember {
@@ -699,6 +700,7 @@ export interface DiscoverResult {
   overview?: string
   releaseDate?: string
   posterUrl?: string
+  rating?: number
 }
 export const discoverSearch = (query: string, mediaType: 'movie' | 'series') =>
   request<DiscoverResult[]>(`/api/discover/search?q=${encodeURIComponent(query)}&type=${mediaType}`)
@@ -709,6 +711,7 @@ export interface CatalogEntry {
   overview?: string
   releaseDate?: string
   posterUrl?: string
+  rating?: number
 }
 export interface CatalogPage {
   results: CatalogEntry[]

@@ -25,6 +25,7 @@ type mediaItemResponse struct {
 	LogoURL              string  `json:"logoUrl,omitempty"`
 	RatingIMDb           string  `json:"ratingImdb,omitempty"`
 	RatingRottenTomatoes string  `json:"ratingRottenTomatoes,omitempty"`
+	RatingTMDb           string  `json:"ratingTmdb,omitempty"`
 	AcquisitionStatus    string  `json:"acquisitionStatus"`
 	AcquisitionError     string  `json:"acquisitionError,omitempty"`
 	Monitored            bool    `json:"monitored"`
@@ -48,6 +49,7 @@ func toMediaItemResponse(m *store.MediaItem) mediaItemResponse {
 		LogoURL:              m.LogoURL,
 		RatingIMDb:           m.RatingIMDb,
 		RatingRottenTomatoes: m.RatingRottenTomatoes,
+		RatingTMDb:           m.RatingTMDb,
 		AcquisitionStatus:    m.AcquisitionStatus,
 		AcquisitionError:     m.AcquisitionError,
 		Monitored:            m.Monitored,
@@ -146,7 +148,7 @@ func (s *Server) handleGetItem(w http.ResponseWriter, r *http.Request) {
 		resp.Directors = directors
 		resp.Similar = make([]catalogEntryResponse, 0, len(similar))
 		for _, sm := range similar {
-			resp.Similar = append(resp.Similar, catalogEntryResponse{TmdbID: sm.TmdbID, Title: sm.Title, Overview: sm.Overview, ReleaseDate: sm.ReleaseDate, PosterURL: sm.PosterURL})
+			resp.Similar = append(resp.Similar, catalogEntryResponse{TmdbID: sm.TmdbID, Title: sm.Title, Overview: sm.Overview, ReleaseDate: sm.ReleaseDate, PosterURL: sm.PosterURL, Rating: sm.Rating})
 		}
 	}
 

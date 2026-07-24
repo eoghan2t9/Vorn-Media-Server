@@ -14,11 +14,12 @@ import (
 const tmdbNotConfigured = "TMDb is not configured (set a TMDb API key in Admin > Integrations)"
 
 type discoverResultResponse struct {
-	TmdbID      int    `json:"tmdbId"`
-	Title       string `json:"title"`
-	Overview    string `json:"overview,omitempty"`
-	ReleaseDate string `json:"releaseDate,omitempty"`
-	PosterURL   string `json:"posterUrl,omitempty"`
+	TmdbID      int     `json:"tmdbId"`
+	Title       string  `json:"title"`
+	Overview    string  `json:"overview,omitempty"`
+	ReleaseDate string  `json:"releaseDate,omitempty"`
+	PosterURL   string  `json:"posterUrl,omitempty"`
+	Rating      float64 `json:"rating,omitempty"`
 }
 
 // handleDiscoverSearch searches TMDb directly (not Vorn's own library) so a
@@ -54,7 +55,7 @@ func (s *Server) handleDiscoverSearch(w http.ResponseWriter, r *http.Request) {
 	resp := make([]discoverResultResponse, 0, len(results))
 	for _, r := range results {
 		resp = append(resp, discoverResultResponse{
-			TmdbID: r.TmdbID, Title: r.Title, Overview: r.Overview, ReleaseDate: r.ReleaseDate, PosterURL: r.PosterURL,
+			TmdbID: r.TmdbID, Title: r.Title, Overview: r.Overview, ReleaseDate: r.ReleaseDate, PosterURL: r.PosterURL, Rating: r.Rating,
 		})
 	}
 	writeJSON(w, http.StatusOK, resp)

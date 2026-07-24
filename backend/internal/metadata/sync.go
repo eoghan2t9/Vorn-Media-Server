@@ -286,6 +286,7 @@ func (svc *Service) applyTMDbMatch(itemID string, match *Match) error {
 		Cast:                 toStoreCast(match.Cast),
 		Directors:            match.Directors,
 		Similar:              toStoreSimilar(match.Similar),
+		Rating:               match.Rating,
 	}
 	// ProviderID is 0 for a TheTVDB fallback match (no TMDb ID at all) --
 	// leaving TmdbID nil there instead of writing a bogus tmdb_id=0.
@@ -309,16 +310,17 @@ func toStoreCast(cast []CastMember) []store.CastMember {
 func toStoreSimilar(similar []SearchResult) []store.SimilarTitle {
 	out := make([]store.SimilarTitle, 0, len(similar))
 	for _, r := range similar {
-		out = append(out, store.SimilarTitle{TmdbID: r.TmdbID, Title: r.Title, Overview: r.Overview, ReleaseDate: r.ReleaseDate, PosterURL: r.PosterURL})
+		out = append(out, store.SimilarTitle{TmdbID: r.TmdbID, Title: r.Title, Overview: r.Overview, ReleaseDate: r.ReleaseDate, PosterURL: r.PosterURL, Rating: r.Rating})
 	}
 	return out
 }
 
-// backfillCastAndSimilar fetches credits/similar for an item that already
-// has a tmdb_id but predates this feature -- an ID-based fetch, skipping
-// the title-search step ListItemsNeedingMetadata's items still need. A
-// no-op if the configured provider isn't TMDb (nothing else populates
-// tmdb_id) or the item somehow has no tmdb_id despite the caller's filter.
+// backfillCastAndSimilar fetches credits/similar/rating for an item that
+// already has a tmdb_id but predates this feature -- an ID-based fetch,
+// skipping the title-search step ListItemsNeedingMetadata's items still
+// need. A no-op if the configured provider isn't TMDb (nothing else
+// populates tmdb_id) or the item somehow has no tmdb_id despite the
+// caller's filter.
 func (svc *Service) backfillCastAndSimilar(ctx context.Context, item *store.MediaItem) error {
 	tp, ok := svc.provider.(*TMDbProvider)
 	if !ok || item.TmdbID == nil {
@@ -329,7 +331,8 @@ func (svc *Service) backfillCastAndSimilar(ctx context.Context, item *store.Medi
 		kind = "tv"
 	}
 	cast, directors, similar := tp.castAndSimilar(ctx, kind, *item.TmdbID)
-	update := store.MetadataUpdate{Cast: toStoreCast(cast), Directors: directors, Similar: toStoreSimilar(similar)}
+	rating, _ := tp.client.rating(ctx, kind, *item.TmdbID)
+	update := store.MetadataUpdate{Cast: toStoreCast(cast), Directors: directors, Similar: toStoreSimilar(similar), Rating: rating}
 	return svc.store.ApplyMetadata(item.ID, update, false)
 }
 

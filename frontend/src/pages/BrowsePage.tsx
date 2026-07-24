@@ -9,6 +9,7 @@ import {
   type Library,
 } from '../api/client'
 import { Poster } from '../components/Poster'
+import { RatingBadge } from '../components/RatingBadge'
 import { Select } from '../components/Select'
 import './ViewerHome.css'
 
@@ -139,7 +140,9 @@ export function BrowsePage() {
                 onClick={() => handleOpen(entry)}
                 disabled={openingId === entry.tmdbId}
               >
-                <Poster title={entry.title} posterUrl={entry.posterUrl} />
+                <Poster title={entry.title} posterUrl={entry.posterUrl}>
+                  <RatingBadge rating={entry.rating} />
+                </Poster>
                 <div className="vorn-card-title">{openingId === entry.tmdbId ? 'Opening…' : entry.title}</div>
                 {entry.releaseDate && <div className="vorn-card-meta">{entry.releaseDate.slice(0, 4)}</div>}
               </button>

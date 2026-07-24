@@ -13,6 +13,7 @@ import {
 import { useAuth } from '../auth/AuthContext'
 import { CastRow } from '../components/CastRow'
 import { Poster } from '../components/Poster'
+import { RatingBadge } from '../components/RatingBadge'
 import './ItemDetail.css'
 
 function EditMetadataForm({ item, onSaved }: { item: MediaItemDetail; onSaved: (updated: MediaItemDetail) => void }) {
@@ -133,8 +134,9 @@ export function ItemDetail() {
             )}
             {item.author && <p className="vorn-detail-year">by {item.author}</p>}
             {item.releaseDate && <p className="vorn-detail-year">{item.releaseDate.slice(0, 4)}</p>}
-            {(item.ratingImdb || item.ratingRottenTomatoes) && (
+            {(item.ratingImdb || item.ratingRottenTomatoes || item.ratingTmdb) && (
               <p className="vorn-detail-ratings">
+                {item.ratingTmdb && <span>TMDb {item.ratingTmdb}</span>}
                 {item.ratingImdb && <span>IMDb {item.ratingImdb}</span>}
                 {item.ratingRottenTomatoes && <span>RT {item.ratingRottenTomatoes}</span>}
               </p>
@@ -176,7 +178,9 @@ export function ItemDetail() {
         <div className="vorn-children-row">
           {item.children.map((c) => (
             <Link to={`/items/${c.id}`} key={c.id} className="vorn-child-card">
-              <Poster title={c.title} posterUrl={c.posterUrl} />
+              <Poster title={c.title} posterUrl={c.posterUrl}>
+                <RatingBadge rating={c.ratingTmdb} />
+              </Poster>
               <div className="vorn-child-title">{c.title}</div>
             </Link>
           ))}
@@ -193,7 +197,9 @@ export function ItemDetail() {
               onClick={() => handleOpenSimilar(sm)}
               disabled={openingSimilarId === sm.tmdbId}
             >
-              <Poster title={sm.title} posterUrl={sm.posterUrl} />
+              <Poster title={sm.title} posterUrl={sm.posterUrl}>
+                <RatingBadge rating={sm.rating} />
+              </Poster>
               <div className="vorn-child-title">{openingSimilarId === sm.tmdbId ? 'Opening…' : sm.title}</div>
             </button>
           ))}

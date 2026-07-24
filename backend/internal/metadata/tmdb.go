@@ -61,21 +61,23 @@ type tmdbSearchResponse[T any] struct {
 }
 
 type tmdbMovieResult struct {
-	ID           int    `json:"id"`
-	Title        string `json:"title"`
-	Overview     string `json:"overview"`
-	ReleaseDate  string `json:"release_date"`
-	PosterPath   string `json:"poster_path"`
-	BackdropPath string `json:"backdrop_path"`
+	ID           int     `json:"id"`
+	Title        string  `json:"title"`
+	Overview     string  `json:"overview"`
+	ReleaseDate  string  `json:"release_date"`
+	PosterPath   string  `json:"poster_path"`
+	BackdropPath string  `json:"backdrop_path"`
+	VoteAverage  float64 `json:"vote_average"`
 }
 
 type tmdbTVResult struct {
-	ID           int    `json:"id"`
-	Name         string `json:"name"`
-	Overview     string `json:"overview"`
-	FirstAirDate string `json:"first_air_date"`
-	PosterPath   string `json:"poster_path"`
-	BackdropPath string `json:"backdrop_path"`
+	ID           int     `json:"id"`
+	Name         string  `json:"name"`
+	Overview     string  `json:"overview"`
+	FirstAirDate string  `json:"first_air_date"`
+	PosterPath   string  `json:"poster_path"`
+	BackdropPath string  `json:"backdrop_path"`
+	VoteAverage  float64 `json:"vote_average"`
 }
 
 type tmdbVideosResponse struct {
@@ -125,6 +127,7 @@ type SearchResult struct {
 	Overview    string
 	ReleaseDate string
 	PosterURL   string
+	Rating      float64
 }
 
 // DiscoverMovies returns every movie result TMDb has for query.
@@ -135,7 +138,7 @@ func (c *TMDbClient) DiscoverMovies(ctx context.Context, query string) ([]Search
 	}
 	out := make([]SearchResult, 0, len(resp.Results))
 	for _, r := range resp.Results {
-		out = append(out, SearchResult{TmdbID: r.ID, Title: r.Title, Overview: r.Overview, ReleaseDate: r.ReleaseDate, PosterURL: imageURL(r.PosterPath)})
+		out = append(out, SearchResult{TmdbID: r.ID, Title: r.Title, Overview: r.Overview, ReleaseDate: r.ReleaseDate, PosterURL: imageURL(r.PosterPath), Rating: r.VoteAverage})
 	}
 	return out, nil
 }
@@ -148,7 +151,7 @@ func (c *TMDbClient) DiscoverSeries(ctx context.Context, query string) ([]Search
 	}
 	out := make([]SearchResult, 0, len(resp.Results))
 	for _, r := range resp.Results {
-		out = append(out, SearchResult{TmdbID: r.ID, Title: r.Name, Overview: r.Overview, ReleaseDate: r.FirstAirDate, PosterURL: imageURL(r.PosterPath)})
+		out = append(out, SearchResult{TmdbID: r.ID, Title: r.Name, Overview: r.Overview, ReleaseDate: r.FirstAirDate, PosterURL: imageURL(r.PosterPath), Rating: r.VoteAverage})
 	}
 	return out, nil
 }
@@ -187,7 +190,7 @@ func (c *TMDbClient) PopularMovies(ctx context.Context, page int) (PagedResult, 
 	}
 	out := PagedResult{Page: resp.Page, TotalPages: resp.TotalPages}
 	for _, r := range resp.Results {
-		out.Results = append(out.Results, SearchResult{TmdbID: r.ID, Title: r.Title, Overview: r.Overview, ReleaseDate: r.ReleaseDate, PosterURL: imageURL(r.PosterPath)})
+		out.Results = append(out.Results, SearchResult{TmdbID: r.ID, Title: r.Title, Overview: r.Overview, ReleaseDate: r.ReleaseDate, PosterURL: imageURL(r.PosterPath), Rating: r.VoteAverage})
 	}
 	return out, nil
 }
@@ -200,7 +203,7 @@ func (c *TMDbClient) PopularSeries(ctx context.Context, page int) (PagedResult, 
 	}
 	out := PagedResult{Page: resp.Page, TotalPages: resp.TotalPages}
 	for _, r := range resp.Results {
-		out.Results = append(out.Results, SearchResult{TmdbID: r.ID, Title: r.Name, Overview: r.Overview, ReleaseDate: r.FirstAirDate, PosterURL: imageURL(r.PosterPath)})
+		out.Results = append(out.Results, SearchResult{TmdbID: r.ID, Title: r.Name, Overview: r.Overview, ReleaseDate: r.FirstAirDate, PosterURL: imageURL(r.PosterPath), Rating: r.VoteAverage})
 	}
 	return out, nil
 }
@@ -215,7 +218,7 @@ func (c *TMDbClient) TrendingMovies(ctx context.Context, page int) (PagedResult,
 	}
 	out := PagedResult{Page: resp.Page, TotalPages: resp.TotalPages}
 	for _, r := range resp.Results {
-		out.Results = append(out.Results, SearchResult{TmdbID: r.ID, Title: r.Title, Overview: r.Overview, ReleaseDate: r.ReleaseDate, PosterURL: imageURL(r.PosterPath)})
+		out.Results = append(out.Results, SearchResult{TmdbID: r.ID, Title: r.Title, Overview: r.Overview, ReleaseDate: r.ReleaseDate, PosterURL: imageURL(r.PosterPath), Rating: r.VoteAverage})
 	}
 	return out, nil
 }
@@ -228,7 +231,7 @@ func (c *TMDbClient) TrendingSeries(ctx context.Context, page int) (PagedResult,
 	}
 	out := PagedResult{Page: resp.Page, TotalPages: resp.TotalPages}
 	for _, r := range resp.Results {
-		out.Results = append(out.Results, SearchResult{TmdbID: r.ID, Title: r.Name, Overview: r.Overview, ReleaseDate: r.FirstAirDate, PosterURL: imageURL(r.PosterPath)})
+		out.Results = append(out.Results, SearchResult{TmdbID: r.ID, Title: r.Name, Overview: r.Overview, ReleaseDate: r.FirstAirDate, PosterURL: imageURL(r.PosterPath), Rating: r.VoteAverage})
 	}
 	return out, nil
 }
@@ -433,7 +436,7 @@ func (c *TMDbClient) similar(ctx context.Context, kind string, id int) ([]Search
 			if i >= similarLimit {
 				break
 			}
-			out = append(out, SearchResult{TmdbID: r.ID, Title: r.Title, Overview: r.Overview, ReleaseDate: r.ReleaseDate, PosterURL: imageURL(r.PosterPath)})
+			out = append(out, SearchResult{TmdbID: r.ID, Title: r.Title, Overview: r.Overview, ReleaseDate: r.ReleaseDate, PosterURL: imageURL(r.PosterPath), Rating: r.VoteAverage})
 		}
 		return out, nil
 	}
@@ -446,9 +449,24 @@ func (c *TMDbClient) similar(ctx context.Context, kind string, id int) ([]Search
 		if i >= similarLimit {
 			break
 		}
-		out = append(out, SearchResult{TmdbID: r.ID, Title: r.Name, Overview: r.Overview, ReleaseDate: r.FirstAirDate, PosterURL: imageURL(r.PosterPath)})
+		out = append(out, SearchResult{TmdbID: r.ID, Title: r.Name, Overview: r.Overview, ReleaseDate: r.FirstAirDate, PosterURL: imageURL(r.PosterPath), Rating: r.VoteAverage})
 	}
 	return out, nil
+}
+
+type tmdbRatingResponse struct {
+	VoteAverage float64 `json:"vote_average"`
+}
+
+// rating fetches /{kind}/{id} for just its vote_average -- used only by the
+// cast-backfill path (sync.go), which has an id but no fresh search result
+// to read a rating off of the way MatchMovie/MatchSeries already can.
+func (c *TMDbClient) rating(ctx context.Context, kind string, id int) (float64, error) {
+	var resp tmdbRatingResponse
+	if err := c.get(ctx, fmt.Sprintf("/%s/%d", kind, id), url.Values{}, &resp); err != nil {
+		return 0, err
+	}
+	return resp.VoteAverage, nil
 }
 
 type tmdbExternalIDs struct {

@@ -34,6 +34,11 @@ type Match struct {
 	Cast      []CastMember
 	Directors []string
 	Similar   []SearchResult
+
+	// Rating is TMDb's own vote_average, read directly off the search
+	// result -- always available, unlike RatingIMDb/RatingRottenTomatoes
+	// which need OMDb configured.
+	Rating float64
 }
 
 // Provider looks up movies and TV series against an external metadata
@@ -78,6 +83,7 @@ func (p *TMDbProvider) MatchMovie(ctx context.Context, title string, year int) (
 		PosterURL:   imageURL(result.PosterPath),
 		BackdropURL: imageURL(result.BackdropPath),
 		TrailerURL:  trailer,
+		Rating:      result.VoteAverage,
 	}
 	if ext, err := p.client.externalIDs(ctx, "movie", result.ID); err == nil {
 		match.IMDbID = ext.IMDbID
@@ -103,6 +109,7 @@ func (p *TMDbProvider) MatchSeries(ctx context.Context, title string) (*Match, e
 		PosterURL:   imageURL(result.PosterPath),
 		BackdropURL: imageURL(result.BackdropPath),
 		TrailerURL:  trailer,
+		Rating:      result.VoteAverage,
 	}
 	if ext, err := p.client.externalIDs(ctx, "tv", result.ID); err == nil {
 		match.IMDbID = ext.IMDbID

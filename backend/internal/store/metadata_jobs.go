@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -125,11 +126,12 @@ type CastMember struct {
 // yet (see httpapi.handleOpenCatalogEntry, which is how a click on one
 // becomes a real item).
 type SimilarTitle struct {
-	TmdbID      int    `json:"tmdbId"`
-	Title       string `json:"title"`
-	Overview    string `json:"overview,omitempty"`
-	ReleaseDate string `json:"releaseDate,omitempty"`
-	PosterURL   string `json:"posterUrl,omitempty"`
+	TmdbID      int     `json:"tmdbId"`
+	Title       string  `json:"title"`
+	Overview    string  `json:"overview,omitempty"`
+	ReleaseDate string  `json:"releaseDate,omitempty"`
+	PosterURL   string  `json:"posterUrl,omitempty"`
+	Rating      float64 `json:"rating,omitempty"`
 }
 
 type MetadataUpdate struct {
@@ -156,6 +158,10 @@ type MetadataUpdate struct {
 	Cast      []CastMember
 	Directors []string
 	Similar   []SimilarTitle
+
+	// Rating is TMDb's own vote_average -- always available, unlike
+	// RatingIMDb/RatingRottenTomatoes which need OMDb configured.
+	Rating float64
 }
 
 // ApplyMetadata writes a provider match (or a manual admin correction) onto
@@ -183,6 +189,9 @@ func (s *Store) ApplyMetadata(itemID string, update MetadataUpdate, lock bool) e
 	}
 	if len(update.Similar) > 0 {
 		metadataJSON["similar"] = update.Similar
+	}
+	if update.Rating > 0 {
+		metadataJSON["ratingTmdb"] = fmt.Sprintf("%.1f", update.Rating)
 	}
 	if update.Author != "" {
 		metadataJSON["author"] = update.Author

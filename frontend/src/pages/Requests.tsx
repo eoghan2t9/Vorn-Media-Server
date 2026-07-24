@@ -9,6 +9,7 @@ import {
   type DiscoverResult,
 } from '../api/client'
 import { Poster } from '../components/Poster'
+import { RatingBadge } from '../components/RatingBadge'
 import { Select } from '../components/Select'
 import './ViewerHome.css'
 import './AdminUsers.css'
@@ -116,7 +117,9 @@ export function Requests() {
               const existing = existingRequestFor(r.tmdbId, mediaType)
               return (
                 <div className="vorn-card" key={r.tmdbId}>
-                  <Poster title={r.title} posterUrl={r.posterUrl} />
+                  <Poster title={r.title} posterUrl={r.posterUrl}>
+                    <RatingBadge rating={r.rating} />
+                  </Poster>
                   <div className="vorn-card-title">{r.title}</div>
                   {r.releaseDate && <div className="vorn-card-meta">{r.releaseDate.slice(0, 4)}</div>}
                   {existing ? (
