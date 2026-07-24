@@ -310,8 +310,8 @@ export function SetupWizard() {
 
   return (
     <div className="vorn-form-page">
-      <div className="vorn-auth-brand">
-        <img src="/favicon.svg" alt="" width={28} height={28} />
+      <div className="vorn-auth-brand vorn-setup-brand">
+        <img src="/favicon.svg" alt="" width={64} height={64} />
         <span>Vorn</span>
       </div>
 
