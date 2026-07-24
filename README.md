@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="frontend/public/favicon.svg" alt="Vorn logo" width="96" height="96">
+</p>
+
 # Vorn Media Server
 
 Vorn is a self-hosted media server: library management, GPU-accelerated transcoding, a modern
@@ -6,7 +10,8 @@ anywhere (Linux, macOS, Windows, Docker) and use whatever GPU hardware is availa
 QuickSync, Nvidia NVENC, AMD AMF/VAAPI, Apple VideoToolbox).
 
 Vorn is under active, incremental development. This README and the feature list below will grow
-as each phase lands — see [Roadmap](#roadmap) for what's done vs. planned.
+as each phase lands — see [Feature Roadmap](#feature-roadmap) and [Since the roadmap](#since-the-roadmap)
+for what's done vs. planned.
 
 ## Why Vorn
 
@@ -30,7 +35,9 @@ Tracked in phases; each phase is delivered as a runnable increment with its own 
       DragonflyDB + backend + frontend), Go backend skeleton, React/TS frontend skeleton with
       light/dark theme.
 - [x] **Phase 1 — Core data model & auth**: schema, login/sessions, user management with
-      per-library permissions, first-launch setup wizard.
+      per-library permissions, a guided multi-step first-launch setup wizard (admin account,
+      library, metadata, torrent indexers, Usenet, debrid, review — each step saves immediately
+      and is independently skippable).
 - [x] **Phase 2 — Library scanner**: fast concurrent scanner with DragonflyDB staging, plus a
       dev-mode synthetic file generator for benchmarking scan speed at scale (verified at 50k
       files in ~3.6s locally).
@@ -55,6 +62,44 @@ Tracked in phases; each phase is delivered as a runnable increment with its own 
 
 This completes the originally-planned 11-phase roadmap (Phase 0 through Phase 10). Ongoing work
 from here is maintenance, hardening, and whatever the community/users ask for next.
+
+## Since the roadmap
+
+Features added after the original 11 phases landed, organized by area rather than phase number:
+
+- **On-demand acquisition**: browse anything on TMDb (not just what's already in a library) and
+  press play — Vorn materializes a placeholder, searches torrent indexers, scores candidates
+  against the target library's quality profile, and resolves the winner via debrid, retrying the
+  next-best candidate if one fails to resolve. Monitored series get new episodes grabbed
+  automatically (season-pack first, falling back to per-episode), and an already-owned item can be
+  transparently re-grabbed at a higher quality if a better release shows up later.
+- **Content requests with auto-fulfillment**: any signed-in user can search TMDb and request a
+  title Vorn doesn't have yet. Requesting immediately fans out into whichever library an admin has
+  marked as the default *standard* and default *4K* target for that media type (movie/series) —
+  no manual admin approval step, and each request tracks independent acquisition progress per
+  quality. A library used purely as a debrid target doesn't need a scan folder at all.
+- **Playback reliability**: a debrid CDN link that's expired since it was resolved is detected and
+  transparently replaced — both when pressing play on a stale item and mid-stream, if the player
+  itself reports a fatal error — reusing the same search/score/resolve pipeline as a fresh
+  acquisition. Watch progress is saved reliably even on an abrupt tab close (`navigator.sendBeacon`
+  on `pagehide`), with the periodic in-session save serialized and given a bounded retry so a slow
+  connection can't silently lose progress or write it out of order.
+- **4K libraries**: mark a library as 4K-only (seeds its quality profile to 2160p-only); search
+  results and the library list both show a 4K badge so a title available in both a standard and 4K
+  library is easy to tell apart.
+- **Bundled Prowlarr**: an optional Docker Compose profile (`--profile prowlarr`) runs Prowlarr as
+  a managed sidecar instead of requiring a separately-run instance. Vorn reads Prowlarr's own
+  auto-generated API key straight from its `config.xml` and periodically mirrors every enabled
+  indexer Prowlarr knows about — torrent-protocol into Vorn's Torrent Indexers, Usenet-protocol
+  into NZB Indexers — with no manual URL/API-key copying. Vorn itself remains a plain Torznab/
+  Newznab client throughout; this doesn't add any indexer scraping of its own.
+- **Usenet indexer search & provider presets**: Newznab-compatible indexer search on the NZB page
+  (NZBGeek and others), connection presets for popular commercial Usenet providers, and TorBox
+  support as a Usenet backend alongside its debrid role.
+- **Admin database backup/restore**, including scheduled automated backups.
+- **About page** (Admin → About): current version/uptime, and a credits page linking every
+  external API/service Vorn integrates with — metadata providers, torrent/Usenet indexers, Usenet
+  providers, and debrid providers — each with its own site link and logo.
 
 ## Architecture
 
@@ -129,6 +174,15 @@ docker compose -f deploy/docker-compose.yml up --build
   when TMDb has no match for a series. `VORN_TVDB_PIN` is only needed for a "user-support" API key
   tied to an individual paid subscriber account — a standard project key leaves it unset. Get a key
   at https://thetvdb.com/api-information.
+- `VORN_PROWLARR_BASE_URL` — enables auto-mirroring indexers from a Prowlarr instance (e.g.
+  `http://prowlarr:9696` when using the bundled `--profile prowlarr` Compose service) into Vorn's
+  own Torrent/NZB Indexers, requires at least one of the next two as well. Without it, this sync is
+  simply off — configure indexers by hand instead.
+- `VORN_PROWLARR_API_KEY` — Prowlarr's API key, if you'd rather set it directly than have Vorn read
+  it from `config.xml` (e.g. an external Prowlarr instance whose volume isn't shared with Vorn).
+- `VORN_PROWLARR_CONFIG_PATH` — path to Prowlarr's `config.xml`, read automatically for its
+  auto-generated API key when `VORN_PROWLARR_API_KEY` isn't set directly (the bundled Compose
+  profile mounts this read-only and sets it for you).
 
 Debrid acquisition (`/api/debrid-accounts`, `/api/debrid`) has no env var and is always available —
 it opens no listening port and holds no local state until the admin adds an account (with its API
