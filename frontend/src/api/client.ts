@@ -190,6 +190,21 @@ export const updateProgress = (id: string, positionSeconds: number, durationSeco
     body: JSON.stringify({ positionSeconds, durationSeconds }),
   })
 
+// A regular fetch (even unawaited) gets torn down by the browser mid-flight
+// on tab close/hard navigation -- sendBeacon is the one API built to survive
+// that moment, at the cost of being POST-only with no custom headers. The
+// body is declared as text/plain (a CORS "simple" content type) rather than
+// application/json purely so a cross-origin deployment (frontend/backend on
+// different ports) doesn't need this exact request to support a CORS
+// preflight, which sendBeacon cannot perform -- the backend's JSON decoder
+// doesn't care what Content-Type it's labeled as, only that the body parses.
+// Returns whether the browser accepted the beacon for sending, not whether
+// it actually reached the server.
+export const beaconUpdateProgress = (id: string, positionSeconds: number, durationSeconds: number): boolean => {
+  const body = new Blob([JSON.stringify({ positionSeconds, durationSeconds })], { type: 'text/plain' })
+  return navigator.sendBeacon(`${API_BASE}/api/items/${id}/progress`, body)
+}
+
 export interface ContinueWatchingEntry {
   item: MediaItem
   positionSeconds: number

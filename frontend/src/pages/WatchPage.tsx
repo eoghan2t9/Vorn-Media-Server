@@ -4,6 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import {
   API_BASE,
   ApiError,
+  beaconUpdateProgress,
   getItem,
   getProgress,
   playItem,
@@ -220,11 +221,33 @@ export function WatchPage() {
     }
     video.addEventListener('error', handleVideoError)
 
+    // A component-unmount cleanup (SPA navigation to another route) still
+    // runs in a live JS context, so the regular fetch-based updateProgress
+    // in the cleanup below is reliable for that case. A tab close, hard
+    // navigation, or refresh tears the page down before an in-flight fetch
+    // can finish, and never runs React's cleanup at all -- pagehide is the
+    // standard hook for that moment, which is why the save there goes
+    // through sendBeacon instead. visibilitychange->hidden is a second,
+    // earlier-firing safety net for mobile browsers backgrounding the tab
+    // without a prompt pagehide.
+    function saveProgressViaBeacon() {
+      if (video!.duration > 0) {
+        beaconUpdateProgress(id!, video!.currentTime, video!.duration)
+      }
+    }
+    function handleVisibilityChange() {
+      if (document.visibilityState === 'hidden') saveProgressViaBeacon()
+    }
+    window.addEventListener('pagehide', saveProgressViaBeacon)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
     setup(video)
 
     return () => {
       cancelled = true
       video.removeEventListener('error', handleVideoError)
+      window.removeEventListener('pagehide', saveProgressViaBeacon)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
       if (progressTimer) clearInterval(progressTimer)
       if (acquisitionTimer) clearInterval(acquisitionTimer)
       hlsRef.current?.destroy()
@@ -233,9 +256,7 @@ export function WatchPage() {
         stopStreamSession(sessionIdRef.current).catch(() => {})
         sessionIdRef.current = null
       }
-      if (video.duration > 0) {
-        updateProgress(id!, video.currentTime, video.duration).catch(() => {})
-      }
+      saveProgressViaBeacon()
     }
   }, [id, retryKey])
 

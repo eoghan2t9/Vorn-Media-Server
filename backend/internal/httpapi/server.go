@@ -186,6 +186,11 @@ func NewRouter(deps Deps) http.Handler {
 	mux.HandleFunc("GET /api/items/{id}", s.withAuth(s.handleGetItem))
 	mux.HandleFunc("PUT /api/items/{id}/monitor", s.withAuth(s.handleSetItemMonitored))
 	mux.HandleFunc("PUT /api/items/{id}/progress", s.withAuth(s.handleUpdateProgress))
+	// Same handler, also reachable via POST: navigator.sendBeacon (used for
+	// the last-gasp progress save on tab close/navigation, since it's the
+	// only API that reliably survives page unload) can only send POST, and
+	// can't set a method the way fetch can.
+	mux.HandleFunc("POST /api/items/{id}/progress", s.withAuth(s.handleUpdateProgress))
 	mux.HandleFunc("GET /api/items/{id}/progress", s.withAuth(s.handleGetProgress))
 	mux.HandleFunc("GET /api/continue-watching", s.withAuth(s.handleContinueWatching))
 
