@@ -494,11 +494,17 @@ func NewRouter(deps Deps) http.Handler {
 		{"POST", "/Sessions/Playing/Progress", s.withJellyfinAuth(s.jfUpdateProgress)},
 		{"POST", "/Sessions/Playing/Stopped", s.withJellyfinAuth(s.jfUpdateProgress)},
 	}
-	embyTemplates := make([]string, len(jfRoutes))
-	for i, rt := range jfRoutes {
+	// jfTemplates covers BOTH the bare and /emby-prefixed forms of every
+	// route -- confirmed live that even the genuine, official jellyfin-web
+	// client (not just the Emby app) sends a different case than what's
+	// registered here (it POSTs "/Users/authenticatebyname", all lowercase,
+	// against a route registered as "/Users/AuthenticateByName"), so this
+	// isn't an Emby-only quirk. See jfPathCanonicalizer.
+	jfTemplates := make([]string, 0, len(jfRoutes)*2)
+	for _, rt := range jfRoutes {
 		mux.HandleFunc(rt.method+" "+rt.path, rt.handler)
 		mux.HandleFunc(rt.method+" /emby"+rt.path, rt.handler)
-		embyTemplates[i] = "/emby" + rt.path
+		jfTemplates = append(jfTemplates, rt.path, "/emby"+rt.path)
 	}
 
 	// Plex-compatible client API (see internal/plex's doc comment for scope
@@ -555,9 +561,22 @@ func NewRouter(deps Deps) http.Handler {
 	// when the directory isn't there (local dev).
 	if info, err := os.Stat(jellyfinWebDir); err == nil && info.IsDir() {
 		mux.Handle("/", jellyfinWebHandler(jellyfinWebDir))
+		// Without this, the bare "/" catch-all above would also swallow any
+		// unmatched "/emby/*" request (Go's mux has no other "/emby/..."
+		// subtree registered, only exact jfRoutes literals) and serve
+		// Jellyfin's web client mislabeled under Emby's own path -- confirmed
+		// live that the official Emby app partially loads it, notices it
+		// isn't genuine Emby content, and reports the server as
+		// "unsupported, needs updated" instead of the plain 404 it got
+		// before. A longer registered prefix always beats the shorter "/"
+		// catch-all in Go's mux, so this takes priority for the whole
+		// /emby/ subtree and gives a clean, honest 404 instead.
+		mux.HandleFunc("/emby/", func(w http.ResponseWriter, r *http.Request) {
+			writeError(w, http.StatusNotFound, "not found")
+		})
 	}
 
-	return s.accessLog(withCORS(embyPathCanonicalizer(mux, embyTemplates), deps.CORSOrigin))
+	return s.accessLog(withCORS(jfPathCanonicalizer(mux, jfTemplates), deps.CORSOrigin))
 }
 
 // jellyfinWebHandler serves Jellyfin's bundled web client as static files,
@@ -578,7 +597,7 @@ func jellyfinWebHandler(webDir string) http.Handler {
 	})
 }
 
-// canonicalizeEmbyPath finds a template in templates whose static path
+// canonicalizeJfPath finds a template in templates whose static path
 // segments case-insensitively match reqPath's, and returns the canonical
 // form: the template's own casing for static segments (recovering whatever
 // the client mangled) and the client's original value for {param} segments
@@ -588,7 +607,7 @@ func jellyfinWebHandler(webDir string) http.Handler {
 // segment count, or a static segment differs even case-insensitively), in
 // which case reqPath is returned unchanged and normal routing 404s it like
 // any other unknown path.
-func canonicalizeEmbyPath(reqPath string, templates []string) (canonical string, ok bool) {
+func canonicalizeJfPath(reqPath string, templates []string) (canonical string, ok bool) {
 	reqSegs := strings.Split(strings.TrimPrefix(reqPath, "/"), "/")
 	for _, tmpl := range templates {
 		tmplSegs := strings.Split(strings.TrimPrefix(tmpl, "/"), "/")
@@ -615,22 +634,26 @@ func canonicalizeEmbyPath(reqPath string, templates []string) (canonical string,
 	return reqPath, false
 }
 
-// embyPathCanonicalizer rewrites r.URL.Path to the correctly-cased route
-// before the mux ever sees it, for requests under "/emby/" -- confirmed
-// live that the official Emby app lowercases its own request paths (it
-// requested "/emby/system/info/public" for a route registered, per the
-// actual MediaBrowser protocol convention, as "/emby/System/Info/Public"),
-// and Go's ServeMux matches static path segments case-sensitively, so
-// every request from it 404'd. Scoped to "/emby/" only since that's the
-// one client behavior actually observed; every other route keeps ordinary
-// exact-case routing.
-func embyPathCanonicalizer(next http.Handler, templates []string) http.Handler {
+// jfPathCanonicalizer rewrites r.URL.Path to the correctly-cased route
+// before the mux ever sees it -- confirmed live that BOTH the official
+// Emby app (lowercases everything: "/emby/system/info/public") AND the
+// genuine, official jellyfin-web client (POSTs "/Users/authenticatebyname",
+// all lowercase, against a route registered as
+// "/Users/AuthenticateByName") send different casing than what's
+// registered here, and Go's ServeMux matches static path segments
+// case-sensitively, so every one of those requests 404'd -- for
+// jellyfin-web's case, worse: it silently fell through to the "/"
+// catch-all's SPA fallback instead, serving index.html with a 200 instead
+// of ever reaching the real login handler. Applied to every request, not
+// just "/emby/", since that bare-path case proved this isn't Emby-specific;
+// canonicalizeJfPath only ever rewrites on a genuine structural match
+// against a real jfRoutes template, so this is a no-op for every other path
+// (the whole rest of Vorn's own API, etc).
+func jfPathCanonicalizer(next http.Handler, templates []string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/emby/") {
-			if canonical, ok := canonicalizeEmbyPath(r.URL.Path, templates); ok {
-				r.URL.Path = canonical
-				r.URL.RawPath = "" // a stale RawPath would otherwise override Path during routing
-			}
+		if canonical, ok := canonicalizeJfPath(r.URL.Path, templates); ok {
+			r.URL.Path = canonical
+			r.URL.RawPath = "" // a stale RawPath would otherwise override Path during routing
 		}
 		next.ServeHTTP(w, r)
 	})
