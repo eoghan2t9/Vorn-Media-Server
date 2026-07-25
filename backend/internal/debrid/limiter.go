@@ -6,22 +6,28 @@ import (
 	"time"
 )
 
-// limiter spaces out requests to at most perMinute per minute, proactively,
+// Limiter spaces out requests to at most perMinute per minute, proactively,
 // rather than firing as fast as possible and reacting to 429s after the
 // fact -- both Real-Debrid and TorBox document hard per-minute caps per API
 // key, and a shared account can easily blow through them if the scanner,
 // admin UI, and a background resolve are all hitting the same provider.
-type limiter struct {
+// Exported so other packages that also talk to a rate-limited provider
+// under the same account (e.g. torrent.Service's TorBox indexer search,
+// nzb.Service's TorBox usenet caching) can reuse this exact primitive
+// instead of each inventing their own -- as long as each holds one
+// long-lived Limiter instance (not a fresh one per call/request), which is
+// what actually makes the cap real across repeated attempts.
+type Limiter struct {
 	mu       sync.Mutex
 	interval time.Duration
 	next     time.Time
 }
 
-func newLimiter(perMinute int) *limiter {
-	return &limiter{interval: time.Minute / time.Duration(perMinute)}
+func NewLimiter(perMinute int) *Limiter {
+	return &Limiter{interval: time.Minute / time.Duration(perMinute)}
 }
 
-func (l *limiter) wait(ctx context.Context) error {
+func (l *Limiter) Wait(ctx context.Context) error {
 	l.mu.Lock()
 	now := time.Now()
 	wait := l.next.Sub(now)

@@ -73,6 +73,9 @@ func (svc *Service) SearchByIMDb(ctx context.Context, imdbID string, season, epi
 		wg.Add(1)
 		go func(idx *store.TorrentIndexer) {
 			defer wg.Done()
+			if err := svc.torboxLimiter.Wait(ctx); err != nil {
+				return
+			}
 			res, err := searchTorBoxIndexer(ctx, idx.Name, idx.APIKey, imdbID, season, episode)
 			if err != nil {
 				log.Printf("torrent: searching TorBox indexer %s: %v", idx.Name, err)

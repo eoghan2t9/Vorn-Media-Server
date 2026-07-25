@@ -30,7 +30,7 @@ const (
 type PremiumizeClient struct {
 	httpClient   *http.Client
 	baseURL      string
-	limiter      *limiter
+	limiter      *Limiter
 	pollInterval time.Duration
 }
 
@@ -38,7 +38,7 @@ func NewPremiumizeClient() *PremiumizeClient {
 	return &PremiumizeClient{
 		httpClient:   &http.Client{Timeout: 30 * time.Second},
 		baseURL:      premiumizeBaseURL,
-		limiter:      newLimiter(premiumizeRateLimit),
+		limiter:      NewLimiter(premiumizeRateLimit),
 		pollInterval: pmPollInterval,
 	}
 }
@@ -275,7 +275,7 @@ func (c *PremiumizeClient) AccountInfo(ctx context.Context, apiKey string) (*Acc
 // documents this as the recommended auth method over the legacy apikey
 // query parameter. form is nil for GETs (params go in the path/query).
 func (c *PremiumizeClient) do(ctx context.Context, method, path, apiKey string, form url.Values, out any) error {
-	if err := c.limiter.wait(ctx); err != nil {
+	if err := c.limiter.Wait(ctx); err != nil {
 		return err
 	}
 

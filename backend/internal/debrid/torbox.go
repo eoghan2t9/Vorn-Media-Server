@@ -29,7 +29,7 @@ const (
 type TorBoxClient struct {
 	httpClient   *http.Client
 	baseURL      string
-	limiter      *limiter
+	limiter      *Limiter
 	pollInterval time.Duration
 }
 
@@ -37,7 +37,7 @@ func NewTorBoxClient() *TorBoxClient {
 	return &TorBoxClient{
 		httpClient:   &http.Client{Timeout: 30 * time.Second},
 		baseURL:      torBoxBaseURL,
-		limiter:      newLimiter(torBoxRateLimit),
+		limiter:      NewLimiter(torBoxRateLimit),
 		pollInterval: tbPollInterval,
 	}
 }
@@ -358,7 +358,7 @@ func (c *TorBoxClient) AccountInfo(ctx context.Context, apiKey string) (*Account
 }
 
 func (c *TorBoxClient) do(ctx context.Context, method, path, apiKey, contentType string, body io.Reader, out any) error {
-	if err := c.limiter.wait(ctx); err != nil {
+	if err := c.limiter.Wait(ctx); err != nil {
 		return err
 	}
 

@@ -7,12 +7,12 @@ import (
 )
 
 func TestLimiter_SpacesOutRequests(t *testing.T) {
-	l := newLimiter(600) // one every 100ms
+	l := NewLimiter(600) // one every 100ms
 	ctx := context.Background()
 
 	start := time.Now()
 	for i := 0; i < 3; i++ {
-		if err := l.wait(ctx); err != nil {
+		if err := l.Wait(ctx); err != nil {
 			t.Fatalf("wait: %v", err)
 		}
 	}
@@ -23,15 +23,15 @@ func TestLimiter_SpacesOutRequests(t *testing.T) {
 }
 
 func TestLimiter_ContextCancellation(t *testing.T) {
-	l := newLimiter(1) // one every 60s, so the second call must wait
+	l := NewLimiter(1) // one every 60s, so the second call must wait
 	ctx := context.Background()
-	if err := l.wait(ctx); err != nil {
+	if err := l.Wait(ctx); err != nil {
 		t.Fatalf("first wait: %v", err)
 	}
 
 	cancelCtx, cancel := context.WithTimeout(ctx, 10*time.Millisecond)
 	defer cancel()
-	if err := l.wait(cancelCtx); err == nil {
+	if err := l.Wait(cancelCtx); err == nil {
 		t.Fatal("expected context deadline error, got nil")
 	}
 }

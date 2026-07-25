@@ -6,7 +6,6 @@ import (
 	"log"
 	"time"
 
-	"github.com/eoghan2t9/vorn-media-server/backend/internal/debrid"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/store"
 )
 
@@ -24,7 +23,7 @@ const torBoxCacheTimeout = 20 * time.Minute
 // under the existing "repairing" status (accurate -- that's genuinely what's
 // happening, just off-box).
 func (svc *Service) runTorBox(rec *store.NZBDownload, data []byte, server *store.UsenetServer) {
-	client := debrid.NewTorBoxClient()
+	client := svc.torboxClient
 	ctx, cancel := context.WithTimeout(context.Background(), torBoxCacheTimeout)
 	defer cancel()
 

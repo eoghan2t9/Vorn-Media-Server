@@ -58,7 +58,7 @@ func TestRealDebridClient_Resolve(t *testing.T) {
 
 	c := NewRealDebridClient()
 	c.baseURL = srv.URL
-	c.limiter = newLimiter(1_000_000) // don't let rate limiting slow the test
+	c.limiter = NewLimiter(1_000_000) // don't let rate limiting slow the test
 
 	files, err := c.Resolve(context.Background(), "test-key", "deadbeef")
 	if err != nil {
@@ -88,7 +88,7 @@ func TestRealDebridClient_Resolve_TerminalError(t *testing.T) {
 
 	c := NewRealDebridClient()
 	c.baseURL = srv.URL
-	c.limiter = newLimiter(1_000_000)
+	c.limiter = NewLimiter(1_000_000)
 
 	if _, err := c.Resolve(context.Background(), "test-key", "deadbeef"); err == nil {
 		t.Fatal("expected an error for a dead torrent, got nil")

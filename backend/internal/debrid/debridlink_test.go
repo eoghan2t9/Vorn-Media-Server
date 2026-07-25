@@ -57,7 +57,7 @@ func TestDebridLinkClient_Resolve(t *testing.T) {
 
 	c := NewDebridLinkClient()
 	c.baseURL = srv.URL
-	c.limiter = newLimiter(1_000_000)
+	c.limiter = NewLimiter(1_000_000)
 	c.pollInterval = time.Millisecond
 
 	files, err := c.Resolve(context.Background(), "test-key", "deadbeef")
@@ -79,7 +79,7 @@ func TestDebridLinkClient_AccountInfo(t *testing.T) {
 
 	c := NewDebridLinkClient()
 	c.baseURL = srv.URL
-	c.limiter = newLimiter(1_000_000)
+	c.limiter = NewLimiter(1_000_000)
 
 	info, err := c.AccountInfo(context.Background(), "test-key")
 	if err != nil {

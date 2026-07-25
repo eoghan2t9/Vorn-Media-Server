@@ -29,13 +29,20 @@ type Service struct {
 	store       *store.Store
 	downloadDir string
 	onComplete  func(*store.NZBDownload)
+	// torboxClient is constructed once and reused for every TorBox-provider
+	// download/account-test -- it holds its own persistent rate limiter
+	// (debrid.TorBoxClient), so a fresh debrid.NewTorBoxClient() per call
+	// would give every single attempt its own independent "fresh" 300/min
+	// budget instead of a real, shared cap across repeated attempts against
+	// the same account.
+	torboxClient *debrid.TorBoxClient
 }
 
 func NewService(st *store.Store, downloadDir string) (*Service, error) {
 	if err := os.MkdirAll(downloadDir, 0o755); err != nil {
 		return nil, fmt.Errorf("nzb: creating download dir: %w", err)
 	}
-	svc := &Service{store: st, downloadDir: downloadDir}
+	svc := &Service{store: st, downloadDir: downloadDir, torboxClient: debrid.NewTorBoxClient()}
 	svc.onComplete = func(n *store.NZBDownload) {
 		if n.MediaItemID == nil {
 			PromoteCompleted(st, n)
@@ -324,7 +331,7 @@ func (svc *Service) TestServer(host string, port int, useTLS bool, username, pas
 // without requiring it to be saved as a usenet server first -- mirrors
 // TestServer's role for the NNTP path.
 func (svc *Service) TestTorBoxAccount(ctx context.Context, apiKey string) error {
-	_, err := debrid.NewTorBoxClient().AccountInfo(ctx, apiKey)
+	_, err := svc.torboxClient.AccountInfo(ctx, apiKey)
 	return err
 }
 

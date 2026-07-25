@@ -31,7 +31,7 @@ const (
 type AllDebridClient struct {
 	httpClient   *http.Client
 	baseURL      string
-	limiter      *limiter
+	limiter      *Limiter
 	pollInterval time.Duration
 }
 
@@ -39,7 +39,7 @@ func NewAllDebridClient() *AllDebridClient {
 	return &AllDebridClient{
 		httpClient:   &http.Client{Timeout: 30 * time.Second},
 		baseURL:      allDebridBaseURL,
-		limiter:      newLimiter(allDebridRateLimit),
+		limiter:      NewLimiter(allDebridRateLimit),
 		pollInterval: adPollInterval,
 	}
 }
@@ -248,7 +248,7 @@ func (c *AllDebridClient) do(ctx context.Context, path, apiKey string, form url.
 // prefix (/v4/... or /v4.1/...) since AllDebrid moved magnet/status to
 // v4.1 while everything else Vorn needs is still on v4.
 func (c *AllDebridClient) doVersioned(ctx context.Context, path, apiKey string, form url.Values, out any) error {
-	if err := c.limiter.wait(ctx); err != nil {
+	if err := c.limiter.Wait(ctx); err != nil {
 		return err
 	}
 

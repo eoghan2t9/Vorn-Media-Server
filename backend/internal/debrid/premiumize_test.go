@@ -74,7 +74,7 @@ func TestPremiumizeClient_Resolve_FallsBackToTransfer(t *testing.T) {
 
 	c := NewPremiumizeClient()
 	c.baseURL = srv.URL
-	c.limiter = newLimiter(1_000_000)
+	c.limiter = NewLimiter(1_000_000)
 	c.pollInterval = time.Millisecond
 
 	files, err := c.Resolve(context.Background(), "test-key", "deadbeef")
@@ -96,7 +96,7 @@ func TestPremiumizeClient_AccountInfo(t *testing.T) {
 
 	c := NewPremiumizeClient()
 	c.baseURL = srv.URL
-	c.limiter = newLimiter(1_000_000)
+	c.limiter = NewLimiter(1_000_000)
 
 	info, err := c.AccountInfo(context.Background(), "test-key")
 	if err != nil {

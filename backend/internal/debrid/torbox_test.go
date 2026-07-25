@@ -142,7 +142,7 @@ func TestTorBoxClient_Resolve(t *testing.T) {
 
 	c := NewTorBoxClient()
 	c.baseURL = srv.URL
-	c.limiter = newLimiter(1_000_000)
+	c.limiter = NewLimiter(1_000_000)
 	c.pollInterval = time.Millisecond
 
 	files, err := c.Resolve(context.Background(), "test-key", "deadbeef")
@@ -168,7 +168,7 @@ func TestTorBoxClient_Usenet(t *testing.T) {
 
 	c := NewTorBoxClient()
 	c.baseURL = srv.URL
-	c.limiter = newLimiter(1_000_000)
+	c.limiter = NewLimiter(1_000_000)
 	c.pollInterval = time.Millisecond
 
 	ctx := context.Background()
@@ -216,7 +216,7 @@ func TestTorBoxClient_UsenetInfo_BareObjectShape(t *testing.T) {
 
 	c := NewTorBoxClient()
 	c.baseURL = srv.URL
-	c.limiter = newLimiter(1_000_000)
+	c.limiter = NewLimiter(1_000_000)
 
 	item, err := c.usenetInfo(context.Background(), "test-key", 42)
 	if err != nil {

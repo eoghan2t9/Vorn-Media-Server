@@ -29,7 +29,7 @@ const (
 type DebridLinkClient struct {
 	httpClient   *http.Client
 	baseURL      string
-	limiter      *limiter
+	limiter      *Limiter
 	pollInterval time.Duration
 }
 
@@ -37,7 +37,7 @@ func NewDebridLinkClient() *DebridLinkClient {
 	return &DebridLinkClient{
 		httpClient:   &http.Client{Timeout: 30 * time.Second},
 		baseURL:      debridLinkBaseURL,
-		limiter:      newLimiter(debridLinkRateLimit),
+		limiter:      NewLimiter(debridLinkRateLimit),
 		pollInterval: dlPollInterval,
 	}
 }
@@ -177,7 +177,7 @@ func (c *DebridLinkClient) AccountInfo(ctx context.Context, apiKey string) (*Acc
 // do issues a request with the API key as a Bearer token. form is nil for
 // GETs (params go in the path/query, as built by callers above).
 func (c *DebridLinkClient) do(ctx context.Context, method, path, apiKey string, form url.Values, out any) error {
-	if err := c.limiter.wait(ctx); err != nil {
+	if err := c.limiter.Wait(ctx); err != nil {
 		return err
 	}
 

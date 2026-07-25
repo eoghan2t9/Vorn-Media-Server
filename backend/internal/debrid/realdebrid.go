@@ -26,7 +26,7 @@ const (
 type RealDebridClient struct {
 	httpClient   *http.Client
 	baseURL      string
-	limiter      *limiter
+	limiter      *Limiter
 	pollInterval time.Duration
 }
 
@@ -34,7 +34,7 @@ func NewRealDebridClient() *RealDebridClient {
 	return &RealDebridClient{
 		httpClient:   &http.Client{Timeout: 30 * time.Second},
 		baseURL:      realDebridBaseURL,
-		limiter:      newLimiter(realDebridRateLimit),
+		limiter:      NewLimiter(realDebridRateLimit),
 		pollInterval: rdPollInterval,
 	}
 }
@@ -212,7 +212,7 @@ func (c *RealDebridClient) doForm(ctx context.Context, method, path, apiKey stri
 }
 
 func (c *RealDebridClient) do(ctx context.Context, method, path, apiKey, contentType string, body io.Reader, out any) error {
-	if err := c.limiter.wait(ctx); err != nil {
+	if err := c.limiter.Wait(ctx); err != nil {
 		return err
 	}
 

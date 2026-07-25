@@ -12,19 +12,28 @@ import (
 	lt "github.com/anacrolix/torrent"
 	"github.com/anacrolix/torrent/metainfo"
 
+	"github.com/eoghan2t9/vorn-media-server/backend/internal/debrid"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/store"
 )
 
 const progressPollInterval = 2 * time.Second
 
+// torBoxSearchRateLimit matches TorBox's own documented per-key cap (see
+// debrid.torBoxRateLimit) -- torBoxLimiter is one long-lived instance
+// shared across every SearchByIMDb call this Service ever makes, not a
+// fresh one per search, so the cap is a real, enforced budget rather than
+// each search getting its own independent "fresh" window.
+const torBoxSearchRateLimit = 300
+
 // Service manages the lifecycle of BitTorrent downloads: adding magnets or
 // .torrent files, persisting progress into Postgres, and promoting
 // completed downloads into the library.
 type Service struct {
-	store       *store.Store
-	client      *lt.Client
-	downloadDir string
-	onComplete  func(*store.Torrent)
+	store         *store.Store
+	client        *lt.Client
+	downloadDir   string
+	onComplete    func(*store.Torrent)
+	torboxLimiter *debrid.Limiter
 
 	mu     sync.Mutex
 	active map[string]*lt.Torrent // info hash -> handle
@@ -39,10 +48,11 @@ func NewService(st *store.Store, downloadDir string, peerPort int) (*Service, er
 		return nil, fmt.Errorf("torrent: creating client: %w", err)
 	}
 	svc := &Service{
-		store:       st,
-		client:      cl,
-		downloadDir: downloadDir,
-		active:      make(map[string]*lt.Torrent),
+		store:         st,
+		client:        cl,
+		downloadDir:   downloadDir,
+		active:        make(map[string]*lt.Torrent),
+		torboxLimiter: debrid.NewLimiter(torBoxSearchRateLimit),
 	}
 	svc.onComplete = func(t *store.Torrent) { PromoteCompleted(st, t) }
 	svc.resumeActive()
