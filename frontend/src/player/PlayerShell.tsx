@@ -168,7 +168,11 @@ export function PlayerShell({
   function togglePlay() {
     const video = videoRef.current
     if (!video) return
-    if (video.paused) video.play().catch(() => {})
+    // Unlike attach()'s initial autoplay attempt (expected to fail silently
+    // without a user gesture), this is a direct response to a click -- a
+    // rejection here means something is actually wrong, so surface it
+    // instead of swallowing it the same way.
+    if (video.paused) video.play().catch((err) => console.error('vorn player: play() failed', err))
     else video.pause()
     setCenterBounce(true)
     setTimeout(() => setCenterBounce(false), 400)
@@ -284,7 +288,13 @@ export function PlayerShell({
       className={`vorn-player ${controlsVisible ? '' : 'vorn-player-controls-hidden'}`}
       onPointerMove={() => showControls()}
     >
-      <video ref={videoRef} className="vorn-video" onEnded={onEnded}>
+      {/* playsInline is required on iOS Safari -- without it, calling
+          video.play() hands playback off to the OS's own fullscreen video
+          player instead of playing inline through these controls, which
+          looks exactly like "the play button does nothing" since our UI
+          just sits there while the native player (may) takes over
+          elsewhere. */}
+      <video ref={videoRef} className="vorn-video" playsInline onEnded={onEnded}>
         {itemId && subtitleLanguage !== 'off' && (
           <track key={subtitleLanguage} kind="subtitles" src={subtitlesUrl(itemId, subtitleLanguage)} srcLang={subtitleLanguage} default />
         )}
