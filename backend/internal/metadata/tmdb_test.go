@@ -246,6 +246,43 @@ func TestGetSeasonDetails(t *testing.T) {
 	}
 }
 
+func TestFindByExternalID_TV(t *testing.T) {
+	client := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.URL.Path, "/find/360115") {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		if r.URL.Query().Get("external_source") != "tvdb_id" {
+			t.Errorf("expected external_source=tvdb_id, got %s", r.URL.RawQuery)
+		}
+		json.NewEncoder(w).Encode(map[string]any{
+			"movie_results": []any{},
+			"tv_results":    []map[string]any{{"name": "Prison Break"}},
+		})
+	})
+
+	title, err := client.FindByExternalID(context.Background(), "360115", "tvdb_id")
+	if err != nil {
+		t.Fatalf("FindByExternalID: %v", err)
+	}
+	if title != "Prison Break" {
+		t.Fatalf("expected 'Prison Break', got %q", title)
+	}
+}
+
+func TestFindByExternalID_NoMatch(t *testing.T) {
+	client := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"movie_results": []any{}, "tv_results": []any{}})
+	})
+
+	title, err := client.FindByExternalID(context.Background(), "tt9999999", "imdb_id")
+	if err != nil {
+		t.Fatalf("FindByExternalID: %v", err)
+	}
+	if title != "" {
+		t.Fatalf("expected empty title for no match, got %q", title)
+	}
+}
+
 func TestImageURL(t *testing.T) {
 	if got := imageURL(""); got != "" {
 		t.Errorf("imageURL(\"\") = %q, want empty", got)

@@ -516,6 +516,37 @@ func (c *TMDbClient) externalIDs(ctx context.Context, kind string, id int) (*tmd
 	return &resp, nil
 }
 
+type tmdbFindResponse struct {
+	MovieResults []struct {
+		Title string `json:"title"`
+	} `json:"movie_results"`
+	TVResults []struct {
+		Name string `json:"name"`
+	} `json:"tv_results"`
+}
+
+// FindByExternalID resolves an IMDb/TheTVDB id to a plain title via TMDb's
+// /find endpoint (external_source "imdb_id" or "tvdb_id") -- used to give
+// indexers that don't support id-based search at all (confirmed against a
+// live EZTV instance, whose tv-search only accepts q/season/ep, no
+// imdbid/tvdbid) a real free-text query to work with instead of failing
+// silently on an id they can't use. Returns "" (no error) if TMDb has no
+// match, since that's a normal outcome for an obscure or very new title.
+func (c *TMDbClient) FindByExternalID(ctx context.Context, externalID, source string) (string, error) {
+	var resp tmdbFindResponse
+	query := url.Values{"external_source": {source}}
+	if err := c.get(ctx, fmt.Sprintf("/find/%s", externalID), query, &resp); err != nil {
+		return "", err
+	}
+	if len(resp.TVResults) > 0 {
+		return resp.TVResults[0].Name, nil
+	}
+	if len(resp.MovieResults) > 0 {
+		return resp.MovieResults[0].Title, nil
+	}
+	return "", nil
+}
+
 func imageURL(path string) string {
 	if path == "" {
 		return ""

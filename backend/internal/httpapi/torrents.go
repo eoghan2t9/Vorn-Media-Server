@@ -164,31 +164,39 @@ func (s *Server) handleTorrentSearch(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "q is required")
 		return
 	}
-	results, err := s.torrentSvc.Load().Search(r.Context(), q)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "searching indexers")
-		return
-	}
-	// A bare IMDb ID (e.g. "tt0295701") typed into this box would otherwise
-	// only ever be sent as a literal free-text query, which finds nothing --
-	// route it through the same id-based search acquisition uses
-	// internally too, merging in whatever it finds. See imdbIDPattern in
-	// nzb.go.
+	// See handleNZBSearch for the full reasoning: a bare IMDb ID or explicit
+	// "tvdb:12345" query is useless as free text, so it's resolved to a
+	// plain title via TMDb (for indexers with no id-search support at all,
+	// confirmed against a live EZTV instance) and searched both ways,
+	// merging whatever either finds.
+	var imdbID, tvdbID string
 	if imdbIDPattern.MatchString(q) {
-		if idResults, err := s.torrentSvc.Load().SearchByIMDb(r.Context(), q, "", 0, 0); err != nil {
-			log.Printf("httpapi: id-based torrent search for %q: %v", q, err)
-		} else {
-			results = append(results, idResults...)
-		}
+		imdbID = q
+	} else if m := tvdbIDPattern.FindStringSubmatch(q); m != nil {
+		tvdbID = m[1]
 	}
-	// TheTVDB id needs an explicit "tvdb:12345" prefix -- see tvdbIDPattern
-	// in nzb.go.
-	if m := tvdbIDPattern.FindStringSubmatch(q); m != nil {
-		if idResults, err := s.torrentSvc.Load().SearchByIMDb(r.Context(), "", m[1], 0, 0); err != nil {
+
+	var results []torrent.SearchResult
+	if imdbID != "" || tvdbID != "" {
+		if title := resolveIDToTitle(r.Context(), s.tmdb.Load(), imdbID, tvdbID); title != "" {
+			if titleResults, err := s.torrentSvc.Load().Search(r.Context(), title); err != nil {
+				log.Printf("httpapi: title-based torrent search for %q: %v", title, err)
+			} else {
+				results = append(results, titleResults...)
+			}
+		}
+		if idResults, err := s.torrentSvc.Load().SearchByIMDb(r.Context(), imdbID, tvdbID, 0, 0); err != nil {
 			log.Printf("httpapi: id-based torrent search for %q: %v", q, err)
 		} else {
 			results = append(results, idResults...)
 		}
+	} else {
+		res, err := s.torrentSvc.Load().Search(r.Context(), q)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "searching indexers")
+			return
+		}
+		results = res
 	}
 	resp := make([]torrentSearchResult, 0, len(results))
 	for _, res := range results {

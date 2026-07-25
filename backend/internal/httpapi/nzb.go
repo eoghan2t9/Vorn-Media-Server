@@ -1,12 +1,14 @@
 package httpapi
 
 import (
+	"context"
 	"io"
 	"log"
 	"net/http"
 	"regexp"
 	"time"
 
+	"github.com/eoghan2t9/vorn-media-server/backend/internal/metadata"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/nzb"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/store"
 )
@@ -26,6 +28,29 @@ var imdbIDPattern = regexp.MustCompile(`^tt\d+$`)
 // normal (if unusual) free-text search term, so it needs an explicit
 // prefix rather than being auto-detected the way imdbIDPattern is.
 var tvdbIDPattern = regexp.MustCompile(`(?i)^tvdb:(\d+)$`)
+
+// resolveIDToTitle looks up a plain title for imdbID/tvdbID (exactly one
+// expected non-empty) via TMDb, for indexers that don't support id-based
+// search at all -- confirmed against a live EZTV instance, whose tv-search
+// only accepts q/season/ep, no imdbid/tvdbid, so an id-only query there
+// finds nothing no matter how it's sent. "" (both no error and no title)
+// is a normal outcome (TMDb has no configured client, or no match) --
+// callers just skip the extra free-text search in that case.
+func resolveIDToTitle(ctx context.Context, tmdbClient *metadata.TMDbClient, imdbID, tvdbID string) string {
+	if tmdbClient == nil {
+		return ""
+	}
+	source, id := "imdb_id", imdbID
+	if tvdbID != "" {
+		source, id = "tvdb_id", tvdbID
+	}
+	title, err := tmdbClient.FindByExternalID(ctx, id, source)
+	if err != nil {
+		log.Printf("httpapi: resolving %s %s to a title: %v", source, id, err)
+		return ""
+	}
+	return title
+}
 
 type nzbDownloadResponse struct {
 	ID          string  `json:"id"`
@@ -307,33 +332,44 @@ func (s *Server) handleNZBSearch(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "q is required")
 		return
 	}
-	results, err := s.nzbSvc.Load().Search(r.Context(), q)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "searching indexers")
-		return
-	}
-	// A bare IMDb ID (e.g. "tt0295701") typed into this box would otherwise
-	// only ever be sent as a literal free-text query, which finds nothing
-	// on real indexers -- confirmed live against NZBGeek: t=search&q=
-	// tt0295701 returns zero results, while t=movie&imdbid=0295701 returns
-	// real releases. Route it through the same id-based search
-	// acquisition uses internally too, merging in whatever it finds.
+	// A bare IMDb ID (e.g. "tt0295701") or an explicit "tvdb:12345" query
+	// would otherwise only ever be sent as a literal free-text query, which
+	// finds nothing on real indexers -- confirmed live against NZBGeek:
+	// t=search&q=tt0295701 returns zero results, while
+	// t=movie&imdbid=0295701 returns real releases. So for either shape,
+	// skip searching the raw id text and instead: (1) run the same
+	// id-based search acquisition uses internally, and (2) resolve the id
+	// to a plain title via TMDb and search *that* as free text too --
+	// needed because some real indexers (confirmed against a live EZTV
+	// instance) don't support id-based tv-search at all, only q/season/ep.
+	var imdbID, tvdbID string
 	if imdbIDPattern.MatchString(q) {
-		if idResults, err := s.nzbSvc.Load().SearchByIMDb(r.Context(), q, "", 0, 0); err != nil {
-			log.Printf("httpapi: id-based NZB search for %q: %v", q, err)
-		} else {
-			results = append(results, idResults...)
-		}
+		imdbID = q
+	} else if m := tvdbIDPattern.FindStringSubmatch(q); m != nil {
+		tvdbID = m[1]
 	}
-	// TheTVDB id has no unambiguous shape of its own to auto-detect (just a
-	// plain number), so it needs an explicit "tvdb:12345" prefix rather
-	// than pattern-matching a bare query the way imdbIDPattern does.
-	if m := tvdbIDPattern.FindStringSubmatch(q); m != nil {
-		if idResults, err := s.nzbSvc.Load().SearchByIMDb(r.Context(), "", m[1], 0, 0); err != nil {
+
+	var results []nzb.SearchResult
+	if imdbID != "" || tvdbID != "" {
+		if title := resolveIDToTitle(r.Context(), s.tmdb.Load(), imdbID, tvdbID); title != "" {
+			if titleResults, err := s.nzbSvc.Load().Search(r.Context(), title); err != nil {
+				log.Printf("httpapi: title-based NZB search for %q: %v", title, err)
+			} else {
+				results = append(results, titleResults...)
+			}
+		}
+		if idResults, err := s.nzbSvc.Load().SearchByIMDb(r.Context(), imdbID, tvdbID, 0, 0); err != nil {
 			log.Printf("httpapi: id-based NZB search for %q: %v", q, err)
 		} else {
 			results = append(results, idResults...)
 		}
+	} else {
+		res, err := s.nzbSvc.Load().Search(r.Context(), q)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "searching indexers")
+			return
+		}
+		results = res
 	}
 	resp := make([]nzbSearchResult, 0, len(results))
 	for _, res := range results {
