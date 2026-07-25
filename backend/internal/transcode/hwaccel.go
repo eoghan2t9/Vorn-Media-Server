@@ -18,6 +18,12 @@ type Backend struct {
 	Encoder    string // ffmpeg -c:v value, e.g. "h264_vaapi"
 	DeviceArgs []string
 	FilterArgs []string
+	// ExtraArgs are appended right before -c:v -- currently only used to
+	// give the software backend a faster libx264 preset (hardware encoders
+	// have no equivalent preset knob worth tuning here, and a real GPU
+	// encode is already fast enough that the default matters far less than
+	// it does on a CPU-bound host).
+	ExtraArgs []string
 }
 
 const probeTimeout = 8 * time.Second
@@ -46,7 +52,12 @@ func DetectBackends(ctx context.Context) []Backend {
 	case "darwin":
 		candidates = append(candidates, Backend{Name: "videotoolbox", Encoder: "h264_videotoolbox"})
 	}
-	candidates = append(candidates, Backend{Name: "software", Encoder: "libx264"})
+	// veryfast trades some compression efficiency (a somewhat larger output
+	// for the same visual quality -- CRF/quality target is a separate,
+	// unaffected knob) for meaningfully faster encode throughput, directly
+	// cutting time-to-first-segment on a CPU-only host -- the default
+	// medium preset is tuned for offline encoding, not a live HLS start.
+	candidates = append(candidates, Backend{Name: "software", Encoder: "libx264", ExtraArgs: []string{"-preset", "veryfast"}})
 
 	var working []Backend
 	for _, b := range candidates {
@@ -98,6 +109,7 @@ func probeBackend(ctx context.Context, b Backend) bool {
 	args = append(args, b.DeviceArgs...)
 	args = append(args, "-f", "lavfi", "-i", "testsrc=size=320x240:rate=1:duration=1")
 	args = append(args, b.FilterArgs...)
+	args = append(args, b.ExtraArgs...)
 	args = append(args, "-c:v", b.Encoder, "-frames:v", "1", "-f", "null", "-")
 
 	cmd := exec.CommandContext(ctx, "ffmpeg", args...)

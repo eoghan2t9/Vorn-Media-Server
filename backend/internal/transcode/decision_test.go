@@ -11,10 +11,11 @@ func TestDecide(t *testing.T) {
 		{"h264+aac direct plays", MediaInfo{VideoCodec: "h264", AudioCodec: "aac"}, ModeDirect},
 		{"vp9+opus direct plays", MediaInfo{VideoCodec: "vp9", AudioCodec: "opus"}, ModeDirect},
 		{"hevc needs transcode", MediaInfo{VideoCodec: "hevc", AudioCodec: "aac"}, ModeTranscode},
-		{"h264 with dts audio needs transcode", MediaInfo{VideoCodec: "h264", AudioCodec: "dts"}, ModeTranscode},
+		{"h264 with dts audio only needs a remux (video stream copied as-is)", MediaInfo{VideoCodec: "h264", AudioCodec: "dts"}, ModeRemux},
+		{"hevc with dts audio needs a full transcode (video also incompatible)", MediaInfo{VideoCodec: "hevc", AudioCodec: "dts"}, ModeTranscode},
 		{"unknown codecs need transcode", MediaInfo{}, ModeTranscode},
 		{"audio-only mp3 direct plays (no video stream at all)", MediaInfo{AudioCodec: "mp3"}, ModeDirect},
-		{"audio-only with incompatible codec needs transcode", MediaInfo{AudioCodec: "flac"}, ModeTranscode},
+		{"audio-only with incompatible codec needs transcode, not remux (no video stream to copy)", MediaInfo{AudioCodec: "flac"}, ModeTranscode},
 	}
 
 	for _, c := range cases {

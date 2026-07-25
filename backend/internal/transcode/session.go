@@ -89,9 +89,12 @@ func (m *Manager) bestBackend() Backend {
 
 // StartSession launches an ffmpeg process that transcodes sourcePath into
 // an HLS playlist + segments under a per-session directory, using the best
-// available backend. It blocks only until the queue slot is acquired and
+// available backend. copyVideo (see transcode.ModeRemux) skips video
+// re-encoding entirely -- the video stream is copied as-is and only audio
+// is converted, for a file whose video codec is already web-compatible but
+// whose audio isn't. It blocks only until the queue slot is acquired and
 // the process has been started, not until transcoding finishes.
-func (m *Manager) StartSession(ctx context.Context, id, sourcePath string) (*Session, error) {
+func (m *Manager) StartSession(ctx context.Context, id, sourcePath string, copyVideo bool) (*Session, error) {
 	outDir := filepath.Join(m.outputRoot, id)
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return nil, fmt.Errorf("transcode: creating output dir: %w", err)
@@ -112,11 +115,11 @@ func (m *Manager) StartSession(ctx context.Context, id, sourcePath string) (*Ses
 	m.sessions[id] = sess
 	m.mu.Unlock()
 
-	go m.run(sessCtx, sess, backend)
+	go m.run(sessCtx, sess, backend, copyVideo)
 	return sess, nil
 }
 
-func (m *Manager) run(ctx context.Context, sess *Session, backend Backend) {
+func (m *Manager) run(ctx context.Context, sess *Session, backend Backend, copyVideo bool) {
 	select {
 	case m.sem <- struct{}{}:
 	case <-ctx.Done():
@@ -126,13 +129,21 @@ func (m *Manager) run(ctx context.Context, sess *Session, backend Backend) {
 	defer func() { <-m.sem }()
 
 	args := []string{"-hide_banner", "-y", "-i", sess.SourcePath}
-	args = append(args, backend.DeviceArgs...)
-	args = append(args, backend.FilterArgs...)
+	if copyVideo {
+		// No device/filter/preset args -- those all only matter when
+		// actually encoding video, which a stream copy skips entirely.
+		args = append(args, "-c:v", "copy")
+		log.Printf("transcode: session %s remuxing (video copied as-is, audio only)", sess.ID)
+	} else {
+		args = append(args, backend.DeviceArgs...)
+		args = append(args, backend.FilterArgs...)
+		args = append(args, backend.ExtraArgs...)
+		args = append(args, "-c:v", backend.Encoder)
+	}
 	args = append(args,
-		"-c:v", backend.Encoder,
 		"-c:a", "aac",
 		"-f", "hls",
-		"-hls_time", "4",
+		"-hls_time", "2",
 		"-hls_playlist_type", "event",
 		"-hls_segment_filename", filepath.Join(sess.OutputDir, "seg%05d.ts"),
 		sess.PlaylistPath(),

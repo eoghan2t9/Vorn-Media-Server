@@ -124,7 +124,8 @@ func (s *Server) handlePlayItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if transcode.Decide(info) == transcode.ModeDirect {
+	mode := transcode.Decide(info)
+	if mode == transcode.ModeDirect {
 		writeJSON(w, http.StatusOK, playResponse{Mode: "direct", DirectURL: "/api/stream/direct/" + item.ID})
 		return
 	}
@@ -134,8 +135,10 @@ func (s *Server) handlePlayItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// ModeRemux is an internal distinction only -- the client just needs to
+	// know "there's a session to poll", same as a full transcode.
 	sessionID := uuid.NewString()
-	sess, err := s.transcodeMgr.StartSession(context.Background(), sessionID, *item.Path)
+	sess, err := s.transcodeMgr.StartSession(context.Background(), sessionID, *item.Path, mode == transcode.ModeRemux)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "starting transcode session")
 		return
