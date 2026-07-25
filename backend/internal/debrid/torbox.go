@@ -171,17 +171,17 @@ func (c *TorBoxClient) requestDownloadLink(ctx context.Context, apiKey string, t
 	return resp.Data, nil
 }
 
-// tbCreateUsenetData mirrors TorBox's own SDK schema for this endpoint,
-// which -- unlike /torrents/createtorrent's numeric torrent_id -- returns
-// the new download's ID as a string field named usenetdownload_id (not
-// usenet_id, and not a number). Getting this wrong previously meant
-// UsenetID silently zero-valued, so every subsequent poll/download-link
-// call operated on id=0, which usenetInfo's "fall back to the first list
-// entry" branch masked by silently returning whatever unrelated download
-// happened to be first in the account's list instead of erroring loudly.
+// tbCreateUsenetData: the new download's ID comes back as usenetdownload_id
+// (not usenet_id, which was the original bug here -- it silently
+// zero-valued, so every subsequent poll/download-link call operated on
+// id=0, which usenetInfo's "fall back to the first list entry" branch
+// masked by silently returning whatever unrelated download happened to be
+// first in the account's list). It's a JSON number, confirmed directly
+// against the live API (a community SDK had modeled it as a string, which
+// production immediately rejected with a JSON unmarshal error).
 type tbCreateUsenetData struct {
-	UsenetDownloadID string `json:"usenetdownload_id"`
-	Hash             string `json:"hash"`
+	UsenetDownloadID float64 `json:"usenetdownload_id"`
+	Hash             string  `json:"hash"`
 }
 
 // CreateUsenetDownload submits a raw .nzb file to TorBox's own Usenet
@@ -212,11 +212,7 @@ func (c *TorBoxClient) CreateUsenetDownload(ctx context.Context, apiKey string, 
 	if !resp.Success {
 		return 0, fmt.Errorf("torbox: %s", resp.Detail)
 	}
-	id, err := strconv.Atoi(resp.Data.UsenetDownloadID)
-	if err != nil {
-		return 0, fmt.Errorf("torbox: parsing usenetdownload_id %q: %w", resp.Data.UsenetDownloadID, err)
-	}
-	return id, nil
+	return int(resp.Data.UsenetDownloadID), nil
 }
 
 type tbUsenetInfo struct {
