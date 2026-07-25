@@ -124,7 +124,13 @@ export function WatchPage() {
       const url = play.mode === 'direct' ? `${API_BASE}${play.directUrl}` : `${API_BASE}${play.playlistUrl}`
 
       if (play.mode === 'transcode' && Hls.isSupported()) {
-        const hls = new Hls()
+        // The API and the frontend are on different origins/ports (see
+        // API_BASE) -- hls.js's default XHR loader doesn't send the
+        // session cookie cross-origin unless told to, so every playlist/
+        // segment fetch 401s and playback never starts. withCredentials
+        // mirrors the credentials:'include' the rest of client.ts already
+        // sets on every fetch() call.
+        const hls = new Hls({ xhrSetup: (xhr) => { xhr.withCredentials = true } })
         hlsRef.current = hls
         // Only fatal errors -- hls.js already retries recoverable ones
         // (a dropped segment, a transient stall) internally, so reacting to
