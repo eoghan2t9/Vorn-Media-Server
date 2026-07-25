@@ -2,15 +2,18 @@ package httpapi
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"log"
 	"net"
 	"net/http"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/acquisition"
+	"github.com/eoghan2t9/vorn-media-server/backend/internal/config"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/debrid"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/logging"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/metadata"
@@ -28,24 +31,21 @@ import (
 
 const sessionCookieName = "vorn_session"
 
-// Deps bundles everything the HTTP layer needs. Fields other than Store are
-// nil-able: each represents a subsystem that may be unconfigured (no TMDb
-// key, no ffmpeg found, ...), and every handler that uses one must degrade
-// gracefully (typically a 503) rather than assume it's present.
+// Deps bundles everything the HTTP layer needs. Metadata/Debrid/Notify are
+// still handed in pre-built (credential-free or internally hot-reloading
+// already); Config is the raw env-var config Server.reconfigure needs to
+// (re)build TMDb/torrent/NZB/subtitles/acquisition itself -- see reconfigure
+// for why those aren't pre-built here the way they used to be.
 type Deps struct {
 	Store        *store.Store
+	Config       config.Config
 	PostgresDSN  string
 	BackupDir    string
 	Scanner      *scanner.Service
 	Metadata     *metadata.Service
-	TMDb         *metadata.TMDbClient
 	TranscodeMgr *transcode.Manager
-	Torrent      *torrent.Service
-	NZB          *nzb.Service
 	Debrid       *debrid.Service
-	Acquisition  *acquisition.Service
 	Notify       *notify.Service
-	Subtitles    *subtitles.Service
 	Update       *update.Service
 	LogBuffer    *logging.Buffer
 	SysStats     *sysstats.Sampler
@@ -59,14 +59,14 @@ type Server struct {
 	backupDir    string
 	scanner      *scanner.Service
 	metadataSvc  *metadata.Service
-	tmdb         *metadata.TMDbClient
+	tmdb         atomic.Pointer[metadata.TMDbClient]
 	transcodeMgr *transcode.Manager
-	torrentSvc   *torrent.Service
-	nzbSvc       *nzb.Service
+	torrentSvc   atomic.Pointer[torrent.Service]
+	nzbSvc       atomic.Pointer[nzb.Service]
 	debridSvc    *debrid.Service
-	acquisition  *acquisition.Service
+	acquisition  atomic.Pointer[acquisition.Service]
 	notify       *notify.Service
-	subtitlesSvc *subtitles.Service
+	subtitlesSvc atomic.Pointer[subtitles.Service]
 	updateSvc    *update.Service
 	logBuffer    *logging.Buffer
 	sysStats     *sysstats.Sampler
@@ -80,6 +80,20 @@ type Server struct {
 	// so it's cached here (refreshed whenever the admin updates server
 	// settings) rather than hitting Postgres per request.
 	trustCloudflare atomic.Bool
+
+	// baseCfg is the env-var config captured once at boot. reconfigure
+	// merges it with the latest Admin > Integrations DB settings (which take
+	// precedence when set) every time it runs -- TMDb/OpenSubtitles/Fanart/
+	// OMDb/TVDb credentials and the torrent/NZB enable toggles all take
+	// effect immediately this way, no restart needed.
+	baseCfg config.Config
+	// reconfigureMu serializes reconfigure() calls so starting/stopping the
+	// same subsystem from two concurrent admin saves can't race.
+	reconfigureMu sync.Mutex
+	// monitorCancel stops the on-demand-acquisition MonitorScheduler
+	// goroutine before a freshly (re)built acquisition service replaces the
+	// old one -- guarded by reconfigureMu.
+	monitorCancel context.CancelFunc
 }
 
 func NewServer(deps Deps) *Server {
@@ -89,25 +103,154 @@ func NewServer(deps Deps) *Server {
 		backupDir:    deps.BackupDir,
 		scanner:      deps.Scanner,
 		metadataSvc:  deps.Metadata,
-		tmdb:         deps.TMDb,
 		transcodeMgr: deps.TranscodeMgr,
-		torrentSvc:   deps.Torrent,
-		nzbSvc:       deps.NZB,
 		debridSvc:    deps.Debrid,
-		acquisition:  deps.Acquisition,
 		notify:       deps.Notify,
-		subtitlesSvc: deps.Subtitles,
 		updateSvc:    deps.Update,
 		logBuffer:    deps.LogBuffer,
 		sysStats:     deps.SysStats,
 		devMode:      deps.DevMode,
 		serverID:     uuid.NewString(),
+		baseCfg:      deps.Config,
 	}
 	if settings, err := s.store.GetServerSettings(); err == nil {
 		s.trustCloudflare.Store(settings.TrustCloudflare)
 	}
 	startCloudflareRangeRefresh()
+	if err := s.reconfigure(); err != nil {
+		log.Printf("httpapi: initial reconfigure: %v", err)
+	}
 	return s
+}
+
+// reconfigure (re)builds every credential-driven subsystem -- TMDb/Fanart/
+// OMDb/TVDb-backed metadata providers, the standalone discover-search TMDb
+// client, OpenSubtitles, torrent, NZB, and (derived from the last two)
+// on-demand acquisition -- from baseCfg merged with the latest Admin >
+// Integrations DB settings. Called once at NewServer time and again by
+// handleUpdateIntegrationSettings after every save, so a credential change
+// or an acquisition-source toggle takes effect on the very next request,
+// no restart. Torrent/NZB are only actually started/stopped when their
+// desired state changed since the last call, so an unrelated save (e.g.
+// just a TMDb key edit) doesn't churn an already-running client.
+func (s *Server) reconfigure() error {
+	s.reconfigureMu.Lock()
+	defer s.reconfigureMu.Unlock()
+
+	intSettings, err := s.store.GetIntegrationSettings()
+	if err != nil {
+		return err
+	}
+
+	tmdbKey := s.baseCfg.TMDbAPIKey
+	if intSettings.TMDbAPIKey != "" {
+		tmdbKey = intSettings.TMDbAPIKey
+	}
+	tvdbKey, tvdbPin := s.baseCfg.TVDbAPIKey, s.baseCfg.TVDbPin
+	if intSettings.TVDbAPIKey != "" {
+		tvdbKey = intSettings.TVDbAPIKey
+	}
+	if intSettings.TVDbPin != "" {
+		tvdbPin = intSettings.TVDbPin
+	}
+	fanartKey := s.baseCfg.FanartAPIKey
+	if intSettings.FanartAPIKey != "" {
+		fanartKey = intSettings.FanartAPIKey
+	}
+	omdbKey := s.baseCfg.OMDbAPIKey
+	if intSettings.OMDbAPIKey != "" {
+		omdbKey = intSettings.OMDbAPIKey
+	}
+	osKey, osUser, osPass := s.baseCfg.OpenSubtitlesAPIKey, s.baseCfg.OpenSubtitlesUser, s.baseCfg.OpenSubtitlesPass
+	if intSettings.OpenSubtitlesAPIKey != "" {
+		osKey = intSettings.OpenSubtitlesAPIKey
+	}
+	if intSettings.OpenSubtitlesUsername != "" {
+		osUser = intSettings.OpenSubtitlesUsername
+	}
+	if intSettings.OpenSubtitlesPassword != "" {
+		osPass = intSettings.OpenSubtitlesPassword
+	}
+	torrentEnabled := s.baseCfg.TorrentEnabled
+	if intSettings.TorrentEnabled != nil {
+		torrentEnabled = *intSettings.TorrentEnabled
+	}
+	nzbEnabled := s.baseCfg.NZBEnabled
+	if intSettings.NZBEnabled != nil {
+		nzbEnabled = *intSettings.NZBEnabled
+	}
+
+	s.metadataSvc.Reconfigure(metadata.ProviderConfig{
+		TMDbAPIKey: tmdbKey, TVDbAPIKey: tvdbKey, TVDbPin: tvdbPin, FanartAPIKey: fanartKey, OMDbAPIKey: omdbKey,
+	})
+
+	if tmdbKey != "" {
+		s.tmdb.Store(metadata.NewTMDbClient(tmdbKey))
+	} else {
+		s.tmdb.Store(nil)
+	}
+
+	if osKey != "" && osUser != "" {
+		subSvc, err := subtitles.NewService(osKey, osUser, osPass, s.baseCfg.SubtitlesCacheDir)
+		if err != nil {
+			log.Printf("httpapi: reconfiguring subtitles service: %v", err)
+			s.subtitlesSvc.Store(nil)
+		} else {
+			s.subtitlesSvc.Store(subSvc)
+		}
+	} else {
+		s.subtitlesSvc.Store(nil)
+	}
+
+	if torrentEnabled && s.torrentSvc.Load() == nil {
+		ts, err := torrent.NewService(s.store, s.baseCfg.TorrentDownloadDir, s.baseCfg.TorrentPeerPort)
+		if err != nil {
+			log.Printf("httpapi: starting torrent service: %v", err)
+		} else {
+			s.torrentSvc.Store(ts)
+		}
+	} else if !torrentEnabled {
+		if old := s.torrentSvc.Swap(nil); old != nil {
+			old.Close()
+		}
+	}
+
+	if nzbEnabled && s.nzbSvc.Load() == nil {
+		ns, err := nzb.NewService(s.store, s.baseCfg.NZBDownloadDir)
+		if err != nil {
+			log.Printf("httpapi: starting nzb service: %v", err)
+		} else {
+			s.nzbSvc.Store(ns)
+		}
+	} else if !nzbEnabled {
+		s.nzbSvc.Store(nil)
+	}
+
+	tmdbClient, torrentSvc := s.tmdb.Load(), s.torrentSvc.Load()
+	wantAcquisition := tmdbClient != nil && torrentSvc != nil
+	current := s.acquisition.Load()
+	// Rebuild whenever existence should change, or the underlying tmdb/torrent
+	// instances changed identity (e.g. torrent was cycled off then on) --
+	// comparing by whether current is nil is enough for the existence flip;
+	// an unrelated reconfigure (say, just an OMDb key edit) leaves both
+	// tmdbClient/torrentSvc pointers untouched, so this is a no-op then.
+	if wantAcquisition != (current != nil) {
+		if s.monitorCancel != nil {
+			s.monitorCancel()
+			s.monitorCancel = nil
+		}
+		if wantAcquisition {
+			acq := acquisition.NewService(s.store, tmdbClient, torrentSvc, s.debridSvc, s.notify)
+			s.acquisition.Store(acq)
+			ctx, cancel := context.WithCancel(context.Background())
+			s.monitorCancel = cancel
+			go acq.NewMonitorScheduler(s.store).Run(ctx)
+		} else {
+			s.acquisition.Store(nil)
+		}
+	}
+
+	return nil
 }
 
 // accessLog logs one line per request (method, path, status, duration, and
@@ -150,8 +293,17 @@ func (r *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	return hj.Hijack()
 }
 
-// NewRouter returns the root HTTP handler for the Vorn backend.
-func NewRouter(deps Deps) http.Handler {
+// TorrentService/NZBService expose the current (possibly nil, possibly
+// hot-swapped) instance -- for main.go's Prowlarr sync wiring, which needs
+// concrete instances up front (see the "known limitation" note on
+// reconfigure: Prowlarr doesn't re-point at a later torrent/NZB toggle).
+func (s *Server) TorrentService() *torrent.Service { return s.torrentSvc.Load() }
+func (s *Server) NZBService() *nzb.Service         { return s.nzbSvc.Load() }
+
+// NewRouter returns the constructed Server (so callers can wire optional
+// external integrations like Prowlarr against its current services) and the
+// root HTTP handler for the Vorn backend.
+func NewRouter(deps Deps) (*Server, http.Handler) {
 	s := NewServer(deps)
 	mux := http.NewServeMux()
 
@@ -335,7 +487,7 @@ func NewRouter(deps Deps) http.Handler {
 	mux.HandleFunc("DELETE /api/admin/backups/{filename}", s.withAdmin(s.handleDeleteAutoBackup))
 	mux.HandleFunc("POST /api/admin/backups/{filename}/restore", s.withAdmin(s.handleRestoreAutoBackup))
 
-	return s.accessLog(withCORS(mux, deps.CORSOrigin))
+	return s, s.accessLog(withCORS(mux, deps.CORSOrigin))
 }
 
 // withCORS allows the frontend dev server (or, in production, whatever

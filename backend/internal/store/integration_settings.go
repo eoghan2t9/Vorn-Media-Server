@@ -9,10 +9,10 @@ const integrationSettingsKey = "integrations"
 
 // IntegrationSettings holds admin-configurable credentials for external
 // metadata/subtitle providers, as a DB-backed alternative to the
-// VORN_TMDB_API_KEY / VORN_OPENSUBTITLES_* env vars. Like ServerSettings
-// (custom domain/SSL), changes here only take effect after a restart -- the
-// metadata and subtitles services are constructed once at startup in
-// cmd/vornd.
+// VORN_TMDB_API_KEY / VORN_OPENSUBTITLES_* env vars, plus the torrent/NZB
+// acquisition-source toggles. Every field here takes effect immediately --
+// httpapi.Server.reconfigure re-reads this on every save and hot-swaps
+// whichever credentialed clients/services changed, no restart needed.
 type IntegrationSettings struct {
 	TMDbAPIKey            string
 	OpenSubtitlesAPIKey   string
@@ -38,7 +38,15 @@ type IntegrationSettings struct {
 	// account -- a standard project key leaves it empty.
 	TVDbAPIKey string
 	TVDbPin    string
-	UpdatedAt  time.Time
+	// TorrentEnabled/NZBEnabled are tri-state, unlike MusicMetadataEnabled
+	// above: nil means "no admin has touched this toggle yet, fall back to
+	// VORN_TORRENT_ENABLED/VORN_NZB_ENABLED" (so an existing env-var-only
+	// deployment doesn't silently lose acquisition on upgrade), while a
+	// non-nil value is authoritative from then on. See
+	// httpapi.Server.reconfigure for where the fallback is resolved.
+	TorrentEnabled *bool
+	NZBEnabled     *bool
+	UpdatedAt      time.Time
 }
 
 type integrationSettingsValue struct {
@@ -52,6 +60,8 @@ type integrationSettingsValue struct {
 	OMDbAPIKey               string `json:"omdbApiKey"`
 	TVDbAPIKey               string `json:"tvdbApiKey"`
 	TVDbPin                  string `json:"tvdbPin"`
+	TorrentEnabled           *bool  `json:"torrentEnabled,omitempty"`
+	NZBEnabled               *bool  `json:"nzbEnabled,omitempty"`
 }
 
 // GetIntegrationSettings returns the current settings, or their zero value
@@ -77,6 +87,8 @@ func (s *Store) GetIntegrationSettings() (*IntegrationSettings, error) {
 		OMDbAPIKey:               v.OMDbAPIKey,
 		TVDbAPIKey:               v.TVDbAPIKey,
 		TVDbPin:                  v.TVDbPin,
+		TorrentEnabled:           v.TorrentEnabled,
+		NZBEnabled:               v.NZBEnabled,
 	}
 	// SetSetting's ON CONFLICT upsert always stamps updated_at, so this
 	// extra lookup is just to surface it -- GetSetting itself doesn't.
@@ -100,6 +112,15 @@ type UpdateIntegrationSettingsInput struct {
 	OMDbAPIKey               *string
 	TVDbAPIKey               *string
 	TVDbPin                  *string
+	// TorrentEnabled/NZBEnabled are themselves already tri-state
+	// (*bool) on IntegrationSettings, so unlike the other fields here
+	// there's no separate "leave unchanged" pointer-of-pointer -- passing
+	// non-nil always overwrites the stored tri-state value (including
+	// explicitly setting it back to nil isn't supported via this API;
+	// once toggled, a value is always sent back on every future save from
+	// the admin UI, which always knows the current effective state).
+	TorrentEnabled *bool
+	NZBEnabled     *bool
 }
 
 func (s *Store) UpdateIntegrationSettings(in UpdateIntegrationSettingsInput) (*IntegrationSettings, error) {
@@ -119,6 +140,8 @@ func (s *Store) UpdateIntegrationSettings(in UpdateIntegrationSettingsInput) (*I
 		OMDbAPIKey:               current.OMDbAPIKey,
 		TVDbAPIKey:               current.TVDbAPIKey,
 		TVDbPin:                  current.TVDbPin,
+		TorrentEnabled:           current.TorrentEnabled,
+		NZBEnabled:               current.NZBEnabled,
 	}
 	if in.TMDbAPIKey != nil {
 		v.TMDbAPIKey = *in.TMDbAPIKey
@@ -149,6 +172,12 @@ func (s *Store) UpdateIntegrationSettings(in UpdateIntegrationSettingsInput) (*I
 	}
 	if in.TVDbPin != nil {
 		v.TVDbPin = *in.TVDbPin
+	}
+	if in.TorrentEnabled != nil {
+		v.TorrentEnabled = in.TorrentEnabled
+	}
+	if in.NZBEnabled != nil {
+		v.NZBEnabled = in.NZBEnabled
 	}
 
 	if err := s.SetSetting(integrationSettingsKey, v); err != nil {

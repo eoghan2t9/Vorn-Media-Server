@@ -34,7 +34,7 @@ type catalogPageResponse struct {
 // doesn't own yet shouldn't cost a write, only opening one
 // (handleOpenCatalogEntry) does.
 func (s *Server) handleBrowseCatalog(w http.ResponseWriter, r *http.Request) {
-	if s.tmdb == nil {
+	if s.tmdb.Load() == nil {
 		writeError(w, http.StatusServiceUnavailable, tmdbNotConfigured)
 		return
 	}
@@ -49,13 +49,13 @@ func (s *Server) handleBrowseCatalog(w http.ResponseWriter, r *http.Request) {
 	var err error
 	switch {
 	case mediaType == "movie" && sortBy == "trending":
-		paged, err = s.tmdb.TrendingMovies(r.Context(), page)
+		paged, err = s.tmdb.Load().TrendingMovies(r.Context(), page)
 	case mediaType == "movie":
-		paged, err = s.tmdb.PopularMovies(r.Context(), page)
+		paged, err = s.tmdb.Load().PopularMovies(r.Context(), page)
 	case mediaType == "series" && sortBy == "trending":
-		paged, err = s.tmdb.TrendingSeries(r.Context(), page)
+		paged, err = s.tmdb.Load().TrendingSeries(r.Context(), page)
 	case mediaType == "series":
-		paged, err = s.tmdb.PopularSeries(r.Context(), page)
+		paged, err = s.tmdb.Load().PopularSeries(r.Context(), page)
 	default:
 		writeError(w, http.StatusBadRequest, "type must be 'movie' or 'series'")
 		return
@@ -85,7 +85,7 @@ type openCatalogEntryRequest struct {
 // placeholder media_item for it, so the frontend can navigate straight into
 // the normal item-detail route from here on, same as any owned item.
 func (s *Server) handleOpenCatalogEntry(w http.ResponseWriter, r *http.Request) {
-	if s.acquisition == nil {
+	if s.acquisition.Load() == nil {
 		writeError(w, http.StatusServiceUnavailable, acquisitionNotConfigured)
 		return
 	}
@@ -114,7 +114,7 @@ func (s *Server) handleOpenCatalogEntry(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	item, err := s.acquisition.MaterializePlaceholder(r.Context(), req.LibraryID, req.TmdbID, req.MediaType)
+	item, err := s.acquisition.Load().MaterializePlaceholder(r.Context(), req.LibraryID, req.TmdbID, req.MediaType)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, "fetching details from TMDb")
 		return

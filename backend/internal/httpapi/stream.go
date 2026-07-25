@@ -114,8 +114,8 @@ func (s *Server) handlePlayItem(w http.ResponseWriter, r *http.Request) {
 		// automatically, no frontend changes needed. A local scanned file
 		// failing to probe has no such replacement path, so that still
 		// falls through to the plain error below.
-		if s.acquisition != nil && item.AcquisitionStatus == "owned" && isRemoteURL(*item.Path) {
-			if rErr := s.acquisition.Reacquire(r.Context(), item.ID); rErr == nil {
+		if s.acquisition.Load() != nil && item.AcquisitionStatus == "owned" && isRemoteURL(*item.Path) {
+			if rErr := s.acquisition.Load().Reacquire(r.Context(), item.ID); rErr == nil {
 				writeJSON(w, http.StatusAccepted, playResponse{Mode: "acquiring", AcquisitionStatus: "searching"})
 				return
 			}
@@ -158,11 +158,11 @@ func (s *Server) handleAcquiringPlay(w http.ResponseWriter, r *http.Request, ite
 	case "searching", "acquiring":
 		writeJSON(w, http.StatusAccepted, playResponse{Mode: "acquiring", AcquisitionStatus: item.AcquisitionStatus})
 	case "placeholder", "error":
-		if s.acquisition == nil {
+		if s.acquisition.Load() == nil {
 			writeError(w, http.StatusServiceUnavailable, "on-demand acquisition is not configured")
 			return
 		}
-		if err := s.acquisition.Acquire(r.Context(), item.ID); err != nil {
+		if err := s.acquisition.Load().Acquire(r.Context(), item.ID); err != nil {
 			writeError(w, http.StatusInternalServerError, "starting acquisition")
 			return
 		}

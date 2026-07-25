@@ -335,6 +335,8 @@ export interface IntegrationSettings {
   fanartConfigured: boolean
   omdbConfigured: boolean
   tvdbConfigured: boolean
+  torrentEnabled: boolean
+  nzbEnabled: boolean
   updatedAt: string
 }
 export const fetchIntegrationSettings = () => request<IntegrationSettings>('/api/admin/integrations')
@@ -353,6 +355,8 @@ export interface UpdateIntegrationSettingsInput {
   omdbApiKey?: string
   tvdbApiKey?: string
   tvdbPin?: string
+  torrentEnabled?: boolean
+  nzbEnabled?: boolean
 }
 export const updateIntegrationSettings = (input: UpdateIntegrationSettingsInput) =>
   request<IntegrationSettings>('/api/admin/integrations', { method: 'PUT', body: JSON.stringify(input) })

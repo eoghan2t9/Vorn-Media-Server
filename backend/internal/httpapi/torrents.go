@@ -46,11 +46,11 @@ func toTorrentResponse(t *store.Torrent) torrentResponse {
 }
 
 func (s *Server) handleListTorrents(w http.ResponseWriter, r *http.Request) {
-	if s.torrentSvc == nil {
+	if s.torrentSvc.Load() == nil {
 		writeJSON(w, http.StatusOK, []torrentResponse{})
 		return
 	}
-	torrents, err := s.torrentSvc.List()
+	torrents, err := s.torrentSvc.Load().List()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "listing torrents")
 		return
@@ -69,7 +69,7 @@ type addMagnetRequest struct {
 }
 
 func (s *Server) handleAddMagnet(w http.ResponseWriter, r *http.Request) {
-	if s.torrentSvc == nil {
+	if s.torrentSvc.Load() == nil {
 		writeError(w, http.StatusServiceUnavailable, torrentServiceUnavailable)
 		return
 	}
@@ -89,7 +89,7 @@ func (s *Server) handleAddMagnet(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	t, err := s.torrentSvc.AddMagnet(req.MagnetURI, req.LibraryID, req.Sequential)
+	t, err := s.torrentSvc.Load().AddMagnet(req.MagnetURI, req.LibraryID, req.Sequential)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -101,7 +101,7 @@ func (s *Server) handleAddMagnet(w http.ResponseWriter, r *http.Request) {
 // sequential are passed as query parameters since the body is the file
 // itself, not JSON.
 func (s *Server) handleAddTorrentFile(w http.ResponseWriter, r *http.Request) {
-	if s.torrentSvc == nil {
+	if s.torrentSvc.Load() == nil {
 		writeError(w, http.StatusServiceUnavailable, torrentServiceUnavailable)
 		return
 	}
@@ -121,7 +121,7 @@ func (s *Server) handleAddTorrentFile(w http.ResponseWriter, r *http.Request) {
 	}
 	sequential := r.URL.Query().Get("sequential") == "true"
 
-	t, err := s.torrentSvc.AddTorrentFile(data, libraryID, sequential)
+	t, err := s.torrentSvc.Load().AddTorrentFile(data, libraryID, sequential)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -130,13 +130,13 @@ func (s *Server) handleAddTorrentFile(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRemoveTorrent(w http.ResponseWriter, r *http.Request) {
-	if s.torrentSvc == nil {
+	if s.torrentSvc.Load() == nil {
 		writeError(w, http.StatusServiceUnavailable, torrentServiceUnavailable)
 		return
 	}
 	id := r.PathValue("id")
 	deleteFiles := r.URL.Query().Get("deleteFiles") == "true"
-	if err := s.torrentSvc.Remove(id, deleteFiles); err != nil {
+	if err := s.torrentSvc.Load().Remove(id, deleteFiles); err != nil {
 		s.writeStoreErr(w, err, "removing torrent")
 		return
 	}
@@ -154,7 +154,7 @@ type torrentSearchResult struct {
 }
 
 func (s *Server) handleTorrentSearch(w http.ResponseWriter, r *http.Request) {
-	if s.torrentSvc == nil {
+	if s.torrentSvc.Load() == nil {
 		writeError(w, http.StatusServiceUnavailable, torrentServiceUnavailable)
 		return
 	}
@@ -163,7 +163,7 @@ func (s *Server) handleTorrentSearch(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "q is required")
 		return
 	}
-	results, err := s.torrentSvc.Search(r.Context(), q)
+	results, err := s.torrentSvc.Load().Search(r.Context(), q)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "searching indexers")
 		return
@@ -205,11 +205,11 @@ func toTorrentIndexerResponse(idx *store.TorrentIndexer) torrentIndexerResponse 
 }
 
 func (s *Server) handleListTorrentIndexers(w http.ResponseWriter, r *http.Request) {
-	if s.torrentSvc == nil {
+	if s.torrentSvc.Load() == nil {
 		writeJSON(w, http.StatusOK, []torrentIndexerResponse{})
 		return
 	}
-	indexers, err := s.torrentSvc.ListIndexers()
+	indexers, err := s.torrentSvc.Load().ListIndexers()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "listing indexers")
 		return
@@ -228,7 +228,7 @@ type createIndexerRequest struct {
 }
 
 func (s *Server) handleCreateTorrentIndexer(w http.ResponseWriter, r *http.Request) {
-	if s.torrentSvc == nil {
+	if s.torrentSvc.Load() == nil {
 		writeError(w, http.StatusServiceUnavailable, torrentServiceUnavailable)
 		return
 	}
@@ -241,7 +241,7 @@ func (s *Server) handleCreateTorrentIndexer(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusBadRequest, "name and baseUrl are required")
 		return
 	}
-	idx, err := s.torrentSvc.AddIndexer(req.Name, req.BaseURL, req.APIKey)
+	idx, err := s.torrentSvc.Load().AddIndexer(req.Name, req.BaseURL, req.APIKey)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "creating indexer")
 		return
@@ -258,7 +258,7 @@ type testIndexerRequest struct {
 // (via its capabilities document) using whatever's currently in the
 // add-indexer form, without requiring it to be saved first.
 func (s *Server) handleTestTorrentIndexer(w http.ResponseWriter, r *http.Request) {
-	if s.torrentSvc == nil {
+	if s.torrentSvc.Load() == nil {
 		writeError(w, http.StatusServiceUnavailable, torrentServiceUnavailable)
 		return
 	}
@@ -279,12 +279,12 @@ func (s *Server) handleTestTorrentIndexer(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Server) handleDeleteTorrentIndexer(w http.ResponseWriter, r *http.Request) {
-	if s.torrentSvc == nil {
+	if s.torrentSvc.Load() == nil {
 		writeError(w, http.StatusServiceUnavailable, torrentServiceUnavailable)
 		return
 	}
 	id := r.PathValue("id")
-	if err := s.torrentSvc.RemoveIndexer(id); err != nil {
+	if err := s.torrentSvc.Load().RemoveIndexer(id); err != nil {
 		s.writeStoreErr(w, err, "deleting indexer")
 		return
 	}

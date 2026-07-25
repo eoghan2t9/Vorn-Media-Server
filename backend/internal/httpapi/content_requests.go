@@ -25,7 +25,7 @@ type discoverResultResponse struct {
 // handleDiscoverSearch searches TMDb directly (not Vorn's own library) so a
 // user can find and request something Vorn doesn't have yet.
 func (s *Server) handleDiscoverSearch(w http.ResponseWriter, r *http.Request) {
-	if s.tmdb == nil {
+	if s.tmdb.Load() == nil {
 		writeError(w, http.StatusServiceUnavailable, tmdbNotConfigured)
 		return
 	}
@@ -40,9 +40,9 @@ func (s *Server) handleDiscoverSearch(w http.ResponseWriter, r *http.Request) {
 	var err error
 	switch mediaType {
 	case "movie":
-		results, err = s.tmdb.DiscoverMovies(r.Context(), q)
+		results, err = s.tmdb.Load().DiscoverMovies(r.Context(), q)
 	case "series":
-		results, err = s.tmdb.DiscoverSeries(r.Context(), q)
+		results, err = s.tmdb.Load().DiscoverSeries(r.Context(), q)
 	default:
 		writeError(w, http.StatusBadRequest, "type must be 'movie' or 'series'")
 		return
@@ -175,8 +175,8 @@ func (s *Server) handleCreateContentRequest(w http.ResponseWriter, r *http.Reque
 	// targets, in the background -- MaterializePlaceholder makes a blocking
 	// TMDb call and the client shouldn't wait on it before seeing its
 	// request was recorded.
-	if s.acquisition != nil {
-		go s.acquisition.FulfillRequest(context.Background(), created.ID, created.MediaType, created.TmdbID)
+	if s.acquisition.Load() != nil {
+		go s.acquisition.Load().FulfillRequest(context.Background(), created.ID, created.MediaType, created.TmdbID)
 	}
 
 	writeJSON(w, http.StatusCreated, toContentRequestResponse(created, nil))

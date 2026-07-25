@@ -9,7 +9,6 @@ import (
 	"os"
 
 	"github.com/caddyserver/certmagic"
-	"github.com/eoghan2t9/vorn-media-server/backend/internal/acquisition"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/backup"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/config"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/debrid"
@@ -18,13 +17,10 @@ import (
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/metadata"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/migrate"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/notify"
-	"github.com/eoghan2t9/vorn-media-server/backend/internal/nzb"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/prowlarr"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/scanner"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/store"
-	"github.com/eoghan2t9/vorn-media-server/backend/internal/subtitles"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/sysstats"
-	"github.com/eoghan2t9/vorn-media-server/backend/internal/torrent"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/transcode"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/update"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/version"
@@ -70,81 +66,24 @@ func main() {
 	}
 	defer queue.Close()
 
-	// DB-saved integration credentials (Admin > Integrations) take precedence
-	// over the VORN_TMDB_API_KEY / VORN_OPENSUBTITLES_* env vars, so an admin
-	// who configures a key through the UI doesn't need to also edit compose
-	// files -- but existing env-var-only deployments keep working unchanged
-	// since these only override fields that were actually saved.
-	var intSettings *store.IntegrationSettings
-	if s, err := st.GetIntegrationSettings(); err != nil {
-		log.Printf("loading integration settings: %v", err)
-	} else {
-		intSettings = s
-		if intSettings.TMDbAPIKey != "" {
-			cfg.TMDbAPIKey = intSettings.TMDbAPIKey
-		}
-		if intSettings.OpenSubtitlesAPIKey != "" {
-			cfg.OpenSubtitlesAPIKey = intSettings.OpenSubtitlesAPIKey
-		}
-		if intSettings.OpenSubtitlesUsername != "" {
-			cfg.OpenSubtitlesUser = intSettings.OpenSubtitlesUsername
-		}
-		if intSettings.OpenSubtitlesPassword != "" {
-			cfg.OpenSubtitlesPass = intSettings.OpenSubtitlesPassword
-		}
-		if intSettings.FanartAPIKey != "" {
-			cfg.FanartAPIKey = intSettings.FanartAPIKey
-		}
-		if intSettings.OMDbAPIKey != "" {
-			cfg.OMDbAPIKey = intSettings.OMDbAPIKey
-		}
-		if intSettings.TVDbAPIKey != "" {
-			cfg.TVDbAPIKey = intSettings.TVDbAPIKey
-		}
-		if intSettings.TVDbPin != "" {
-			cfg.TVDbPin = intSettings.TVDbPin
-		}
-	}
-
 	scanSvc, err := scanner.NewService(st, queue, cfg.ArtworkCacheDir)
 	if err != nil {
 		log.Fatalf("starting scanner service: %v", err)
 	}
 
-	// MusicBrainz/Open Library need no credentials at all (unlike TMDb), so
-	// both providers are always constructed and attached -- whether they're
+	// TMDb/TVDb/Fanart.tv/OMDb/OpenSubtitles/torrent/NZB (and the
+	// acquisition service derived from the last two) are all built --  and
+	// rebuilt -- by httpapi.Server.reconfigure, not here, so an Admin >
+	// Integrations credential save or a torrent/NZB enable toggle takes
+	// effect immediately with no restart. metadataSvc itself is still
+	// constructed once since it's never nil, only its internal providers
+	// change; MusicBrainz/Open Library need no credentials at all, so both
+	// are always attached here too, unconditionally (whether they're
 	// actually *used* is decided fresh from IntegrationSettings on every
-	// sync run (see metadata.Service.run), not baked in here at startup.
-	// That's what lets the Admin > Integrations toggle take effect
-	// immediately, with no restart, unlike TMDb/OpenSubtitles below whose
-	// credentialed clients really are only ever built once at boot.
-	var metadataSvc *metadata.Service
-	if cfg.TMDbAPIKey != "" {
-		metadataSvc = metadata.NewService(st, metadata.NewTMDbProvider(cfg.TMDbAPIKey))
-	} else {
-		metadataSvc = metadata.NewService(st, nil)
-		log.Print("VORN_TMDB_API_KEY not set: movie/series metadata sync is disabled")
-	}
+	// sync run instead -- see metadata.Service.run).
+	metadataSvc := metadata.NewService(st)
 	metadataSvc.WithMusicProvider(metadata.NewMusicBrainzProvider())
 	metadataSvc.WithAudiobookProvider(metadata.NewOpenLibraryProvider())
-	if cfg.TVDbAPIKey != "" {
-		metadataSvc.WithFallbackSeriesProvider(metadata.NewTVDbProvider(cfg.TVDbAPIKey, cfg.TVDbPin))
-	}
-	if cfg.FanartAPIKey != "" {
-		metadataSvc.WithFanartClient(metadata.NewFanartClient(cfg.FanartAPIKey))
-	}
-	if cfg.OMDbAPIKey != "" {
-		metadataSvc.WithOMDbClient(metadata.NewOMDbClient(cfg.OMDbAPIKey))
-	}
-
-	// A standalone client for the content-requests feature's discover
-	// search, independent of metadataSvc's own TMDbProvider (which is
-	// wired for library sync/matching, not free-text search for titles
-	// Vorn doesn't have yet).
-	var tmdbClient *metadata.TMDbClient
-	if cfg.TMDbAPIKey != "" {
-		tmdbClient = metadata.NewTMDbClient(cfg.TMDbAPIKey)
-	}
 
 	var transcodeMgr *transcode.Manager
 	backends := transcode.DetectBackends(context.Background())
@@ -162,41 +101,6 @@ func main() {
 		transcodeMgr = transcode.NewManager(cfg.TranscodeOutputDir, backends, cfg.TranscodeMaxSessions)
 	}
 
-	var torrentSvc *torrent.Service
-	if cfg.TorrentEnabled {
-		torrentSvc, err = torrent.NewService(st, cfg.TorrentDownloadDir, cfg.TorrentPeerPort)
-		if err != nil {
-			log.Fatalf("starting torrent service: %v", err)
-		}
-		defer torrentSvc.Close()
-	} else {
-		log.Print("VORN_TORRENT_ENABLED not set: torrent acquisition is disabled")
-	}
-
-	var nzbSvc *nzb.Service
-	if cfg.NZBEnabled {
-		nzbSvc, err = nzb.NewService(st, cfg.NZBDownloadDir)
-		if err != nil {
-			log.Fatalf("starting nzb service: %v", err)
-		}
-	} else {
-		log.Print("VORN_NZB_ENABLED not set: NZB acquisition is disabled")
-	}
-
-	// Optional: mirror whatever indexers are configured inside a Prowlarr
-	// instance into Vorn's own torrent/NZB indexer tables (torrent-protocol
-	// indexers into the former, usenet-protocol into the latter), so
-	// bundling Prowlarr (see deploy/docker-compose.yml's "prowlarr" Compose
-	// profile) doesn't also require manually copying each indexer's URL/API
-	// key in by hand. Needs at least a base URL and one of an API key or a
-	// path to Prowlarr's config.xml to read it from, plus at least one of
-	// torrent/NZB acquisition actually enabled (nothing to sync into
-	// otherwise); silently does nothing otherwise -- see internal/prowlarr.
-	if cfg.ProwlarrBaseURL != "" && (cfg.ProwlarrAPIKey != "" || cfg.ProwlarrConfigPath != "") && (torrentSvc != nil || nzbSvc != nil) {
-		go prowlarr.NewSyncService(torrentSvc, nzbSvc, cfg.ProwlarrBaseURL, cfg.ProwlarrAPIKey, cfg.ProwlarrConfigPath).Run(context.Background())
-		log.Printf("prowlarr sync enabled: %s", cfg.ProwlarrBaseURL)
-	}
-
 	// Debrid (Real-Debrid/TorBox) has no listening port or background
 	// resources to gate behind an enable flag; it's a no-op until the admin
 	// configures at least one account.
@@ -206,28 +110,6 @@ func main() {
 	// to gate behind an enable flag either; it's a no-op until an admin
 	// configures a URL in Admin > Notifications.
 	notifySvc := notify.NewService(st)
-
-	// On-demand acquisition (browse-and-play) needs both a TMDb key (to
-	// materialize placeholders) and torrent indexer search (to find a
-	// release) -- without either, browse/play-triggers-acquisition just
-	// isn't offered rather than failing at request time.
-	var acquisitionSvc *acquisition.Service
-	if tmdbClient != nil && torrentSvc != nil {
-		acquisitionSvc = acquisition.NewService(st, tmdbClient, torrentSvc, debridSvc, notifySvc)
-		go acquisitionSvc.NewMonitorScheduler(st).Run(context.Background())
-	} else {
-		log.Print("TMDb API key and/or torrent indexers not configured: on-demand acquisition (browse-and-play) is disabled")
-	}
-
-	var subtitlesSvc *subtitles.Service
-	if cfg.OpenSubtitlesAPIKey != "" && cfg.OpenSubtitlesUser != "" {
-		subtitlesSvc, err = subtitles.NewService(cfg.OpenSubtitlesAPIKey, cfg.OpenSubtitlesUser, cfg.OpenSubtitlesPass, cfg.SubtitlesCacheDir)
-		if err != nil {
-			log.Fatalf("starting subtitles service: %v", err)
-		}
-	} else {
-		log.Print("VORN_OPENSUBTITLES_API_KEY/VORN_OPENSUBTITLES_USERNAME not set: subtitle integration is disabled")
-	}
 
 	if update.IsDockerized() {
 		log.Print("running under Docker: self-update is a no-op (rebuild/pull the image instead)")
@@ -250,26 +132,41 @@ func main() {
 	// Backups takes effect without a restart.
 	go backup.NewScheduler(cfg.PostgresDSN, cfg.BackupDir, st).Run(context.Background())
 
-	router := httpapi.NewRouter(httpapi.Deps{
+	srv, router := httpapi.NewRouter(httpapi.Deps{
 		Store:        st,
+		Config:       cfg,
 		PostgresDSN:  cfg.PostgresDSN,
 		BackupDir:    cfg.BackupDir,
 		Scanner:      scanSvc,
 		Metadata:     metadataSvc,
-		TMDb:         tmdbClient,
 		TranscodeMgr: transcodeMgr,
-		Torrent:      torrentSvc,
-		NZB:          nzbSvc,
 		Debrid:       debridSvc,
-		Acquisition:  acquisitionSvc,
 		Notify:       notifySvc,
-		Subtitles:    subtitlesSvc,
 		Update:       updateSvc,
 		LogBuffer:    logBuffer,
 		SysStats:     sysStatsSampler,
 		CORSOrigin:   cfg.CORSOrigin,
 		DevMode:      cfg.DevMode,
 	})
+
+	// Optional: mirror whatever indexers are configured inside a Prowlarr
+	// instance into Vorn's own torrent/NZB indexer tables (torrent-protocol
+	// indexers into the former, usenet-protocol into the latter), so
+	// bundling Prowlarr (see deploy/docker-compose.yml's "prowlarr" Compose
+	// profile) doesn't also require manually copying each indexer's URL/API
+	// key in by hand. Needs at least a base URL and one of an API key or a
+	// path to Prowlarr's config.xml to read it from, plus at least one of
+	// torrent/NZB acquisition actually enabled at boot (nothing to sync into
+	// otherwise); silently does nothing otherwise -- see internal/prowlarr.
+	// Unlike torrent/NZB/credentials, this doesn't hot-reload: it captures
+	// srv's torrent/NZB instances once, here -- toggling either off and back
+	// on later via Admin > Integrations leaves Prowlarr sync pointed at the
+	// original (possibly now-stale) instances until the process restarts.
+	if cfg.ProwlarrBaseURL != "" && (cfg.ProwlarrAPIKey != "" || cfg.ProwlarrConfigPath != "") &&
+		(srv.TorrentService() != nil || srv.NZBService() != nil) {
+		go prowlarr.NewSyncService(srv.TorrentService(), srv.NZBService(), cfg.ProwlarrBaseURL, cfg.ProwlarrAPIKey, cfg.ProwlarrConfigPath).Run(context.Background())
+		log.Printf("prowlarr sync enabled: %s", cfg.ProwlarrBaseURL)
+	}
 
 	settings, err := st.GetServerSettings()
 	if err != nil {

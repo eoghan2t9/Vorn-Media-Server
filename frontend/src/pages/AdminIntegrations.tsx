@@ -32,6 +32,9 @@ export function AdminIntegrations() {
   const [musicSaving, setMusicSaving] = useState(false)
   const [audiobookSaving, setAudiobookSaving] = useState(false)
 
+  const [torrentSaving, setTorrentSaving] = useState(false)
+  const [nzbSaving, setNzbSaving] = useState(false)
+
   const [fanartKeyInput, setFanartKeyInput] = useState('')
   const [fanartSaving, setFanartSaving] = useState(false)
   const [fanartMessage, setFanartMessage] = useState<string | null>(null)
@@ -65,7 +68,7 @@ export function AdminIntegrations() {
       const s = await updateIntegrationSettings({ tmdbApiKey: tmdbKeyInput.trim() })
       setSettings(s)
       setTmdbKeyInput('')
-      setTmdbMessage('Saved. Restart the server for this to take effect.')
+      setTmdbMessage('Saved — applied immediately.')
     } catch (err) {
       setTmdbMessage(err instanceof ApiError ? err.message : 'Failed to save')
     } finally {
@@ -80,7 +83,7 @@ export function AdminIntegrations() {
       const s = await updateIntegrationSettings({ tmdbApiKey: '' })
       setSettings(s)
       setTmdbKeyInput('')
-      setTmdbMessage('Cleared. Restart the server for this to take effect.')
+      setTmdbMessage('Cleared — applied immediately.')
     } catch (err) {
       setTmdbMessage(err instanceof ApiError ? err.message : 'Failed to clear')
     } finally {
@@ -101,7 +104,7 @@ export function AdminIntegrations() {
       setSettings(s)
       setOsKeyInput('')
       setOsPasswordInput('')
-      setOsMessage('Saved. Restart the server for this to take effect.')
+      setOsMessage('Saved — applied immediately.')
     } catch (err) {
       setOsMessage(err instanceof ApiError ? err.message : 'Failed to save')
     } finally {
@@ -122,7 +125,7 @@ export function AdminIntegrations() {
       setOsKeyInput('')
       setOsUsername('')
       setOsPasswordInput('')
-      setOsMessage('Cleared. Restart the server for this to take effect.')
+      setOsMessage('Cleared — applied immediately.')
     } catch (err) {
       setOsMessage(err instanceof ApiError ? err.message : 'Failed to clear')
     } finally {
@@ -139,7 +142,7 @@ export function AdminIntegrations() {
       const s = await updateIntegrationSettings({ fanartApiKey: fanartKeyInput.trim() })
       setSettings(s)
       setFanartKeyInput('')
-      setFanartMessage('Saved. Restart the server for this to take effect.')
+      setFanartMessage('Saved — applied immediately.')
     } catch (err) {
       setFanartMessage(err instanceof ApiError ? err.message : 'Failed to save')
     } finally {
@@ -154,7 +157,7 @@ export function AdminIntegrations() {
       const s = await updateIntegrationSettings({ fanartApiKey: '' })
       setSettings(s)
       setFanartKeyInput('')
-      setFanartMessage('Cleared. Restart the server for this to take effect.')
+      setFanartMessage('Cleared — applied immediately.')
     } catch (err) {
       setFanartMessage(err instanceof ApiError ? err.message : 'Failed to clear')
     } finally {
@@ -171,7 +174,7 @@ export function AdminIntegrations() {
       const s = await updateIntegrationSettings({ omdbApiKey: omdbKeyInput.trim() })
       setSettings(s)
       setOmdbKeyInput('')
-      setOmdbMessage('Saved. Restart the server for this to take effect.')
+      setOmdbMessage('Saved — applied immediately.')
     } catch (err) {
       setOmdbMessage(err instanceof ApiError ? err.message : 'Failed to save')
     } finally {
@@ -186,7 +189,7 @@ export function AdminIntegrations() {
       const s = await updateIntegrationSettings({ omdbApiKey: '' })
       setSettings(s)
       setOmdbKeyInput('')
-      setOmdbMessage('Cleared. Restart the server for this to take effect.')
+      setOmdbMessage('Cleared — applied immediately.')
     } catch (err) {
       setOmdbMessage(err instanceof ApiError ? err.message : 'Failed to clear')
     } finally {
@@ -207,7 +210,7 @@ export function AdminIntegrations() {
       setSettings(s)
       setTvdbKeyInput('')
       setTvdbPinInput('')
-      setTvdbMessage('Saved. Restart the server for this to take effect.')
+      setTvdbMessage('Saved — applied immediately.')
     } catch (err) {
       setTvdbMessage(err instanceof ApiError ? err.message : 'Failed to save')
     } finally {
@@ -223,7 +226,7 @@ export function AdminIntegrations() {
       setSettings(s)
       setTvdbKeyInput('')
       setTvdbPinInput('')
-      setTvdbMessage('Cleared. Restart the server for this to take effect.')
+      setTvdbMessage('Cleared — applied immediately.')
     } catch (err) {
       setTvdbMessage(err instanceof ApiError ? err.message : 'Failed to clear')
     } finally {
@@ -253,6 +256,31 @@ export function AdminIntegrations() {
     }
   }
 
+  // Disabling fully stops the underlying client (closes the peer-listening
+  // port for torrent, drops the NZB service) immediately -- any in-flight
+  // download for that protocol is interrupted, not gracefully finished.
+  async function handleToggleTorrent(enabled: boolean) {
+    setTorrentSaving(true)
+    try {
+      setSettings(await updateIntegrationSettings({ torrentEnabled: enabled }))
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to save')
+    } finally {
+      setTorrentSaving(false)
+    }
+  }
+
+  async function handleToggleNZB(enabled: boolean) {
+    setNzbSaving(true)
+    try {
+      setSettings(await updateIntegrationSettings({ nzbEnabled: enabled }))
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to save')
+    } finally {
+      setNzbSaving(false)
+    }
+  }
+
   if (error) return <p className="vorn-form-error">{error}</p>
   if (!settings) return <p>Loading…</p>
 
@@ -261,8 +289,9 @@ export function AdminIntegrations() {
       <div className="vorn-admin-page-header">
         <h1>Integrations</h1>
         <p className="vorn-admin-page-subtitle">
-          API credentials for external services. These override the equivalent VORN_* environment variables when
-          set, and only take effect after restarting the server.
+          API credentials for external services, plus the torrent/NZB acquisition-source toggles below. These
+          override the equivalent VORN_* environment variables when set, and take effect immediately — no restart
+          needed.
         </p>
       </div>
 
@@ -450,6 +479,53 @@ export function AdminIntegrations() {
           )}
         </form>
         {omdbMessage && <p>{omdbMessage}</p>}
+      </div>
+
+      <div className="vorn-panel">
+        <div className="vorn-panel-header">
+          <h2>Torrent acquisition</h2>
+          <span className={`vorn-status-badge ${settings.torrentEnabled ? 'vorn-status-badge-on' : 'vorn-status-badge-off'}`}>
+            {settings.torrentEnabled ? 'Enabled' : 'Disabled'}
+          </span>
+        </div>
+        <p className="vorn-panel-subtitle">
+          Torrent search, download, and on-demand acquisition (browse-and-play) all depend on this. Takes effect
+          immediately — no restart needed — but disabling fully stops the client right away (closes its
+          peer-listening port), interrupting anything currently downloading over torrent rather than letting it
+          finish first.
+        </p>
+        <label>
+          <input
+            type="checkbox"
+            checked={settings.torrentEnabled}
+            disabled={torrentSaving}
+            onChange={(e) => handleToggleTorrent(e.target.checked)}
+          />{' '}
+          Enable torrent acquisition
+        </label>
+      </div>
+
+      <div className="vorn-panel">
+        <div className="vorn-panel-header">
+          <h2>NZB (Usenet) acquisition</h2>
+          <span className={`vorn-status-badge ${settings.nzbEnabled ? 'vorn-status-badge-on' : 'vorn-status-badge-off'}`}>
+            {settings.nzbEnabled ? 'Enabled' : 'Disabled'}
+          </span>
+        </div>
+        <p className="vorn-panel-subtitle">
+          NZB search and download against your configured Usenet server(s). Takes effect immediately — no restart
+          needed — but disabling stops accepting new NZB work right away, interrupting anything currently
+          downloading over NZB rather than letting it finish first.
+        </p>
+        <label>
+          <input
+            type="checkbox"
+            checked={settings.nzbEnabled}
+            disabled={nzbSaving}
+            onChange={(e) => handleToggleNZB(e.target.checked)}
+          />{' '}
+          Enable NZB acquisition
+        </label>
       </div>
 
       <div className="vorn-panel">

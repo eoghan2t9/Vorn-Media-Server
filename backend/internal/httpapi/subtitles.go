@@ -10,7 +10,7 @@ const subtitlesServiceUnavailable = "subtitle integration is not configured (set
 // remote/debrid item, since moviehash needs to read real file bytes -- a
 // known limitation of this pass) and requires a real local file.
 func (s *Server) handleGetSubtitles(w http.ResponseWriter, r *http.Request) {
-	if s.subtitlesSvc == nil {
+	if s.subtitlesSvc.Load() == nil {
 		writeError(w, http.StatusServiceUnavailable, subtitlesServiceUnavailable)
 		return
 	}
@@ -29,7 +29,7 @@ func (s *Server) handleGetSubtitles(w http.ResponseWriter, r *http.Request) {
 		language = "en"
 	}
 
-	vttPath, err := s.subtitlesSvc.Fetch(r.Context(), *item.Path, language)
+	vttPath, err := s.subtitlesSvc.Load().Fetch(r.Context(), *item.Path, language)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
@@ -49,10 +49,10 @@ type subtitlesQuotaResponse struct {
 // logged in or downloaded at least once, since OpenSubtitles only reports
 // it then.
 func (s *Server) handleSubtitlesQuota(w http.ResponseWriter, r *http.Request) {
-	if s.subtitlesSvc == nil {
+	if s.subtitlesSvc.Load() == nil {
 		writeJSON(w, http.StatusOK, subtitlesQuotaResponse{Remaining: -1})
 		return
 	}
-	q := s.subtitlesSvc.Quota()
+	q := s.subtitlesSvc.Load().Quota()
 	writeJSON(w, http.StatusOK, subtitlesQuotaResponse{Remaining: q.Remaining, ResetTime: q.ResetTime})
 }

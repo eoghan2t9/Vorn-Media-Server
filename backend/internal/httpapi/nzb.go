@@ -44,11 +44,11 @@ func toNZBDownloadResponse(n *store.NZBDownload) nzbDownloadResponse {
 }
 
 func (s *Server) handleListNZBDownloads(w http.ResponseWriter, r *http.Request) {
-	if s.nzbSvc == nil {
+	if s.nzbSvc.Load() == nil {
 		writeJSON(w, http.StatusOK, []nzbDownloadResponse{})
 		return
 	}
-	downloads, err := s.nzbSvc.List()
+	downloads, err := s.nzbSvc.Load().List()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "listing nzb downloads")
 		return
@@ -63,7 +63,7 @@ func (s *Server) handleListNZBDownloads(w http.ResponseWriter, r *http.Request) 
 // handleAddNZB accepts a raw .nzb file body. libraryId is passed as a query
 // parameter since the body is the file itself, not JSON.
 func (s *Server) handleAddNZB(w http.ResponseWriter, r *http.Request) {
-	if s.nzbSvc == nil {
+	if s.nzbSvc.Load() == nil {
 		writeError(w, http.StatusServiceUnavailable, nzbServiceUnavailable)
 		return
 	}
@@ -82,7 +82,7 @@ func (s *Server) handleAddNZB(w http.ResponseWriter, r *http.Request) {
 		libraryID = &id
 	}
 
-	n, err := s.nzbSvc.AddNZB(data, libraryID)
+	n, err := s.nzbSvc.Load().AddNZB(data, libraryID)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -91,13 +91,13 @@ func (s *Server) handleAddNZB(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRemoveNZB(w http.ResponseWriter, r *http.Request) {
-	if s.nzbSvc == nil {
+	if s.nzbSvc.Load() == nil {
 		writeError(w, http.StatusServiceUnavailable, nzbServiceUnavailable)
 		return
 	}
 	id := r.PathValue("id")
 	deleteFiles := r.URL.Query().Get("deleteFiles") == "true"
-	if err := s.nzbSvc.Remove(id, deleteFiles); err != nil {
+	if err := s.nzbSvc.Load().Remove(id, deleteFiles); err != nil {
 		s.writeStoreErr(w, err, "removing nzb download")
 		return
 	}
@@ -133,11 +133,11 @@ func toUsenetServerResponse(u *store.UsenetServer) usenetServerResponse {
 }
 
 func (s *Server) handleListUsenetServers(w http.ResponseWriter, r *http.Request) {
-	if s.nzbSvc == nil {
+	if s.nzbSvc.Load() == nil {
 		writeJSON(w, http.StatusOK, []usenetServerResponse{})
 		return
 	}
-	servers, err := s.nzbSvc.ListServers()
+	servers, err := s.nzbSvc.Load().ListServers()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "listing usenet servers")
 		return
@@ -162,7 +162,7 @@ type createUsenetServerRequest struct {
 }
 
 func (s *Server) handleCreateUsenetServer(w http.ResponseWriter, r *http.Request) {
-	if s.nzbSvc == nil {
+	if s.nzbSvc.Load() == nil {
 		writeError(w, http.StatusServiceUnavailable, nzbServiceUnavailable)
 		return
 	}
@@ -190,7 +190,7 @@ func (s *Server) handleCreateUsenetServer(w http.ResponseWriter, r *http.Request
 	if req.MaxConnections < 1 {
 		req.MaxConnections = 1
 	}
-	u, err := s.nzbSvc.AddServer(store.UsenetServer{
+	u, err := s.nzbSvc.Load().AddServer(store.UsenetServer{
 		Name:           req.Name,
 		Provider:       req.Provider,
 		Host:           req.Host,
@@ -228,7 +228,7 @@ type testResultResponse struct {
 // to be saved first -- a bad host/port/credential combo otherwise wouldn't
 // surface until the first real download attempt fails.
 func (s *Server) handleTestUsenetServer(w http.ResponseWriter, r *http.Request) {
-	if s.nzbSvc == nil {
+	if s.nzbSvc.Load() == nil {
 		writeError(w, http.StatusServiceUnavailable, nzbServiceUnavailable)
 		return
 	}
@@ -242,7 +242,7 @@ func (s *Server) handleTestUsenetServer(w http.ResponseWriter, r *http.Request) 
 			writeError(w, http.StatusBadRequest, "apiKey is required")
 			return
 		}
-		if err := s.nzbSvc.TestTorBoxAccount(r.Context(), req.APIKey); err != nil {
+		if err := s.nzbSvc.Load().TestTorBoxAccount(r.Context(), req.APIKey); err != nil {
 			writeJSON(w, http.StatusOK, testResultResponse{OK: false, Error: err.Error()})
 			return
 		}
@@ -253,7 +253,7 @@ func (s *Server) handleTestUsenetServer(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "host and port are required")
 		return
 	}
-	if err := s.nzbSvc.TestServer(req.Host, req.Port, req.UseTLS, req.Username, req.Password); err != nil {
+	if err := s.nzbSvc.Load().TestServer(req.Host, req.Port, req.UseTLS, req.Username, req.Password); err != nil {
 		writeJSON(w, http.StatusOK, testResultResponse{OK: false, Error: err.Error()})
 		return
 	}
@@ -261,12 +261,12 @@ func (s *Server) handleTestUsenetServer(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Server) handleDeleteUsenetServer(w http.ResponseWriter, r *http.Request) {
-	if s.nzbSvc == nil {
+	if s.nzbSvc.Load() == nil {
 		writeError(w, http.StatusServiceUnavailable, nzbServiceUnavailable)
 		return
 	}
 	id := r.PathValue("id")
-	if err := s.nzbSvc.RemoveServer(id); err != nil {
+	if err := s.nzbSvc.Load().RemoveServer(id); err != nil {
 		s.writeStoreErr(w, err, "deleting usenet server")
 		return
 	}
@@ -282,7 +282,7 @@ type nzbSearchResult struct {
 }
 
 func (s *Server) handleNZBSearch(w http.ResponseWriter, r *http.Request) {
-	if s.nzbSvc == nil {
+	if s.nzbSvc.Load() == nil {
 		writeError(w, http.StatusServiceUnavailable, nzbServiceUnavailable)
 		return
 	}
@@ -291,7 +291,7 @@ func (s *Server) handleNZBSearch(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "q is required")
 		return
 	}
-	results, err := s.nzbSvc.Search(r.Context(), q)
+	results, err := s.nzbSvc.Load().Search(r.Context(), q)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "searching indexers")
 		return
@@ -322,7 +322,7 @@ type addNZBFromURLRequest struct {
 // and the URL already embeds that indexer's own API key) and starts
 // downloading it the same way an uploaded file would.
 func (s *Server) handleAddNZBFromURL(w http.ResponseWriter, r *http.Request) {
-	if s.nzbSvc == nil {
+	if s.nzbSvc.Load() == nil {
 		writeError(w, http.StatusServiceUnavailable, nzbServiceUnavailable)
 		return
 	}
@@ -341,7 +341,7 @@ func (s *Server) handleAddNZBFromURL(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	n, err := s.nzbSvc.AddNZBFromURL(r.Context(), req.DownloadURL, req.LibraryID)
+	n, err := s.nzbSvc.Load().AddNZBFromURL(r.Context(), req.DownloadURL, req.LibraryID)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -368,11 +368,11 @@ func toNZBIndexerResponse(idx *store.NZBIndexer) nzbIndexerResponse {
 }
 
 func (s *Server) handleListNZBIndexers(w http.ResponseWriter, r *http.Request) {
-	if s.nzbSvc == nil {
+	if s.nzbSvc.Load() == nil {
 		writeJSON(w, http.StatusOK, []nzbIndexerResponse{})
 		return
 	}
-	indexers, err := s.nzbSvc.ListIndexers()
+	indexers, err := s.nzbSvc.Load().ListIndexers()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "listing indexers")
 		return
@@ -391,7 +391,7 @@ type createNZBIndexerRequest struct {
 }
 
 func (s *Server) handleCreateNZBIndexer(w http.ResponseWriter, r *http.Request) {
-	if s.nzbSvc == nil {
+	if s.nzbSvc.Load() == nil {
 		writeError(w, http.StatusServiceUnavailable, nzbServiceUnavailable)
 		return
 	}
@@ -404,7 +404,7 @@ func (s *Server) handleCreateNZBIndexer(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "name and baseUrl are required")
 		return
 	}
-	idx, err := s.nzbSvc.AddIndexer(req.Name, req.BaseURL, req.APIKey)
+	idx, err := s.nzbSvc.Load().AddIndexer(req.Name, req.BaseURL, req.APIKey)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "creating indexer")
 		return
@@ -421,7 +421,7 @@ type testNZBIndexerRequest struct {
 // capabilities document) using whatever's currently in the add-indexer
 // form, without requiring it to be saved first.
 func (s *Server) handleTestNZBIndexer(w http.ResponseWriter, r *http.Request) {
-	if s.nzbSvc == nil {
+	if s.nzbSvc.Load() == nil {
 		writeError(w, http.StatusServiceUnavailable, nzbServiceUnavailable)
 		return
 	}
@@ -442,12 +442,12 @@ func (s *Server) handleTestNZBIndexer(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDeleteNZBIndexer(w http.ResponseWriter, r *http.Request) {
-	if s.nzbSvc == nil {
+	if s.nzbSvc.Load() == nil {
 		writeError(w, http.StatusServiceUnavailable, nzbServiceUnavailable)
 		return
 	}
 	id := r.PathValue("id")
-	if err := s.nzbSvc.RemoveIndexer(id); err != nil {
+	if err := s.nzbSvc.Load().RemoveIndexer(id); err != nil {
 		s.writeStoreErr(w, err, "deleting indexer")
 		return
 	}
