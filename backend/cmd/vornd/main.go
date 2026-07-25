@@ -131,14 +131,6 @@ func main() {
 	// Backups takes effect without a restart.
 	go backup.NewScheduler(cfg.PostgresDSN, cfg.BackupDir, st).Run(context.Background())
 
-	// Automatically backfills cast/crew/similar-titles metadata as content
-	// is added, instead of requiring an admin to remember to trigger
-	// Admin > Libraries > Sync Metadata by hand -- always running (same
-	// "just re-check on a timer" shape as the backup scheduler above),
-	// since metadataSvc itself is never nil and just no-ops a tick if TMDb
-	// isn't configured yet.
-	go metadata.NewScheduler(metadataSvc).Run(context.Background())
-
 	// Prowlarr sync (mirrors indexers configured inside a Prowlarr instance
 	// into Vorn's own torrent/NZB indexer tables) is wired up inside
 	// httpapi.Server.reconfigure now, not here -- it restarts itself
@@ -160,6 +152,17 @@ func main() {
 		CORSOrigin:   cfg.CORSOrigin,
 		DevMode:      cfg.DevMode,
 	})
+
+	// Automatically backfills cast/crew/similar-titles metadata as content
+	// is added, instead of requiring an admin to remember to trigger
+	// Admin > Libraries > Sync Metadata by hand -- always running (same
+	// "just re-check on a timer" shape as the backup scheduler above).
+	// Started only now, after NewRouter (whose NewServer call runs an
+	// initial reconfigure() synchronously) so metadataSvc's TMDb provider
+	// is already populated by the scheduler's very first, startup tick --
+	// starting it any earlier would race that initial reconfigure and skip
+	// silently on the immediate startup tick.
+	go metadata.NewScheduler(metadataSvc).Run(context.Background())
 
 	settings, err := st.GetServerSettings()
 	if err != nil {
