@@ -471,6 +471,13 @@ func (s *Service) acquireViaNZB(item *store.MediaItem, query string, profile sto
 	if err != nil {
 		return fmt.Errorf("searching NZB indexers: %w", err)
 	}
+	if imdbID, season, episode := s.resolveImdbSearchParams(item); imdbID != "" {
+		if imdbCandidates, err := s.nzb.SearchByIMDb(searchCtx, imdbID, season, episode); err != nil {
+			log.Printf("acquisition: id-based NZB indexer search for %s: %v", item.ID, err)
+		} else {
+			candidates = append(candidates, imdbCandidates...)
+		}
+	}
 	if len(candidates) == 0 {
 		return ErrNoNZBSearchResults
 	}
@@ -701,6 +708,17 @@ func (s *Service) trySeasonPackViaNZB(ctx context.Context, season, series *store
 	if err != nil {
 		log.Printf("acquisition: searching NZB season pack for %s: %v", season.ID, err)
 		return false
+	}
+	// Unlike TorBox's torrent-search API, Newznab's t=tvsearch genuinely
+	// supports a season-only query (omitting ep) -- most indexers return
+	// season packs for exactly this query shape, the same one Sonarr itself
+	// sends for a season-pack search.
+	if series.ImdbID != nil {
+		if imdbCandidates, err := s.nzb.SearchByIMDb(searchCtx, *series.ImdbID, seasonNumber, 0); err != nil {
+			log.Printf("acquisition: id-based NZB indexer search for season %s: %v", season.ID, err)
+		} else {
+			candidates = append(candidates, imdbCandidates...)
+		}
 	}
 
 	var packCandidates []nzb.SearchResult

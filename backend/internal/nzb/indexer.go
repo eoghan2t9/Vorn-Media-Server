@@ -157,6 +157,76 @@ func SearchIndexer(ctx context.Context, name, baseURL, apiKey, query string) ([]
 	return out, nil
 }
 
+// SearchIndexerByIMDb queries a single Newznab-compatible indexer using its
+// id-based search functions (t=movie / t=tvsearch) instead of the generic
+// free-text t=search SearchIndexer uses -- both are part of the same
+// standard Newznab spec (the same protocol Sonarr/Radarr/NZBHydra use this
+// exact way), so this needs no new indexer type/config, just a different
+// query mode against the same base URL/API key. season==0 means "movie"
+// (t=movie); season>0 means "TV episode" (t=tvsearch, with season/ep).
+// Indexers that don't actually support these functions typically just
+// return an empty result set or a Newznab error, both already handled the
+// same as any other SearchIndexer failure by the caller.
+func SearchIndexerByIMDb(ctx context.Context, name, baseURL, apiKey, imdbID string, season, episode int) ([]SearchResult, error) {
+	u, err := url.Parse(strings.TrimRight(baseURL, "/") + "/api")
+	if err != nil {
+		return nil, fmt.Errorf("nzb: parsing indexer URL: %w", err)
+	}
+	q := u.Query()
+	q.Set("imdbid", strings.TrimPrefix(imdbID, "tt"))
+	if season > 0 {
+		q.Set("t", "tvsearch")
+		q.Set("season", strconv.Itoa(season))
+		if episode > 0 {
+			q.Set("ep", strconv.Itoa(episode))
+		}
+	} else {
+		q.Set("t", "movie")
+	}
+	if apiKey != "" {
+		q.Set("apikey", apiKey)
+	}
+	u.RawQuery = q.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("nzb: querying indexer %s: %w", name, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("nzb: indexer %s returned status %d", name, resp.StatusCode)
+	}
+
+	var feed newznabFeed
+	if err := xml.NewDecoder(resp.Body).Decode(&feed); err != nil {
+		return nil, fmt.Errorf("nzb: decoding indexer %s response: %w", name, err)
+	}
+
+	out := make([]SearchResult, 0, len(feed.Channel.Items))
+	for _, it := range feed.Channel.Items {
+		size, _ := strconv.ParseInt(it.attr("size"), 10, 64)
+		published, _ := time.Parse(time.RFC1123Z, it.PubDate)
+
+		downloadURL := it.Enclosure.URL
+		if downloadURL == "" {
+			downloadURL = it.Link
+		}
+
+		out = append(out, SearchResult{
+			IndexerName: name,
+			Title:       it.Title,
+			SizeBytes:   size,
+			DownloadURL: downloadURL,
+			PublishedAt: published,
+		})
+	}
+	return out, nil
+}
+
 // FetchNZB downloads the raw .nzb file body from a search result's
 // DownloadURL (already a complete, indexer-authenticated URL, same as a
 // Torznab enclosure link).
