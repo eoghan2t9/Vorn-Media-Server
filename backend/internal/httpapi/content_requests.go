@@ -239,6 +239,23 @@ func (s *Server) handleListAdminContentRequests(w http.ResponseWriter, r *http.R
 	writeJSON(w, http.StatusOK, resp)
 }
 
+// handleAdminDeleteContentRequest lets an admin remove any request
+// regardless of status -- unlike handleDeleteContentRequest (self-service
+// withdraw, which only lets the original requester remove their own
+// still-pending one), this covers cleaning up a request that was approved
+// or declined but never usefully fulfilled (e.g. no default request target
+// was configured at the time it was created) or just tidying the queue.
+// content_request_fulfillments rows cascade-delete with it (see migration
+// 000016's ON DELETE CASCADE), so no separate cleanup is needed here.
+func (s *Server) handleAdminDeleteContentRequest(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.store.DeleteContentRequest(id); err != nil {
+		s.writeStoreErr(w, err, "deleting request")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 type decideContentRequestRequest struct {
 	Status string `json:"status"`
 }

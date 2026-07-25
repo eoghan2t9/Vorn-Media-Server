@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import {
   ApiError,
   decideContentRequest,
+  deleteAdminContentRequest,
   listAdminContentRequests,
   type ContentRequest,
   type ContentRequestStatus,
@@ -23,6 +24,7 @@ export function AdminRequests() {
   const [requests, setRequests] = useState<ContentRequest[]>([])
   const [error, setError] = useState<string | null>(null)
   const [decidingId, setDecidingId] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
 
   function load() {
     listAdminContentRequests((statusFilter || undefined) as ContentRequestStatus | undefined)
@@ -42,6 +44,23 @@ export function AdminRequests() {
       setError(err instanceof ApiError ? err.message : 'Failed to update request')
     } finally {
       setDecidingId(null)
+    }
+  }
+
+  // Unlike a user withdrawing their own pending request, an admin can
+  // remove any request regardless of status -- e.g. one that was approved
+  // but never usefully fulfilled (no default request target configured at
+  // the time), or just tidying up an old declined one.
+  async function handleDelete(id: string) {
+    setError(null)
+    setDeletingId(id)
+    try {
+      await deleteAdminContentRequest(id)
+      setRequests((list) => list.filter((r) => r.id !== id))
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to delete request')
+    } finally {
+      setDeletingId(null)
     }
   }
 
@@ -104,6 +123,14 @@ export function AdminRequests() {
                         )}
                         <button type="button" onClick={() => navigate(`/admin/torrents?q=${encodeURIComponent(r.title)}`)}>
                           Search torrents
+                        </button>
+                        <button
+                          type="button"
+                          className="vorn-btn-danger"
+                          onClick={() => handleDelete(r.id)}
+                          disabled={deletingId === r.id}
+                        >
+                          {deletingId === r.id ? 'Deleting…' : 'Delete'}
                         </button>
                       </div>
                     </td>

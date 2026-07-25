@@ -392,6 +392,7 @@ func NewRouter(deps Deps) http.Handler {
 	mux.HandleFunc("DELETE /api/requests/{id}", s.withAuth(s.handleDeleteContentRequest))
 	mux.HandleFunc("GET /api/admin/requests", s.withAdmin(s.handleListAdminContentRequests))
 	mux.HandleFunc("PUT /api/admin/requests/{id}", s.withAdmin(s.handleDecideContentRequest))
+	mux.HandleFunc("DELETE /api/admin/requests/{id}", s.withAdmin(s.handleAdminDeleteContentRequest))
 
 	mux.HandleFunc("POST /api/libraries/{id}/sync-metadata", s.withAdmin(s.handleStartMetadataSync))
 	mux.HandleFunc("GET /api/metadata-jobs/{id}", s.withAdmin(s.handleGetMetadataJob))

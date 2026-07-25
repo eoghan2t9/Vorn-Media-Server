@@ -788,6 +788,12 @@ export const listAdminContentRequests = (status?: ContentRequestStatus) =>
 export const decideContentRequest = (id: string, status: 'approved' | 'declined') =>
   request<ContentRequest>(`/api/admin/requests/${id}`, { method: 'PUT', body: JSON.stringify({ status }) })
 
+// Unlike deleteContentRequest above (self-service withdraw, pending-only),
+// an admin can remove any request regardless of status -- e.g. cleaning up
+// one that was approved/declined but never usefully fulfilled.
+export const deleteAdminContentRequest = (id: string) =>
+  request<void>(`/api/admin/requests/${id}`, { method: 'DELETE' })
+
 // resolveMediaUrl normalizes a poster/backdrop URL for use as an <img src>.
 // TMDb-sourced art is already an absolute CDN URL and passes through
 // unchanged; locally-extracted embedded cover art (see GET /api/artwork/*)
