@@ -285,6 +285,18 @@ export interface SystemStats {
 }
 export const fetchSystemStats = () => request<SystemStats>('/api/admin/stats/system')
 
+export interface AudioTrack {
+  index: number
+  codec: string
+  language?: string
+  channels?: number
+  title?: string
+}
+export interface Chapter {
+  startSeconds: number
+  endSeconds: number
+  title?: string
+}
 export interface PlayResponse {
   mode: 'direct' | 'transcode' | 'acquiring'
   directUrl?: string
@@ -292,11 +304,17 @@ export interface PlayResponse {
   playlistUrl?: string
   acquisitionStatus?: 'searching' | 'acquiring' | 'error'
   acquisitionError?: string
+  audioTracks?: AudioTrack[]
+  chapters?: Chapter[]
 }
-export const playItem = (id: string, caps?: ClientCapabilities) =>
+export const playItem = (id: string, opts?: { caps?: ClientCapabilities; audioTrackIndex?: number }) =>
   request<PlayResponse>(`/api/items/${id}/play`, {
     method: 'POST',
-    body: JSON.stringify({ videoCodecs: caps?.videoCodecs ?? [], audioCodecs: caps?.audioCodecs ?? [] }),
+    body: JSON.stringify({
+      videoCodecs: opts?.caps?.videoCodecs ?? [],
+      audioCodecs: opts?.caps?.audioCodecs ?? [],
+      audioTrackIndex: opts?.audioTrackIndex,
+    }),
   })
 
 export const stopStreamSession = (sessionId: string) =>

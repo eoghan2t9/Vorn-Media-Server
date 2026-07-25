@@ -1,0 +1,171 @@
+.vorn-player {
+  position: relative;
+  width: 100%;
+  border-radius: var(--vorn-radius);
+  overflow: hidden;
+  background: black;
+}
+
+.vorn-player .vorn-video {
+  display: block;
+  box-shadow: none;
+}
+
+.vorn-player-tap-zone {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+}
+
+.vorn-player-seek-flash {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  background: var(--vorn-bg-glass);
+  backdrop-filter: blur(10px);
+  border-radius: 999px;
+  padding: 0.5rem 1rem;
+  font-size: 0.95rem;
+  color: white;
+  pointer-events: none;
+}
+
+.vorn-player-seek-flash-back {
+  left: 10%;
+}
+
+.vorn-player-seek-flash-forward {
+  right: 10%;
+}
+
+.vorn-player-controls {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
+  padding: 0.5rem 0.9rem 0.75rem;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.75), transparent);
+  color: white;
+  opacity: 1;
+  transition: opacity 0.2s ease;
+}
+
+.vorn-player-controls-hidden .vorn-player-controls {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.vorn-player-scrubber {
+  position: relative;
+  height: 0.35rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.25);
+  margin-bottom: 0.6rem;
+  cursor: pointer;
+}
+
+.vorn-player-scrubber-buffered {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.vorn-player-scrubber-progress {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: var(--vorn-gradient);
+}
+
+.vorn-player-chapter-tick {
+  position: absolute;
+  top: -0.15rem;
+  width: 2px;
+  height: 0.65rem;
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.vorn-player-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.vorn-player-row button {
+  background: transparent;
+  border: none;
+  color: white;
+  font-size: 1.1rem;
+  cursor: pointer;
+  padding: 0.25rem 0.4rem;
+  border-radius: 0.4rem;
+  line-height: 1;
+}
+
+.vorn-player-row button:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.vorn-player-time {
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.vorn-player-skip-intro {
+  border: 1px solid rgba(255, 255, 255, 0.4) !important;
+  font-size: 0.8rem !important;
+  padding: 0.3rem 0.6rem !important;
+}
+
+.vorn-player-spacer {
+  flex: 1;
+}
+
+.vorn-player-volume {
+  width: 5rem;
+  accent-color: var(--vorn-accent);
+}
+
+.vorn-player-settings {
+  position: relative;
+}
+
+.vorn-player-settings-menu {
+  position: absolute;
+  bottom: 2.2rem;
+  right: 0;
+  background: var(--vorn-bg-glass);
+  backdrop-filter: blur(16px) saturate(150%);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  border: 1px solid var(--vorn-border);
+  border-radius: var(--vorn-radius);
+  padding: 0.6rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  min-width: 10rem;
+  box-shadow: var(--vorn-shadow-lg);
+}
+
+.vorn-player-settings-menu label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  color: white;
+}
+
+@media (max-width: 640px) {
+  .vorn-player-row button {
+    font-size: 1.3rem;
+    padding: 0.4rem;
+  }
+
+  .vorn-player-volume {
+    display: none;
+  }
+}

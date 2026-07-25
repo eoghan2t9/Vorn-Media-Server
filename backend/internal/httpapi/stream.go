@@ -29,35 +29,65 @@ func (s *Server) handleTranscodeCapabilities(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, http.StatusOK, capabilitiesResponse{Backends: names})
 }
 
+type audioTrackResponse struct {
+	Index    int    `json:"index"`
+	Codec    string `json:"codec"`
+	Language string `json:"language,omitempty"`
+	Channels int    `json:"channels,omitempty"`
+	Title    string `json:"title,omitempty"`
+}
+
+type chapterResponse struct {
+	StartSeconds float64 `json:"startSeconds"`
+	EndSeconds   float64 `json:"endSeconds"`
+	Title        string  `json:"title,omitempty"`
+}
+
 type playResponse struct {
-	Mode              string `json:"mode"` // "direct" | "transcode" | "acquiring"
-	DirectURL         string `json:"directUrl,omitempty"`
-	SessionID         string `json:"sessionId,omitempty"`
-	PlaylistURL       string `json:"playlistUrl,omitempty"`
-	AcquisitionStatus string `json:"acquisitionStatus,omitempty"` // "searching" | "acquiring" | "error", only set when Mode == "acquiring"
-	AcquisitionError  string `json:"acquisitionError,omitempty"`
+	Mode              string               `json:"mode"` // "direct" | "transcode" | "acquiring"
+	DirectURL         string               `json:"directUrl,omitempty"`
+	SessionID         string               `json:"sessionId,omitempty"`
+	PlaylistURL       string               `json:"playlistUrl,omitempty"`
+	AcquisitionStatus string               `json:"acquisitionStatus,omitempty"` // "searching" | "acquiring" | "error", only set when Mode == "acquiring"
+	AcquisitionError  string               `json:"acquisitionError,omitempty"`
+	AudioTracks       []audioTrackResponse `json:"audioTracks,omitempty"`
+	Chapters          []chapterResponse    `json:"chapters,omitempty"`
 }
 
 // playRequest is an optional JSON body on POST /api/items/{id}/play --
 // clients report codecs their player can decode natively (typically probed
 // via video.canPlayType()) so handlePlayItem's transcode.Decide call can
-// grant direct play beyond the conservative global baseline. An absent or
-// empty body decodes to the zero value, i.e. baseline-only behavior, so
-// older/other clients that don't send this need no special-casing.
+// grant direct play beyond the conservative global baseline, and optionally
+// which audio track to play (AudioTrackInfo.Index from a previous response's
+// AudioTracks) when the viewer picked a non-default one. An absent or empty
+// body decodes to the zero value, i.e. baseline-only behavior with the
+// default audio track, so older/other clients that don't send this need no
+// special-casing.
 type playRequest struct {
-	VideoCodecs []string `json:"videoCodecs"`
-	AudioCodecs []string `json:"audioCodecs"`
+	VideoCodecs     []string `json:"videoCodecs"`
+	AudioCodecs     []string `json:"audioCodecs"`
+	AudioTrackIndex *int     `json:"audioTrackIndex"`
 }
 
-// decodeClientCapabilities reads an optional playRequest JSON body without
-// treating a missing/empty body as an error -- most callers (or a client
+// decodePlayRequest reads an optional playRequest JSON body without treating
+// a missing/empty body as an error -- most callers (or a client
 // mid-rollout) won't send one yet.
-func decodeClientCapabilities(r *http.Request) transcode.ClientCapabilities {
+func decodePlayRequest(r *http.Request) playRequest {
 	var req playRequest
 	if r.Body != nil {
 		_ = json.NewDecoder(r.Body).Decode(&req)
 	}
-	return transcode.ClientCapabilities{VideoCodecs: req.VideoCodecs, AudioCodecs: req.AudioCodecs}
+	return req
+}
+
+func mediaInfoToPlayResponseFields(info *transcode.MediaInfo) (tracks []audioTrackResponse, chapters []chapterResponse) {
+	for _, t := range info.AudioTracks {
+		tracks = append(tracks, audioTrackResponse{Index: t.Index, Codec: t.Codec, Language: t.Language, Channels: t.Channels, Title: t.Title})
+	}
+	for _, c := range info.Chapters {
+		chapters = append(chapters, chapterResponse{StartSeconds: c.StartSeconds, EndSeconds: c.EndSeconds, Title: c.Title})
+	}
+	return tracks, chapters
 }
 
 // loadItemForPlayback loads a media item and checks the caller has access
@@ -103,7 +133,8 @@ func (s *Server) itemForPlayback(w http.ResponseWriter, r *http.Request, id stri
 
 func (s *Server) handlePlayItem(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	caps := decodeClientCapabilities(r)
+	req := decodePlayRequest(r)
+	caps := transcode.ClientCapabilities{VideoCodecs: req.VideoCodecs, AudioCodecs: req.AudioCodecs}
 	item := s.loadItemForPlayback(w, r, id)
 	if item == nil {
 		return
@@ -149,8 +180,26 @@ func (s *Server) handlePlayItem(w http.ResponseWriter, r *http.Request) {
 	}
 
 	mode := transcode.Decide(info, caps)
+	audioTrackIndex := -1
+	if req.AudioTrackIndex != nil {
+		audioTrackIndex = *req.AudioTrackIndex
+		// Picking a specific audio track requires ffmpeg to select and
+		// (re)mux it -- a direct-play redirect bypasses ffmpeg entirely, so
+		// a request for a non-default track can never stay in ModeDirect
+		// even if the source video codec alone would otherwise qualify.
+		if mode == transcode.ModeDirect {
+			mode = transcode.ModeRemux
+		}
+	}
+	audioTracks, chapters := mediaInfoToPlayResponseFields(info)
+
 	if mode == transcode.ModeDirect {
-		writeJSON(w, http.StatusOK, playResponse{Mode: "direct", DirectURL: "/api/stream/direct/" + item.ID})
+		writeJSON(w, http.StatusOK, playResponse{
+			Mode:        "direct",
+			DirectURL:   "/api/stream/direct/" + item.ID,
+			AudioTracks: audioTracks,
+			Chapters:    chapters,
+		})
 		return
 	}
 
@@ -162,7 +211,7 @@ func (s *Server) handlePlayItem(w http.ResponseWriter, r *http.Request) {
 	// ModeRemux is an internal distinction only -- the client just needs to
 	// know "there's a session to poll", same as a full transcode.
 	sessionID := uuid.NewString()
-	sess, err := s.transcodeMgr.StartSession(context.Background(), sessionID, *item.Path, mode == transcode.ModeRemux)
+	sess, err := s.transcodeMgr.StartSession(context.Background(), sessionID, *item.Path, mode == transcode.ModeRemux, audioTrackIndex)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "starting transcode session")
 		return
@@ -171,6 +220,8 @@ func (s *Server) handlePlayItem(w http.ResponseWriter, r *http.Request) {
 		Mode:        "transcode",
 		SessionID:   sess.ID,
 		PlaylistURL: "/api/stream/session/" + sess.ID + "/playlist.m3u8",
+		AudioTracks: audioTracks,
+		Chapters:    chapters,
 	})
 }
 

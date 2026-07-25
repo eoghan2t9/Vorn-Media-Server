@@ -9,13 +9,15 @@ import {
   getProgress,
   playItem,
   stopStreamSession,
-  subtitlesUrl,
   updateProgress,
+  type AudioTrack,
+  type Chapter,
   type MediaItem,
   type PlayResponse,
 } from '../api/client'
 import { detectClientCapabilities } from '../player/capabilities'
 import { findNextEpisode } from '../player/nextEpisode'
+import { PlayerShell } from '../player/PlayerShell'
 import './WatchPage.css'
 
 const PROGRESS_REPORT_INTERVAL_MS = 5000
@@ -39,18 +41,6 @@ const ACQUIRING_COPY: Record<'searching' | 'acquiring', string> = {
   acquiring: 'Preparing your stream…',
 }
 
-const SUBTITLE_LANGUAGES = [
-  { code: 'off', label: 'Off' },
-  { code: 'en', label: 'English' },
-  { code: 'es', label: 'Spanish' },
-  { code: 'fr', label: 'French' },
-  { code: 'de', label: 'German' },
-  { code: 'it', label: 'Italian' },
-  { code: 'pt', label: 'Portuguese' },
-  { code: 'ru', label: 'Russian' },
-  { code: 'ja', label: 'Japanese' },
-]
-
 export function WatchPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -65,6 +55,21 @@ export function WatchPage() {
   const [subtitleLanguage, setSubtitleLanguage] = useState('off')
   const [acquiring, setAcquiring] = useState<AcquiringState | null>(null)
   const [retryKey, setRetryKey] = useState(0)
+  const [audioTracks, setAudioTracks] = useState<AudioTrack[]>([])
+  const [chapters, setChapters] = useState<Chapter[]>([])
+  const [audioTrackIndex, setAudioTrackIndexState] = useState<number | undefined>(undefined)
+  // Mirrors audioTrackIndex so the playback effect below (scoped to
+  // [id, retryKey], not audio-track changes) can always read the current
+  // selection when a mid-stream recovery re-requests playItem, without
+  // needing to tear down and remount the whole session just because the
+  // viewer picked a different track.
+  const audioTrackIndexRef = useRef<number | undefined>(undefined)
+  const switchAudioTrackRef = useRef<(index: number) => void>(() => {})
+
+  function setAudioTrackIndex(index: number | undefined) {
+    audioTrackIndexRef.current = index
+    setAudioTrackIndexState(index)
+  }
 
   useEffect(() => {
     if (!id) return
@@ -109,7 +114,12 @@ export function WatchPage() {
       }
     }
 
-    async function attach(video: HTMLVideoElement, play: PlayResponse) {
+    // resumeAt overrides the server-reported saved position -- used when
+    // reattaching right after the viewer picks a different audio track,
+    // where we want to resume from wherever they actually were, not the
+    // last periodically-saved progress (which can lag behind by up to
+    // PROGRESS_REPORT_INTERVAL_MS).
+    async function attach(video: HTMLVideoElement, play: PlayResponse, resumeAt?: number) {
       if (play.sessionId) sessionIdRef.current = play.sessionId
       const url = play.mode === 'direct' ? `${API_BASE}${play.directUrl}` : `${API_BASE}${play.playlistUrl}`
 
@@ -129,9 +139,13 @@ export function WatchPage() {
         video.src = url
       }
 
-      const progress = await getProgress(id!)
-      if (progress.positionSeconds > 0) {
-        video.currentTime = progress.positionSeconds
+      if (resumeAt !== undefined) {
+        video.currentTime = resumeAt
+      } else {
+        const progress = await getProgress(id!)
+        if (progress.positionSeconds > 0) {
+          video.currentTime = progress.positionSeconds
+        }
       }
 
       video.play().catch(() => {
@@ -148,16 +162,46 @@ export function WatchPage() {
     // replacement) or attach and keep playing. Reaching here at all means
     // the backend gave a real, current answer, so this is also where the
     // retry budget resets.
-    async function handlePlayResponse(video: HTMLVideoElement, play: PlayResponse) {
+    async function handlePlayResponse(video: HTMLVideoElement, play: PlayResponse, resumeAt?: number) {
       midStreamRetries = 0
+      setAudioTracks(play.audioTracks ?? [])
+      setChapters(play.chapters ?? [])
       if (play.mode === 'acquiring') {
         setAcquiring({ status: play.acquisitionStatus ?? 'searching', message: play.acquisitionError })
         if (play.acquisitionStatus !== 'error') pollAcquisition(video)
         return
       }
       setAcquiring(null)
-      await attach(video, play)
+      await attach(video, play, resumeAt)
     }
+
+    // Re-requests playback with a different audio track, preserving the
+    // current position -- exposed to the render via switchAudioTrackRef
+    // since this playback session lives inside this effect, scoped to
+    // [id, retryKey], while the settings-menu click that triggers it comes
+    // from outside.
+    async function switchAudioTrack(index: number) {
+      const video = videoRef.current
+      if (!video || cancelled) return
+      const resumeAt = video.currentTime
+      try {
+        hlsRef.current?.destroy()
+        hlsRef.current = null
+        if (progressTimer) clearInterval(progressTimer)
+        const play = await playItem(id!, { caps: detectClientCapabilities(), audioTrackIndex: index })
+        if (cancelled) return
+        setAudioTrackIndex(index)
+        await handlePlayResponse(video, play, resumeAt)
+      } catch (err) {
+        if (!cancelled) {
+          setAcquiring({
+            status: 'error',
+            message: err instanceof ApiError ? err.message : 'Failed to switch audio track.',
+          })
+        }
+      }
+    }
+    switchAudioTrackRef.current = switchAudioTrack
 
     // Fired on a native <video> network/decode/source error (direct mode)
     // or an hls.js fatal error (transcode mode) -- both mean the current
@@ -184,7 +228,7 @@ export function WatchPage() {
         hlsRef.current?.destroy()
         hlsRef.current = null
         if (progressTimer) clearInterval(progressTimer)
-        const play = await playItem(id!, detectClientCapabilities())
+        const play = await playItem(id!, { caps: detectClientCapabilities(), audioTrackIndex: audioTrackIndexRef.current })
         if (cancelled) return
         await handlePlayResponse(video, play)
       } catch (err) {
@@ -210,7 +254,7 @@ export function WatchPage() {
           if (cancelled) return
           if (fresh.acquisitionStatus === 'owned') {
             clearInterval(acquisitionTimer)
-            const play = await playItem(id!, detectClientCapabilities())
+            const play = await playItem(id!, { caps: detectClientCapabilities(), audioTrackIndex: audioTrackIndexRef.current })
             if (!cancelled) await handlePlayResponse(video, play)
           } else if (fresh.acquisitionStatus === 'error') {
             clearInterval(acquisitionTimer)
@@ -231,7 +275,7 @@ export function WatchPage() {
         setItem(loadedItem)
         findNextEpisode(loadedItem).then((n) => !cancelled && setNextEpisode(n))
 
-        const play = await playItem(id!, detectClientCapabilities())
+        const play = await playItem(id!, { caps: detectClientCapabilities(), audioTrackIndex: audioTrackIndexRef.current })
         if (cancelled) return
         await handlePlayResponse(video, play)
       } catch (err) {
@@ -311,17 +355,19 @@ export function WatchPage() {
   return (
     <div className="vorn-watch-page">
       <div className="vorn-video-wrap">
-        <video
-          ref={videoRef}
-          className="vorn-video"
-          controls={!acquiring}
+        <PlayerShell
+          videoRef={videoRef}
+          itemId={id ?? ''}
+          hidden={!!acquiring}
+          subtitleLanguage={subtitleLanguage}
+          onSubtitleChange={setSubtitleLanguage}
+          audioTracks={audioTracks}
+          audioTrackIndex={audioTrackIndex}
+          onAudioTrackChange={(index) => switchAudioTrackRef.current(index)}
+          chapters={chapters}
           onTimeUpdate={handleTimeUpdate}
           onEnded={goToNextEpisode}
-        >
-          {id && subtitleLanguage !== 'off' && (
-            <track key={subtitleLanguage} kind="subtitles" src={subtitlesUrl(id, subtitleLanguage)} srcLang={subtitleLanguage} default />
-          )}
-        </video>
+        />
 
         {acquiring && (
           <div className="vorn-acquiring-overlay">
@@ -354,17 +400,6 @@ export function WatchPage() {
         )}
       </div>
       {item && <h1 className="vorn-watch-title">{item.title}</h1>}
-
-      <label className="vorn-subtitle-picker">
-        Subtitles:{' '}
-        <select value={subtitleLanguage} onChange={(e) => setSubtitleLanguage(e.target.value)}>
-          {SUBTITLE_LANGUAGES.map((l) => (
-            <option key={l.code} value={l.code}>
-              {l.label}
-            </option>
-          ))}
-        </select>
-      </label>
     </div>
   )
 }

@@ -21,14 +21,6 @@
   font-size: 1.2rem;
 }
 
-.vorn-subtitle-picker {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.9rem;
-  margin-top: 0.5rem;
-}
-
 /* Anchored to the video itself (via .vorn-video-wrap's position:relative)
    rather than the viewport, so it always overlays the video's corner --
    fixed-to-viewport positioning would otherwise drift over the title,
