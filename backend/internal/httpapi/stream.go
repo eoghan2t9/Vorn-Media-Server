@@ -3,9 +3,11 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -316,12 +318,40 @@ func (s *Server) handleSessionFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Deliberately not http.ServeFile/http.ServeContent -- both implement
+	// conditional GET (ETag/Last-Modified) automatically, and once the
+	// browser's HTTP cache has one response for a given segment URL, it
+	// attaches If-Modified-Since on the next identical request. That's fine
+	// for ordinary static files, but hls.js has no reason to ever re-request
+	// the same fragment URL unless its first attempt failed to parse -- a
+	// 304's empty body IS a parse failure, so it retries the same URL,
+	// gets another 304, and never gets any actual bytes: an infinite loop
+	// that looks exactly like "playback stalls, needs replaying constantly"
+	// from the user's side, with the segment fetch itself always
+	// "succeeding" (304 is not an error). No Last-Modified/ETag at all means
+	// there is nothing for a conditional request to validate against, so
+	// every fetch gets the real 200 + full body.
+	f, err := os.Open(fullPath)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "file not ready")
+		return
+	}
+	defer f.Close()
+
 	if strings.HasSuffix(file, ".m3u8") {
 		w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 	} else if strings.HasSuffix(file, ".ts") {
 		w.Header().Set("Content-Type", "video/mp2t")
 	}
-	http.ServeFile(w, r, fullPath)
+	w.Header().Set("Cache-Control", "no-store")
+	if info, err := f.Stat(); err == nil {
+		w.Header().Set("Content-Length", strconv.FormatInt(info.Size(), 10))
+	}
+	// Error is expectedly common and not worth logging -- a client
+	// abandoning a fragment mid-download (seeking away, navigating off the
+	// page) just breaks the pipe, same as any other write to an
+	// http.ResponseWriter for a client that's gone.
+	_, _ = io.Copy(w, f)
 }
 
 // waitForSessionFile polls for fullPath to appear, bounded by
