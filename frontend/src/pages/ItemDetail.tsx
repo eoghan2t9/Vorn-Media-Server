@@ -141,6 +141,11 @@ export function ItemDetail() {
                 {item.ratingRottenTomatoes && <span>RT {item.ratingRottenTomatoes}</span>}
               </p>
             )}
+            {item.source && (
+              <p className="vorn-detail-year" title={item.source === 'debrid' ? 'Streaming directly from your debrid provider, no local copy' : 'Playing from a file stored on this server'}>
+                {item.source === 'debrid' ? '☁ Debrid stream' : '⌂ Local file'}
+              </p>
+            )}
             {(item.kind === 'movie' ||
               item.kind === 'episode' ||
               item.kind === 'track' ||

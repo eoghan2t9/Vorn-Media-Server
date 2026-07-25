@@ -167,6 +167,7 @@ export interface MediaItem {
   ratingRottenTomatoes?: string
   ratingTmdb?: string
   trailerUrl?: string
+  source?: 'local' | 'debrid'
 }
 
 export interface CastMember {

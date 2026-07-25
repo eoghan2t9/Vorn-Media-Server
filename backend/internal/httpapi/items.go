@@ -27,6 +27,7 @@ type mediaItemResponse struct {
 	RatingRottenTomatoes string  `json:"ratingRottenTomatoes,omitempty"`
 	RatingTMDb           string  `json:"ratingTmdb,omitempty"`
 	TrailerURL           string  `json:"trailerUrl,omitempty"`
+	Source               string  `json:"source,omitempty"` // "local" | "debrid" -- derived from Path, empty until a file/stream exists
 	AcquisitionStatus    string  `json:"acquisitionStatus"`
 	AcquisitionError     string  `json:"acquisitionError,omitempty"`
 	Monitored            bool    `json:"monitored"`
@@ -60,6 +61,13 @@ func toMediaItemResponse(m *store.MediaItem) mediaItemResponse {
 	if m.ReleaseDate != nil {
 		d := m.ReleaseDate.Format("2006-01-02")
 		resp.ReleaseDate = &d
+	}
+	if m.Path != nil {
+		if isRemoteURL(*m.Path) {
+			resp.Source = "debrid"
+		} else {
+			resp.Source = "local"
+		}
 	}
 	return resp
 }
