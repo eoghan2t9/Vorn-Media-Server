@@ -257,3 +257,97 @@ export function HardDriveIcon(props: IconProps) {
     </svg>
   )
 }
+
+export function PlayIcon(props: IconProps) {
+  return (
+    <svg {...base} fill="currentColor" stroke="none" {...props}>
+      <path d="M6.5 4.2c0-1 1.1-1.6 1.9-1.1l12.3 7.8c.8.5.8 1.7 0 2.2L8.4 20.9c-.8.5-1.9-.1-1.9-1.1z" />
+    </svg>
+  )
+}
+
+export function PauseIcon(props: IconProps) {
+  return (
+    <svg {...base} fill="currentColor" stroke="none" {...props}>
+      <rect x="5.5" y="3.5" width="4.5" height="17" rx="1.2" />
+      <rect x="14" y="3.5" width="4.5" height="17" rx="1.2" />
+    </svg>
+  )
+}
+
+export function SeekBackIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M4 12a8 8 0 1 0 2.7-6" />
+      <path d="M3 4.5v4.5h4.5" />
+      <text x="12" y="15.5" fontSize="6.5" fill="currentColor" stroke="none" textAnchor="middle" fontFamily="inherit">
+        10
+      </text>
+    </svg>
+  )
+}
+
+export function SeekForwardIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M20 12a8 8 0 1 1-2.7-6" />
+      <path d="M21 4.5v4.5h-4.5" />
+      <text x="12" y="15.5" fontSize="6.5" fill="currentColor" stroke="none" textAnchor="middle" fontFamily="inherit">
+        10
+      </text>
+    </svg>
+  )
+}
+
+export function VolumeIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M4 9.5h3.5L12 5.5v13L7.5 14.5H4z" />
+      <path d="M15.5 9a4.5 4.5 0 0 1 0 6" />
+      <path d="M18 6.5a8.5 8.5 0 0 1 0 11" />
+    </svg>
+  )
+}
+
+export function VolumeMuteIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M4 9.5h3.5L12 5.5v13L7.5 14.5H4z" />
+      <path d="M15.5 9.5l4.5 5M20 9.5l-4.5 5" />
+    </svg>
+  )
+}
+
+export function GearIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <circle cx="12" cy="12" r="3" />
+      <path d="M12 3.5v2.2M12 18.3v2.2M20.5 12h-2.2M5.7 12H3.5M17.8 6.2l-1.55 1.55M7.75 16.25 6.2 17.8M17.8 17.8l-1.55-1.55M7.75 7.75 6.2 6.2" />
+    </svg>
+  )
+}
+
+export function PipIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <rect x="2.5" y="4.5" width="19" height="14" rx="1.8" />
+      <rect x="11.5" y="11" width="7.5" height="5.2" rx="1" fill="currentColor" stroke="none" />
+    </svg>
+  )
+}
+
+export function FullscreenIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M8 3.5H4.5V7M16 3.5h3.5V7M8 20.5H4.5V17M16 20.5h3.5V17" />
+    </svg>
+  )
+}
+
+export function FullscreenExitIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M4.5 8V4.5H8M19.5 8V4.5H16M4.5 16v3.5H8M19.5 16v3.5H16" />
+    </svg>
+  )
+}

@@ -1,6 +1,20 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent, type RefObject } from 'react'
 import type { AudioTrack, Chapter } from '../api/client'
 import { subtitlesUrl } from '../api/client'
+import {
+  CheckIcon,
+  ChevronRightIcon,
+  FullscreenExitIcon,
+  FullscreenIcon,
+  GearIcon,
+  PauseIcon,
+  PipIcon,
+  PlayIcon,
+  SeekBackIcon,
+  SeekForwardIcon,
+  VolumeIcon,
+  VolumeMuteIcon,
+} from '../components/icons'
 import { useKeyboardShortcuts } from './useKeyboardShortcuts'
 import './PlayerShell.css'
 
@@ -31,6 +45,8 @@ function formatTime(seconds: number): string {
   return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`
 }
 
+type SettingsPanel = 'main' | 'speed' | 'audio' | 'subtitles'
+
 interface PlayerShellProps {
   videoRef: RefObject<HTMLVideoElement | null>
   itemId: string
@@ -52,6 +68,13 @@ interface PlayerShellProps {
 // recovery/progress-reporting against the same videoRef, this component
 // only reflects and controls native <video> element state (play/pause,
 // currentTime, volume, playbackRate).
+//
+// The settings menu is a plain absolutely-positioned panel (not the shared
+// portaled <Select>) deliberately -- fullscreen here is the real Fullscreen
+// API (wrapRef.requestFullscreen()), and only the fullscreened element's own
+// descendants render while active. A portal to document.body would be
+// invisible the moment a viewer actually goes fullscreen, which is the most
+// common way to watch on a phone.
 export function PlayerShell({
   videoRef,
   itemId,
@@ -77,8 +100,16 @@ export function PlayerShell({
   const [muted, setMuted] = useState(false)
   const [playbackRate, setPlaybackRate] = useState(1)
   const [controlsVisible, setControlsVisible] = useState(true)
-  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsPanel, setSettingsPanel] = useState<SettingsPanel | null>(null)
   const [seekFlash, setSeekFlash] = useState<'back' | 'forward' | null>(null)
+  const [centerBounce, setCenterBounce] = useState(false)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+
+  useEffect(() => {
+    const onChange = () => setIsFullscreen(!!document.fullscreenElement)
+    document.addEventListener('fullscreenchange', onChange)
+    return () => document.removeEventListener('fullscreenchange', onChange)
+  }, [])
 
   useEffect(() => {
     const video = videoRef.current
@@ -139,6 +170,8 @@ export function PlayerShell({
     if (!video) return
     if (video.paused) video.play().catch(() => {})
     else video.pause()
+    setCenterBounce(true)
+    setTimeout(() => setCenterBounce(false), 400)
   }
 
   function seek(deltaSeconds: number) {
@@ -215,6 +248,8 @@ export function PlayerShell({
 
   const activeChapter = chapters.find((c) => currentTime >= c.startSeconds && currentTime < c.endSeconds)
   const showSkipIntro = !!activeChapter && INTRO_TITLE_PATTERN.test(activeChapter.title ?? '')
+  const activeAudioTrack = audioTracks.find((t) => t.index === (audioTrackIndex ?? audioTracks[0]?.index))
+  const activeSubtitleLabel = SUBTITLE_LANGUAGES.find((l) => l.code === subtitleLanguage)?.label ?? 'Off'
 
   function handleVideoTap(e: PointerEvent<HTMLDivElement>) {
     if (e.pointerType !== 'touch') {
@@ -236,6 +271,10 @@ export function PlayerShell({
     }
   }
 
+  function closeSettings() {
+    setSettingsPanel(null)
+  }
+
   const progressPct = duration > 0 ? (currentTime / duration) * 100 : 0
   const bufferedPct = duration > 0 ? (bufferedEnd / duration) * 100 : 0
 
@@ -252,8 +291,24 @@ export function PlayerShell({
       </video>
 
       <div className="vorn-player-tap-zone" onPointerUp={handleVideoTap}>
-        {seekFlash && <span className={`vorn-player-seek-flash vorn-player-seek-flash-${seekFlash}`}>{seekFlash === 'back' ? '-10s' : '+10s'}</span>}
+        {seekFlash && (
+          <span className={`vorn-player-seek-flash vorn-player-seek-flash-${seekFlash}`}>
+            {seekFlash === 'back' ? <SeekBackIcon width={28} height={28} /> : <SeekForwardIcon width={28} height={28} />}
+          </span>
+        )}
       </div>
+
+      {!hidden && (
+        <button
+          type="button"
+          className={`vorn-player-center-btn ${centerBounce ? 'vorn-player-center-btn-bounce' : ''}`}
+          onClick={togglePlay}
+          aria-label={isPlaying ? 'Pause' : 'Play'}
+          tabIndex={-1}
+        >
+          {isPlaying ? <PauseIcon width={30} height={30} /> : <PlayIcon width={30} height={30} />}
+        </button>
+      )}
 
       {!hidden && (
         <div className="vorn-player-controls" onPointerDown={(e) => e.stopPropagation()}>
@@ -264,26 +319,50 @@ export function PlayerShell({
               showControls()
             }}
           >
-            <div className="vorn-player-scrubber-buffered" style={{ width: `${bufferedPct}%` }} />
-            <div className="vorn-player-scrubber-progress" style={{ width: `${progressPct}%` }} />
-            {chapters.map((c, i) => (
-              <div key={i} className="vorn-player-chapter-tick" style={{ left: `${duration > 0 ? (c.startSeconds / duration) * 100 : 0}%` }} />
-            ))}
+            <div className="vorn-player-scrubber-track">
+              <div className="vorn-player-scrubber-buffered" style={{ width: `${bufferedPct}%` }} />
+              <div className="vorn-player-scrubber-progress" style={{ width: `${progressPct}%` }} />
+              {chapters.map((c, i) => (
+                <div key={i} className="vorn-player-chapter-tick" style={{ left: `${duration > 0 ? (c.startSeconds / duration) * 100 : 0}%` }} />
+              ))}
+              <div className="vorn-player-scrubber-thumb" style={{ left: `${progressPct}%` }} />
+            </div>
           </div>
 
           <div className="vorn-player-row">
-            <button type="button" onClick={togglePlay} aria-label={isPlaying ? 'Pause' : 'Play'}>
-              {isPlaying ? '⏸' : '▶'}
+            <button type="button" className="vorn-player-btn" onClick={togglePlay} aria-label={isPlaying ? 'Pause' : 'Play'}>
+              {isPlaying ? <PauseIcon /> : <PlayIcon />}
             </button>
-            <button type="button" onClick={() => seek(-10)} aria-label="Back 10 seconds">
-              ⏪
+            <button type="button" className="vorn-player-btn" onClick={() => seek(-10)} aria-label="Back 10 seconds">
+              <SeekBackIcon />
             </button>
-            <button type="button" onClick={() => seek(10)} aria-label="Forward 10 seconds">
-              ⏩
+            <button type="button" className="vorn-player-btn" onClick={() => seek(10)} aria-label="Forward 10 seconds">
+              <SeekForwardIcon />
             </button>
 
+            <div className="vorn-player-volume-group">
+              <button type="button" className="vorn-player-btn" onClick={toggleMute} aria-label={muted || volume === 0 ? 'Unmute' : 'Mute'}>
+                {muted || volume === 0 ? <VolumeMuteIcon /> : <VolumeIcon />}
+              </button>
+              <input
+                className="vorn-player-volume"
+                type="range"
+                min={0}
+                max={1}
+                step={0.05}
+                value={muted ? 0 : volume}
+                onChange={(e) => {
+                  const video = videoRef.current
+                  if (!video) return
+                  video.muted = false
+                  video.volume = Number(e.target.value)
+                }}
+                aria-label="Volume"
+              />
+            </div>
+
             <span className="vorn-player-time">
-              {formatTime(currentTime)} / {formatTime(duration)}
+              {formatTime(currentTime)} <span className="vorn-player-time-sep">/</span> {formatTime(duration)}
             </span>
 
             {showSkipIntro && activeChapter && (
@@ -294,73 +373,121 @@ export function PlayerShell({
 
             <span className="vorn-player-spacer" />
 
-            <button type="button" onClick={toggleMute} aria-label={muted || volume === 0 ? 'Unmute' : 'Mute'}>
-              {muted || volume === 0 ? '🔇' : '🔊'}
-            </button>
-            <input
-              className="vorn-player-volume"
-              type="range"
-              min={0}
-              max={1}
-              step={0.05}
-              value={muted ? 0 : volume}
-              onChange={(e) => {
-                const video = videoRef.current
-                if (!video) return
-                video.muted = false
-                video.volume = Number(e.target.value)
-              }}
-            />
-
             <div className="vorn-player-settings">
-              <button type="button" onClick={() => setSettingsOpen((v) => !v)} aria-label="Settings">
-                ⚙
+              <button
+                type="button"
+                className="vorn-player-btn"
+                onClick={() => setSettingsPanel((v) => (v ? null : 'main'))}
+                aria-label="Settings"
+              >
+                <GearIcon />
               </button>
-              {settingsOpen && (
+              {settingsPanel && (
                 <div className="vorn-player-settings-menu">
-                  <label>
-                    Speed
-                    <select value={playbackRate} onChange={(e) => (videoRef.current!.playbackRate = Number(e.target.value))}>
-                      {SPEEDS.map((s) => (
-                        <option key={s} value={s}>
-                          {s}×
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  {audioTracks.length > 1 && (
-                    <label>
-                      Audio
-                      <select value={audioTrackIndex ?? audioTracks[0]?.index ?? 0} onChange={(e) => onAudioTrackChange(Number(e.target.value))}>
-                        {audioTracks.map((t) => (
-                          <option key={t.index} value={t.index}>
-                            {t.title || t.language || t.codec} {t.channels ? `(${t.channels}ch)` : ''}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
+                  {settingsPanel === 'main' && (
+                    <>
+                      <button type="button" className="vorn-player-menu-row" onClick={() => setSettingsPanel('speed')}>
+                        <span>Speed</span>
+                        <span className="vorn-player-menu-value">
+                          {playbackRate}× <ChevronRightIcon width={14} height={14} />
+                        </span>
+                      </button>
+                      {audioTracks.length > 1 && (
+                        <button type="button" className="vorn-player-menu-row" onClick={() => setSettingsPanel('audio')}>
+                          <span>Audio</span>
+                          <span className="vorn-player-menu-value">
+                            {activeAudioTrack?.title || activeAudioTrack?.language || activeAudioTrack?.codec || 'Default'}{' '}
+                            <ChevronRightIcon width={14} height={14} />
+                          </span>
+                        </button>
+                      )}
+                      <button type="button" className="vorn-player-menu-row" onClick={() => setSettingsPanel('subtitles')}>
+                        <span>Subtitles</span>
+                        <span className="vorn-player-menu-value">
+                          {activeSubtitleLabel} <ChevronRightIcon width={14} height={14} />
+                        </span>
+                      </button>
+                    </>
                   )}
-                  <label>
-                    Subtitles
-                    <select value={subtitleLanguage} onChange={(e) => onSubtitleChange(e.target.value)}>
-                      {SUBTITLE_LANGUAGES.map((l) => (
-                        <option key={l.code} value={l.code}>
-                          {l.label}
-                        </option>
+
+                  {settingsPanel === 'speed' && (
+                    <>
+                      <button type="button" className="vorn-player-menu-back" onClick={() => setSettingsPanel('main')}>
+                        Speed
+                      </button>
+                      {SPEEDS.map((s) => (
+                        <button
+                          key={s}
+                          type="button"
+                          className="vorn-player-menu-option"
+                          onClick={() => {
+                            if (videoRef.current) videoRef.current.playbackRate = s
+                            closeSettings()
+                          }}
+                        >
+                          <span>{s}×</span>
+                          {playbackRate === s && <CheckIcon width={15} height={15} />}
+                        </button>
                       ))}
-                    </select>
-                  </label>
+                    </>
+                  )}
+
+                  {settingsPanel === 'audio' && (
+                    <>
+                      <button type="button" className="vorn-player-menu-back" onClick={() => setSettingsPanel('main')}>
+                        Audio
+                      </button>
+                      {audioTracks.map((t) => (
+                        <button
+                          key={t.index}
+                          type="button"
+                          className="vorn-player-menu-option"
+                          onClick={() => {
+                            onAudioTrackChange(t.index)
+                            closeSettings()
+                          }}
+                        >
+                          <span>
+                            {t.title || t.language || t.codec} {t.channels ? `(${t.channels}ch)` : ''}
+                          </span>
+                          {(audioTrackIndex ?? audioTracks[0]?.index) === t.index && <CheckIcon width={15} height={15} />}
+                        </button>
+                      ))}
+                    </>
+                  )}
+
+                  {settingsPanel === 'subtitles' && (
+                    <>
+                      <button type="button" className="vorn-player-menu-back" onClick={() => setSettingsPanel('main')}>
+                        Subtitles
+                      </button>
+                      {SUBTITLE_LANGUAGES.map((l) => (
+                        <button
+                          key={l.code}
+                          type="button"
+                          className="vorn-player-menu-option"
+                          onClick={() => {
+                            onSubtitleChange(l.code)
+                            closeSettings()
+                          }}
+                        >
+                          <span>{l.label}</span>
+                          {subtitleLanguage === l.code && <CheckIcon width={15} height={15} />}
+                        </button>
+                      ))}
+                    </>
+                  )}
                 </div>
               )}
             </div>
 
             {document.pictureInPictureEnabled && (
-              <button type="button" onClick={togglePiP} aria-label="Picture in picture">
-                ⧉
+              <button type="button" className="vorn-player-btn" onClick={togglePiP} aria-label="Picture in picture">
+                <PipIcon />
               </button>
             )}
-            <button type="button" onClick={toggleFullscreen} aria-label="Fullscreen">
-              ⛶
+            <button type="button" className="vorn-player-btn" onClick={toggleFullscreen} aria-label="Fullscreen">
+              {isFullscreen ? <FullscreenExitIcon /> : <FullscreenIcon />}
             </button>
           </div>
         </div>
