@@ -108,7 +108,7 @@ func (s *SyncService) syncTorrent(indexers []Indexer, apiKey string) {
 		if existingNames[name] {
 			continue
 		}
-		if _, err := s.torrent.AddIndexer(name, IndexerProxyURL(s.baseURL, idx.ID), apiKey); err != nil {
+		if _, err := s.torrent.AddIndexer(name, IndexerProxyURL(s.baseURL, idx.ID), apiKey, "torznab"); err != nil {
 			log.Printf("prowlarr sync: adding torrent indexer %q: %v", name, err)
 			continue
 		}

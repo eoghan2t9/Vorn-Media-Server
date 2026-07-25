@@ -15,6 +15,7 @@ import {
   type Library,
   type Torrent,
   type TorrentIndexer,
+  type TorrentIndexerProvider,
   type TorrentSearchResult,
 } from '../api/client'
 import { FileDropzone, type FileDropzoneHandle } from '../components/FileDropzone'
@@ -54,6 +55,7 @@ export function AdminTorrents() {
   const [submitting, setSubmitting] = useState(false)
   const dropzoneRef = useRef<FileDropzoneHandle>(null)
 
+  const [indexerProvider, setIndexerProvider] = useState<TorrentIndexerProvider>('torznab')
   const [indexerPreset, setIndexerPreset] = useState('')
   const [indexerName, setIndexerName] = useState('')
   const [indexerBaseUrl, setIndexerBaseUrl] = useState('')
@@ -121,6 +123,15 @@ export function AdminTorrents() {
     }
   }
 
+  function handleIndexerProvider(provider: TorrentIndexerProvider) {
+    setIndexerProvider(provider)
+    setIndexerPreset('')
+    setIndexerTestResult(null)
+    if (provider === 'torbox') {
+      setIndexerName((name) => name || 'TorBox')
+    }
+  }
+
   function handleIndexerPreset(id: string) {
     setIndexerPreset(id)
     const preset = INDEXER_PRESETS.find((p) => p.label === id)
@@ -135,7 +146,12 @@ export function AdminTorrents() {
     e.preventDefault()
     setError(null)
     try {
-      const idx = await createTorrentIndexer({ name: indexerName, baseUrl: indexerBaseUrl, apiKey: indexerApiKey })
+      const idx = await createTorrentIndexer({
+        name: indexerName,
+        baseUrl: indexerProvider === 'torbox' ? '' : indexerBaseUrl,
+        apiKey: indexerApiKey,
+        provider: indexerProvider,
+      })
       setIndexers((list) => [...list, idx])
       setIndexerPreset('')
       setIndexerName('')
@@ -151,7 +167,11 @@ export function AdminTorrents() {
     setIndexerTestResult(null)
     setTestingIndexer(true)
     try {
-      const result = await testTorrentIndexer({ baseUrl: indexerBaseUrl, apiKey: indexerApiKey || undefined })
+      const result = await testTorrentIndexer(
+        indexerProvider === 'torbox'
+          ? { provider: 'torbox', apiKey: indexerApiKey }
+          : { baseUrl: indexerBaseUrl, apiKey: indexerApiKey || undefined },
+      )
       setIndexerTestResult(
         result.ok ? { ok: true, message: 'Indexer responded successfully.' } : { ok: false, message: result.error ?? 'Test failed.' },
       )
@@ -348,6 +368,7 @@ export function AdminTorrents() {
           <thead>
             <tr>
               <th>Name</th>
+              <th>Type</th>
               <th>Base URL</th>
               <th></th>
             </tr>
@@ -356,7 +377,8 @@ export function AdminTorrents() {
             {indexers.map((idx) => (
               <tr key={idx.id}>
                 <td>{idx.name}</td>
-                <td>{idx.baseUrl}</td>
+                <td>{idx.provider === 'torbox' ? 'TorBox' : 'Torznab'}</td>
+                <td>{idx.provider === 'torbox' ? '—' : idx.baseUrl}</td>
                 <td>
                   <button type="button" className="vorn-btn-danger" onClick={() => handleDeleteIndexer(idx.id)}>
                     Delete
@@ -369,25 +391,56 @@ export function AdminTorrents() {
         </div>
         <form className="vorn-inline-form" onSubmit={handleAddIndexer} style={{ marginTop: '1rem' }}>
           <Select
-            value={indexerPreset}
-            onChange={handleIndexerPreset}
-            placeholder="Preset (optional)"
-            options={INDEXER_PRESETS.map((p) => ({ value: p.label, label: p.label }))}
+            value={indexerProvider}
+            onChange={(v) => handleIndexerProvider(v as TorrentIndexerProvider)}
+            options={[
+              { value: 'torznab', label: 'Torznab (Prowlarr, Jackett, ...)' },
+              { value: 'torbox', label: 'TorBox' },
+            ]}
           />
           <input placeholder="Name" value={indexerName} onChange={(e) => setIndexerName(e.target.value)} required />
-          <input
-            placeholder="Torznab base URL"
-            value={indexerBaseUrl}
-            onChange={(e) => setIndexerBaseUrl(e.target.value)}
-            style={{ minWidth: '16rem' }}
-            required
-          />
-          <input placeholder="API key (optional)" value={indexerApiKey} onChange={(e) => setIndexerApiKey(e.target.value)} />
-          <button type="button" onClick={handleTestIndexer} disabled={testingIndexer || !indexerBaseUrl}>
+          {indexerProvider === 'torbox' ? (
+            <input
+              placeholder="TorBox API key"
+              type="password"
+              value={indexerApiKey}
+              onChange={(e) => setIndexerApiKey(e.target.value)}
+              style={{ minWidth: '16rem' }}
+              required
+            />
+          ) : (
+            <>
+              <Select
+                value={indexerPreset}
+                onChange={handleIndexerPreset}
+                placeholder="Preset (optional)"
+                options={INDEXER_PRESETS.map((p) => ({ value: p.label, label: p.label }))}
+              />
+              <input
+                placeholder="Torznab base URL"
+                value={indexerBaseUrl}
+                onChange={(e) => setIndexerBaseUrl(e.target.value)}
+                style={{ minWidth: '16rem' }}
+                required
+              />
+              <input placeholder="API key (optional)" value={indexerApiKey} onChange={(e) => setIndexerApiKey(e.target.value)} />
+            </>
+          )}
+          <button
+            type="button"
+            onClick={handleTestIndexer}
+            disabled={testingIndexer || (indexerProvider === 'torbox' ? !indexerApiKey : !indexerBaseUrl)}
+          >
             {testingIndexer ? 'Testing…' : 'Test'}
           </button>
           <button type="submit">Add indexer</button>
         </form>
+        {indexerProvider === 'torbox' && (
+          <p className="vorn-panel-subtitle" style={{ margin: '0.6rem 0 0' }}>
+            TorBox's torrent search only works for a movie/episode Vorn already knows the IMDb ID for -- results appear
+            alongside any Torznab indexers once that's available.
+          </p>
+        )}
         {indexerPreset && (
           <p className="vorn-panel-subtitle" style={{ margin: '0.6rem 0 0' }}>
             Replace <code>&lt;indexer-id&gt;</code> in the base URL with the id/slug shown for this indexer in{' '}

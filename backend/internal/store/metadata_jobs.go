@@ -166,6 +166,9 @@ type MetadataUpdate struct {
 	// RuntimeMinutes is TMDb's reported runtime (movie) or per-episode
 	// runtime -- see MediaItem.RuntimeMinutes for what it's used for.
 	RuntimeMinutes int
+
+	// ImdbID -- see MediaItem.ImdbID for what it's used for.
+	ImdbID string
 }
 
 // ApplyMetadata writes a provider match (or a manual admin correction) onto
@@ -211,6 +214,9 @@ func (s *Store) ApplyMetadata(itemID string, update MetadataUpdate, lock bool) e
 	}
 	if update.RuntimeMinutes > 0 {
 		metadataJSON["runtimeMinutes"] = update.RuntimeMinutes
+	}
+	if update.ImdbID != "" {
+		metadataJSON["imdbId"] = update.ImdbID
 	}
 
 	_, err := s.db.Exec(

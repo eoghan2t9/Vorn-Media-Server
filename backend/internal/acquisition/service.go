@@ -101,7 +101,7 @@ func (s *Service) materializeMovie(ctx context.Context, libraryID string, tmdbID
 	if err != nil {
 		return nil, err
 	}
-	if err := s.applyTopLevelMetadata(item.ID, details.Overview, details.ReleaseDate, details.PosterURL, details.BackdropURL, details.Runtime); err != nil {
+	if err := s.applyTopLevelMetadata(item.ID, details.Overview, details.ReleaseDate, details.PosterURL, details.BackdropURL, details.Runtime, details.ImdbID); err != nil {
 		log.Printf("acquisition: applying metadata to %s: %v", item.ID, err)
 	}
 	return s.store.GetMediaItem(item.ID)
@@ -118,7 +118,7 @@ func (s *Service) materializeSeries(ctx context.Context, libraryID string, tmdbI
 	if err != nil {
 		return nil, err
 	}
-	if err := s.applyTopLevelMetadata(item.ID, details.Overview, details.FirstAirDate, details.PosterURL, details.BackdropURL, 0); err != nil {
+	if err := s.applyTopLevelMetadata(item.ID, details.Overview, details.FirstAirDate, details.PosterURL, details.BackdropURL, 0, details.ImdbID); err != nil {
 		log.Printf("acquisition: applying metadata to %s: %v", item.ID, err)
 	}
 	fresh, err := s.store.GetMediaItem(item.ID)
@@ -131,8 +131,8 @@ func (s *Service) materializeSeries(ctx context.Context, libraryID string, tmdbI
 	return fresh, nil
 }
 
-func (s *Service) applyTopLevelMetadata(itemID, overview, releaseDate, posterURL, backdropURL string, runtimeMinutes int) error {
-	update := store.MetadataUpdate{Overview: overview, PosterURL: posterURL, BackdropURL: backdropURL, RuntimeMinutes: runtimeMinutes}
+func (s *Service) applyTopLevelMetadata(itemID, overview, releaseDate, posterURL, backdropURL string, runtimeMinutes int, imdbID string) error {
+	update := store.MetadataUpdate{Overview: overview, PosterURL: posterURL, BackdropURL: backdropURL, RuntimeMinutes: runtimeMinutes, ImdbID: imdbID}
 	if d, err := time.Parse("2006-01-02", releaseDate); err == nil {
 		update.ReleaseDate = &d
 	}
@@ -150,42 +150,54 @@ func (s *Service) applyTopLevelMetadata(itemID, overview, releaseDate, posterURL
 func (s *Service) ensureExpectedRuntime(ctx context.Context, item *store.MediaItem) {
 	switch item.Kind {
 	case "movie":
-		if item.RuntimeMinutes != nil || item.TmdbID == nil {
+		if (item.RuntimeMinutes != nil && item.ImdbID != nil) || item.TmdbID == nil {
 			return
 		}
 		details, err := s.tmdb.GetMovieDetails(ctx, *item.TmdbID)
 		if err != nil {
-			log.Printf("acquisition: backfilling runtime for %s: %v", item.ID, err)
+			log.Printf("acquisition: backfilling runtime/imdb id for %s: %v", item.ID, err)
 			return
 		}
-		if details.Runtime > 0 {
-			if err := s.store.ApplyMetadata(item.ID, store.MetadataUpdate{RuntimeMinutes: details.Runtime}, false); err != nil {
-				log.Printf("acquisition: applying backfilled runtime to %s: %v", item.ID, err)
+		update := store.MetadataUpdate{RuntimeMinutes: details.Runtime, ImdbID: details.ImdbID}
+		if update.RuntimeMinutes > 0 || update.ImdbID != "" {
+			if err := s.store.ApplyMetadata(item.ID, update, false); err != nil {
+				log.Printf("acquisition: applying backfilled runtime/imdb id to %s: %v", item.ID, err)
 			}
 		}
 	case "episode":
-		if item.RuntimeMinutes != nil || item.ParentID == nil {
+		if item.ParentID == nil {
 			return
 		}
 		season, err := s.store.GetMediaItem(*item.ParentID)
 		if err != nil || season.ParentID == nil {
 			return
 		}
-		s.backfillSeriesEpisodeRuntimes(ctx, *season.ParentID)
+		if item.RuntimeMinutes != nil {
+			// Episode runtime already known -- still worth checking whether
+			// the series itself is missing ImdbID (e.g. it was backfilled
+			// for runtime before this field existed), but skip the TMDb
+			// round-trip entirely if the series already has both.
+			series, err := s.store.GetMediaItem(*season.ParentID)
+			if err == nil && series.ImdbID != nil {
+				return
+			}
+		}
+		s.backfillSeriesMetadata(ctx, *season.ParentID)
 	case "season":
 		if item.ParentID == nil {
 			return
 		}
-		s.backfillSeriesEpisodeRuntimes(ctx, *item.ParentID)
+		s.backfillSeriesMetadata(ctx, *item.ParentID)
 	}
 }
 
-// backfillSeriesEpisodeRuntimes re-syncs seriesID's whole episode tree,
-// which (once GetSeasonDetails/SyncSeriesTree parse/apply the Runtime field)
-// backfills every episode's expected runtime in one shot, not just the one
-// being acquired -- SyncSeriesTree is already idempotent/"safe to call
+// backfillSeriesMetadata re-syncs seriesID's whole episode tree, which (once
+// GetSeasonDetails/SyncSeriesTree parse/apply the Runtime field) backfills
+// every episode's expected runtime in one shot, not just the one being
+// acquired, and backfills the series' own ImdbID the same way (see
+// SyncSeriesTree) -- SyncSeriesTree is already idempotent/"safe to call
 // repeatedly".
-func (s *Service) backfillSeriesEpisodeRuntimes(ctx context.Context, seriesID string) {
+func (s *Service) backfillSeriesMetadata(ctx context.Context, seriesID string) {
 	series, err := s.store.GetMediaItem(seriesID)
 	if err != nil {
 		log.Printf("acquisition: loading series %s to backfill runtimes: %v", seriesID, err)
@@ -215,6 +227,17 @@ func (s *Service) SyncSeriesTree(ctx context.Context, seriesItem *store.MediaIte
 	details, err := s.tmdb.GetSeriesDetails(ctx, *seriesItem.TmdbID)
 	if err != nil {
 		return fmt.Errorf("acquisition: fetching series details: %w", err)
+	}
+
+	// A whole series shares one IMDb ID -- TV search (torrent.SearchByIMDb)
+	// only ever needs the series' ID plus season/episode numbers, never a
+	// separate per-episode one -- so this backfills it on the series row
+	// itself using the GetSeriesDetails call already made above, not a
+	// second TMDb request.
+	if seriesItem.ImdbID == nil && details.ImdbID != "" {
+		if err := s.store.ApplyMetadata(seriesItem.ID, store.MetadataUpdate{ImdbID: details.ImdbID}, false); err != nil {
+			log.Printf("acquisition: applying backfilled imdb id to %s: %v", seriesItem.ID, err)
+		}
 	}
 
 	for _, season := range details.Seasons {
@@ -340,6 +363,42 @@ func (s *Service) runAcquire(item *store.MediaItem) {
 	s.notifySend("acquisition_failed", map[string]any{"itemId": item.ID, "title": item.Title})
 }
 
+// resolveImdbSearchParams returns the IMDb ID and season/episode numbers to
+// pass to torrent.SearchByIMDb for item -- a movie's own ImdbID, or an
+// episode's parent series' ImdbID plus the episode's season/episode
+// numbers (a whole series shares one IMDb ID, see SyncSeriesTree). Returns
+// an empty imdbID if it isn't known (not backfilled yet, or TMDb has none
+// on file for this title) -- callers should just skip the SearchByIMDb
+// call entirely in that case, exactly like SearchByIMDb itself does.
+func (s *Service) resolveImdbSearchParams(item *store.MediaItem) (imdbID string, season, episode int) {
+	switch item.Kind {
+	case "movie":
+		if item.ImdbID != nil {
+			imdbID = *item.ImdbID
+		}
+	case "episode":
+		if item.ParentID == nil {
+			return
+		}
+		seasonItem, err := s.store.GetMediaItem(*item.ParentID)
+		if err != nil || seasonItem.ParentID == nil {
+			return
+		}
+		series, err := s.store.GetMediaItem(*seasonItem.ParentID)
+		if err != nil || series.ImdbID == nil {
+			return
+		}
+		imdbID = *series.ImdbID
+		if item.SeasonNumber != nil {
+			season = *item.SeasonNumber
+		}
+		if item.EpisodeNumber != nil {
+			episode = *item.EpisodeNumber
+		}
+	}
+	return
+}
+
 // acquireViaTorrent searches, then tries up to maxCandidates scored
 // releases in order (best first) until one actually resolves into a
 // playable file -- not just the single top pick, since a release can look
@@ -356,6 +415,13 @@ func (s *Service) acquireViaTorrent(item *store.MediaItem, query string, profile
 	candidates, err := s.torrent.Search(searchCtx, query)
 	if err != nil {
 		return fmt.Errorf("searching indexers: %w", err)
+	}
+	if imdbID, season, episode := s.resolveImdbSearchParams(item); imdbID != "" {
+		if imdbCandidates, err := s.torrent.SearchByIMDb(searchCtx, imdbID, season, episode); err != nil {
+			log.Printf("acquisition: TorBox indexer search for %s: %v", item.ID, err)
+		} else {
+			candidates = append(candidates, imdbCandidates...)
+		}
 	}
 	if len(candidates) == 0 {
 		return ErrNoSearchResults
@@ -570,6 +636,19 @@ func (s *Service) trySeasonPackViaTorrent(ctx context.Context, season, series *s
 	if err != nil {
 		log.Printf("acquisition: searching season pack for %s: %v", season.ID, err)
 		return false
+	}
+	// TorBox's torrent-search API has no "whole season" query mode (season
+	// and episode are both required) -- episode=1 is sent as a
+	// representative probe, since many real season-pack releases are
+	// indexed under every episode they contain. The LooksLikeSingleEpisode
+	// filter below applies the same to whatever it finds as to Search's own
+	// Torznab results.
+	if series.ImdbID != nil {
+		if imdbCandidates, err := s.torrent.SearchByIMDb(searchCtx, *series.ImdbID, seasonNumber, 1); err != nil {
+			log.Printf("acquisition: TorBox indexer search for season %s: %v", season.ID, err)
+		} else {
+			candidates = append(candidates, imdbCandidates...)
+		}
 	}
 
 	var packCandidates []torrent.SearchResult

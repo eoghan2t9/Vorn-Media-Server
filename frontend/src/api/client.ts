@@ -443,22 +443,25 @@ export interface TorrentSearchResult {
 export const searchTorrents = (q: string) =>
   request<TorrentSearchResult[]>(`/api/torrents/search?q=${encodeURIComponent(q)}`)
 
+export type TorrentIndexerProvider = 'torznab' | 'torbox'
+
 export interface TorrentIndexer {
   id: string
   name: string
   baseUrl: string
+  provider: TorrentIndexerProvider
   enabled: boolean
   createdAt: string
 }
 export const listTorrentIndexers = () => request<TorrentIndexer[]>('/api/torrent-indexers')
 
-export const createTorrentIndexer = (input: { name: string; baseUrl: string; apiKey?: string }) =>
+export const createTorrentIndexer = (input: { name: string; baseUrl: string; apiKey?: string; provider?: TorrentIndexerProvider }) =>
   request<TorrentIndexer>('/api/torrent-indexers', { method: 'POST', body: JSON.stringify(input) })
 
 export const deleteTorrentIndexer = (id: string) =>
   request<void>(`/api/torrent-indexers/${id}`, { method: 'DELETE' })
 
-export const testTorrentIndexer = (input: { baseUrl: string; apiKey?: string }) =>
+export const testTorrentIndexer = (input: { baseUrl?: string; apiKey?: string; provider?: TorrentIndexerProvider }) =>
   request<TestConnectionResult>('/api/torrent-indexers/test', { method: 'POST', body: JSON.stringify(input) })
 
 export interface NZBDownload {

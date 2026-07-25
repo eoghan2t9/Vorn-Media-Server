@@ -135,21 +135,29 @@ type TorrentIndexer struct {
 	Name      string
 	BaseURL   string
 	APIKey    string
+	// Provider is "torznab" (default, any Torznab-compatible indexer manager
+	// -- Prowlarr, Jackett, etc.) or "torbox" (TorBox's own IMDb-ID-driven
+	// torrent search API, search-api.torbox.app -- see torrent.SearchByIMDb).
+	// A torbox row's BaseURL is unused (the endpoint is fixed internally).
+	Provider  string
 	Enabled   bool
 	CreatedAt time.Time
 }
 
-func (s *Store) CreateTorrentIndexer(name, baseURL, apiKey string) (*TorrentIndexer, error) {
-	idx := &TorrentIndexer{Name: name, BaseURL: baseURL, APIKey: apiKey, Enabled: true}
+func (s *Store) CreateTorrentIndexer(name, baseURL, apiKey, provider string) (*TorrentIndexer, error) {
+	if provider == "" {
+		provider = "torznab"
+	}
+	idx := &TorrentIndexer{Name: name, BaseURL: baseURL, APIKey: apiKey, Provider: provider, Enabled: true}
 	err := s.db.QueryRow(
-		`INSERT INTO torrent_indexers (name, base_url, api_key) VALUES ($1, $2, $3) RETURNING id, created_at`,
-		name, baseURL, apiKey,
+		`INSERT INTO torrent_indexers (name, base_url, api_key, provider) VALUES ($1, $2, $3, $4) RETURNING id, created_at`,
+		name, baseURL, apiKey, provider,
 	).Scan(&idx.ID, &idx.CreatedAt)
 	return idx, err
 }
 
 func (s *Store) ListTorrentIndexers() ([]*TorrentIndexer, error) {
-	rows, err := s.db.Query(`SELECT id, name, base_url, api_key, enabled, created_at FROM torrent_indexers ORDER BY created_at`)
+	rows, err := s.db.Query(`SELECT id, name, base_url, api_key, provider, enabled, created_at FROM torrent_indexers ORDER BY created_at`)
 	if err != nil {
 		return nil, err
 	}
@@ -158,7 +166,7 @@ func (s *Store) ListTorrentIndexers() ([]*TorrentIndexer, error) {
 	var out []*TorrentIndexer
 	for rows.Next() {
 		idx := &TorrentIndexer{}
-		if err := rows.Scan(&idx.ID, &idx.Name, &idx.BaseURL, &idx.APIKey, &idx.Enabled, &idx.CreatedAt); err != nil {
+		if err := rows.Scan(&idx.ID, &idx.Name, &idx.BaseURL, &idx.APIKey, &idx.Provider, &idx.Enabled, &idx.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, idx)

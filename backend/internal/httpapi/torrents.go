@@ -190,6 +190,7 @@ type torrentIndexerResponse struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
 	BaseURL   string `json:"baseUrl"`
+	Provider  string `json:"provider"`
 	Enabled   bool   `json:"enabled"`
 	CreatedAt string `json:"createdAt"`
 }
@@ -199,6 +200,7 @@ func toTorrentIndexerResponse(idx *store.TorrentIndexer) torrentIndexerResponse 
 		ID:        idx.ID,
 		Name:      idx.Name,
 		BaseURL:   idx.BaseURL,
+		Provider:  idx.Provider,
 		Enabled:   idx.Enabled,
 		CreatedAt: idx.CreatedAt.Format(time.RFC3339),
 	}
@@ -222,9 +224,10 @@ func (s *Server) handleListTorrentIndexers(w http.ResponseWriter, r *http.Reques
 }
 
 type createIndexerRequest struct {
-	Name    string `json:"name"`
-	BaseURL string `json:"baseUrl"`
-	APIKey  string `json:"apiKey"`
+	Name     string `json:"name"`
+	BaseURL  string `json:"baseUrl"`
+	APIKey   string `json:"apiKey"`
+	Provider string `json:"provider"` // "torznab" (default) | "torbox"
 }
 
 func (s *Server) handleCreateTorrentIndexer(w http.ResponseWriter, r *http.Request) {
@@ -237,11 +240,14 @@ func (s *Server) handleCreateTorrentIndexer(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if req.Name == "" || req.BaseURL == "" {
+	// A torbox-provider indexer has no base URL of its own (the endpoint is
+	// fixed internally, see torrent.torBoxSearchBaseURL) -- only Torznab
+	// indexers need one supplied.
+	if req.Name == "" || (req.Provider != "torbox" && req.BaseURL == "") {
 		writeError(w, http.StatusBadRequest, "name and baseUrl are required")
 		return
 	}
-	idx, err := s.torrentSvc.Load().AddIndexer(req.Name, req.BaseURL, req.APIKey)
+	idx, err := s.torrentSvc.Load().AddIndexer(req.Name, req.BaseURL, req.APIKey, req.Provider)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "creating indexer")
 		return
@@ -250,13 +256,15 @@ func (s *Server) handleCreateTorrentIndexer(w http.ResponseWriter, r *http.Reque
 }
 
 type testIndexerRequest struct {
-	BaseURL string `json:"baseUrl"`
-	APIKey  string `json:"apiKey"`
+	BaseURL  string `json:"baseUrl"`
+	APIKey   string `json:"apiKey"`
+	Provider string `json:"provider"`
 }
 
-// handleTestTorrentIndexer checks a Torznab indexer's base URL/API key
-// (via its capabilities document) using whatever's currently in the
-// add-indexer form, without requiring it to be saved first.
+// handleTestTorrentIndexer checks an indexer's base URL/API key (Torznab's
+// capabilities document, or a validation query against TorBox's own
+// torrent-search API) using whatever's currently in the add-indexer form,
+// without requiring it to be saved first.
 func (s *Server) handleTestTorrentIndexer(w http.ResponseWriter, r *http.Request) {
 	if s.torrentSvc.Load() == nil {
 		writeError(w, http.StatusServiceUnavailable, torrentServiceUnavailable)
@@ -265,6 +273,14 @@ func (s *Server) handleTestTorrentIndexer(w http.ResponseWriter, r *http.Request
 	var req testIndexerRequest
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Provider == "torbox" {
+		if err := torrent.TestTorBoxIndexer(r.Context(), req.APIKey); err != nil {
+			writeJSON(w, http.StatusOK, testResultResponse{OK: false, Error: err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, testResultResponse{OK: true})
 		return
 	}
 	if req.BaseURL == "" {

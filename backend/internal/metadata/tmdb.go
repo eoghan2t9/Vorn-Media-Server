@@ -251,27 +251,36 @@ type MovieDetails struct {
 	// against a resolved release's actual probed duration) rather than
 	// shown anywhere in the UI.
 	Runtime int
+	// ImdbID (e.g. "tt0137523"), empty if TMDb has none on file. Used to
+	// query IMDb-ID-driven torrent indexers (see torrent.SearchByIMDb) --
+	// not shown anywhere in the UI.
+	ImdbID string
 }
 
 type tmdbMovieDetailsResult struct {
-	ID           int    `json:"id"`
-	Title        string `json:"title"`
-	Overview     string `json:"overview"`
-	ReleaseDate  string `json:"release_date"`
-	PosterPath   string `json:"poster_path"`
-	BackdropPath string `json:"backdrop_path"`
-	Runtime      int    `json:"runtime"`
+	ID           int             `json:"id"`
+	Title        string          `json:"title"`
+	Overview     string          `json:"overview"`
+	ReleaseDate  string          `json:"release_date"`
+	PosterPath   string          `json:"poster_path"`
+	BackdropPath string          `json:"backdrop_path"`
+	Runtime      int             `json:"runtime"`
+	ExternalIDs  tmdbExternalIDs `json:"external_ids"`
 }
 
-// GetMovieDetails fetches GET /movie/{id}.
+// GetMovieDetails fetches GET /movie/{id}?append_to_response=external_ids --
+// appending external_ids costs nothing extra (still one request) and is
+// the only way to get IMDb ID, which TMDb doesn't include by default.
 func (c *TMDbClient) GetMovieDetails(ctx context.Context, tmdbID int) (*MovieDetails, error) {
 	var resp tmdbMovieDetailsResult
-	if err := c.get(ctx, fmt.Sprintf("/movie/%d", tmdbID), url.Values{}, &resp); err != nil {
+	query := url.Values{"append_to_response": {"external_ids"}}
+	if err := c.get(ctx, fmt.Sprintf("/movie/%d", tmdbID), query, &resp); err != nil {
 		return nil, err
 	}
 	return &MovieDetails{
 		TmdbID: resp.ID, Title: resp.Title, Overview: resp.Overview, ReleaseDate: resp.ReleaseDate,
 		PosterURL: imageURL(resp.PosterPath), BackdropURL: imageURL(resp.BackdropPath), Runtime: resp.Runtime,
+		ImdbID: resp.ExternalIDs.IMDbID,
 	}, nil
 }
 
@@ -293,6 +302,10 @@ type SeriesDetails struct {
 	PosterURL    string
 	BackdropURL  string
 	Seasons      []SeasonSummary
+	// ImdbID is the whole series' IMDb ID -- TV search (both TorBox's own
+	// torrent-search API and IMDb generally) keys episodes off the series'
+	// ID plus season/episode numbers, not a separate per-episode ID.
+	ImdbID string
 }
 
 type tmdbSeriesDetailsResult struct {
@@ -306,20 +319,22 @@ type tmdbSeriesDetailsResult struct {
 		SeasonNumber int `json:"season_number"`
 		EpisodeCount int `json:"episode_count"`
 	} `json:"seasons"`
+	ExternalIDs tmdbExternalIDs `json:"external_ids"`
 }
 
-// GetSeriesDetails fetches GET /tv/{id}. Season 0 ("specials") is dropped --
-// specials aren't part of the regular episode-acquisition flow and would
-// otherwise need special-casing everywhere a season number is used to build
-// a search query.
+// GetSeriesDetails fetches GET /tv/{id}?append_to_response=external_ids.
+// Season 0 ("specials") is dropped -- specials aren't part of the regular
+// episode-acquisition flow and would otherwise need special-casing
+// everywhere a season number is used to build a search query.
 func (c *TMDbClient) GetSeriesDetails(ctx context.Context, tmdbID int) (*SeriesDetails, error) {
 	var resp tmdbSeriesDetailsResult
-	if err := c.get(ctx, fmt.Sprintf("/tv/%d", tmdbID), url.Values{}, &resp); err != nil {
+	query := url.Values{"append_to_response": {"external_ids"}}
+	if err := c.get(ctx, fmt.Sprintf("/tv/%d", tmdbID), query, &resp); err != nil {
 		return nil, err
 	}
 	out := &SeriesDetails{
 		TmdbID: resp.ID, Title: resp.Name, Overview: resp.Overview, FirstAirDate: resp.FirstAirDate,
-		PosterURL: imageURL(resp.PosterPath), BackdropURL: imageURL(resp.BackdropPath),
+		PosterURL: imageURL(resp.PosterPath), BackdropURL: imageURL(resp.BackdropPath), ImdbID: resp.ExternalIDs.IMDbID,
 	}
 	for _, s := range resp.Seasons {
 		if s.SeasonNumber == 0 {
