@@ -21,8 +21,15 @@ import (
 // uses a "10.x" scheme so it can never collide with Emby's "4.x" one, so a
 // client speaking to Vorn under the /emby prefix needs the latter or it may
 // misinterpret the server's capabilities.
+//
+// jellyfinCompatVersion deliberately avoids 10.9.0/10.9.1 specifically --
+// real Jellyfin servers on those exact versions had a client-side
+// connection bug in the official apps (fixed upstream in 10.9.3, see
+// jellyfin/jellyfin#11658) that rejects the server as "unsupported" purely
+// because of the reported version string, nothing Vorn's own API shape
+// controls.
 const (
-	jellyfinCompatVersion = "10.9.0"
+	jellyfinCompatVersion = "10.11.8"
 	embyCompatVersion     = "4.8.8.0"
 )
 
