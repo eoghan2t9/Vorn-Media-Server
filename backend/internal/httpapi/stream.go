@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -12,6 +13,18 @@ import (
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/transcode"
 	"github.com/google/uuid"
 )
+
+// sessionFileWaitTimeout/sessionFileWaitInterval bound handleSessionFile's
+// wait for a requested file to actually exist on disk -- StartSession
+// returns as soon as ffmpeg has been launched, not once it's produced
+// anything, so the very first playlist request (and occasionally a segment
+// request right as a new one is being written) can race ffmpeg's output and
+// hit a plain 404 with nothing wrong at all. Without this, that 404 was
+// fatal to hls.js, which tore the whole session down and started a brand
+// new one via playItem -- repeatedly, before ffmpeg ever got a chance to
+// catch up, so playback never started at all.
+const sessionFileWaitTimeout = 8 * time.Second
+const sessionFileWaitInterval = 100 * time.Millisecond
 
 type capabilitiesResponse struct {
 	Backends []string `json:"backends"`
@@ -298,12 +311,43 @@ func (s *Server) handleSessionFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !waitForSessionFile(r.Context(), sess, fullPath) {
+		writeError(w, http.StatusNotFound, "file not ready")
+		return
+	}
+
 	if strings.HasSuffix(file, ".m3u8") {
 		w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 	} else if strings.HasSuffix(file, ".ts") {
 		w.Header().Set("Content-Type", "video/mp2t")
 	}
 	http.ServeFile(w, r, fullPath)
+}
+
+// waitForSessionFile polls for fullPath to appear, bounded by
+// sessionFileWaitTimeout -- see the const's doc comment for why this is
+// needed at all. Gives up early (no point waiting out the full timeout) if
+// the session has already failed, since it's not going to produce the file
+// no matter how long this waits, or if the request itself is cancelled
+// (the client gave up).
+func waitForSessionFile(ctx context.Context, sess *transcode.Session, fullPath string) bool {
+	deadline := time.Now().Add(sessionFileWaitTimeout)
+	for {
+		if _, err := os.Stat(fullPath); err == nil {
+			return true
+		}
+		if sess.Status() == transcode.StatusFailed {
+			return false
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(sessionFileWaitInterval):
+		}
+	}
 }
 
 func (s *Server) handleStopSession(w http.ResponseWriter, r *http.Request) {
