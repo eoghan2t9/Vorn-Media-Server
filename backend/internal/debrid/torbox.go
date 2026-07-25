@@ -210,13 +210,23 @@ func (c *TorBoxClient) CreateUsenetDownload(ctx context.Context, apiKey string, 
 type tbUsenetInfo struct {
 	ID               int      `json:"id"`
 	DownloadFinished bool     `json:"download_finished"`
-	Progress         float64  `json:"progress"`
-	Files            []tbFile `json:"files"`
+	// DownloadPresent lags DownloadFinished: TorBox's own SDK models these
+	// as separate booleans (unlike the torrent side, where the file list is
+	// known upfront from the torrent's metadata) -- download_finished flips
+	// once the repair job itself is done, but the file listing is only
+	// populated once TorBox's server-side extraction/finalization catches
+	// up, signaled by download_present. Treating DownloadFinished alone as
+	// "ready" was observed in production returning a real, finished item
+	// with an empty Files slice.
+	DownloadPresent bool     `json:"download_present"`
+	Progress        float64  `json:"progress"`
+	Files           []tbFile `json:"files"`
 }
 
 // WaitForUsenetCache polls GET /usenet/mylist until TorBox finishes
-// downloading and repairing usenetID, invoking progress (0..1) as it goes
-// so callers can mirror it into their own byte-progress tracking.
+// downloading, repairing, and finalizing usenetID's file listing,
+// invoking progress (0..1) as it goes so callers can mirror it into their
+// own byte-progress tracking.
 func (c *TorBoxClient) WaitForUsenetCache(ctx context.Context, apiKey string, usenetID int, progress func(float64)) ([]tbFile, error) {
 	deadline := time.Now().Add(tbPollTimeout)
 	for {
@@ -228,7 +238,7 @@ func (c *TorBoxClient) WaitForUsenetCache(ctx context.Context, apiKey string, us
 			if progress != nil {
 				progress(item.Progress)
 			}
-			if item.DownloadFinished {
+			if item.DownloadFinished && item.DownloadPresent {
 				return item.Files, nil
 			}
 		}

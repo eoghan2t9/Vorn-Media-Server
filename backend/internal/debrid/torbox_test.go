@@ -113,6 +113,7 @@ func (f *torBoxFake) handler() http.HandlerFunc {
 				Data: []tbUsenetInfo{{
 					ID:               99,
 					DownloadFinished: f.usenetPolls >= 2,
+					DownloadPresent:  f.usenetPolls >= 2,
 					Progress:         float64(f.usenetPolls) / 2,
 					Files: []tbFile{
 						{ID: 3, Name: "Show.S01E01.mkv", Size: 1500},
