@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"log"
 	"mime/multipart"
 	"net/http"
 	"net/url"
@@ -75,7 +77,11 @@ func (c *TorBoxClient) waitForCache(ctx context.Context, apiKey string, torrentI
 	for {
 		item, err := c.torrentInfo(ctx, apiKey, torrentID)
 		if err != nil {
-			return nil, err
+			var transient *tbTransientError
+			if !errors.As(err, &transient) {
+				return nil, err
+			}
+			log.Printf("torbox: transient error polling torrent %d, retrying: %v", torrentID, err)
 		}
 		if item != nil && item.DownloadFinished {
 			return item.Files, nil
@@ -240,7 +246,11 @@ func (c *TorBoxClient) WaitForUsenetCache(ctx context.Context, apiKey string, us
 	for {
 		item, err := c.usenetInfo(ctx, apiKey, usenetID)
 		if err != nil {
-			return nil, err
+			var transient *tbTransientError
+			if !errors.As(err, &transient) {
+				return nil, err
+			}
+			log.Printf("torbox: transient error polling usenet %d, retrying: %v", usenetID, err)
 		}
 		if item != nil {
 			if progress != nil {
@@ -374,7 +384,22 @@ func (c *TorBoxClient) do(ctx context.Context, method, path, apiKey, contentType
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		data, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return fmt.Errorf("torbox: %s %s: unexpected status %d: %s", method, path, resp.StatusCode, string(data))
+		err := fmt.Errorf("torbox: %s %s: unexpected status %d: %s", method, path, resp.StatusCode, string(data))
+		if resp.StatusCode >= 500 {
+			return &tbTransientError{err: err}
+		}
+		return err
 	}
 	return json.NewDecoder(resp.Body).Decode(out)
 }
+
+// tbTransientError marks a TorBox API response as a transient server-side
+// failure (5xx) -- observed in production as an intermittent
+// "DATABASE_ERROR ... please try again later" on /usenet/mylist against an
+// otherwise perfectly healthy, in-progress download. waitForCache and
+// WaitForUsenetCache treat this as "try again next poll" rather than
+// aborting the whole download over a single hiccup mid-poll.
+type tbTransientError struct{ err error }
+
+func (e *tbTransientError) Error() string { return e.err.Error() }
+func (e *tbTransientError) Unwrap() error { return e.err }
