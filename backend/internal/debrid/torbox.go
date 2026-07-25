@@ -171,9 +171,17 @@ func (c *TorBoxClient) requestDownloadLink(ctx context.Context, apiKey string, t
 	return resp.Data, nil
 }
 
+// tbCreateUsenetData mirrors TorBox's own SDK schema for this endpoint,
+// which -- unlike /torrents/createtorrent's numeric torrent_id -- returns
+// the new download's ID as a string field named usenetdownload_id (not
+// usenet_id, and not a number). Getting this wrong previously meant
+// UsenetID silently zero-valued, so every subsequent poll/download-link
+// call operated on id=0, which usenetInfo's "fall back to the first list
+// entry" branch masked by silently returning whatever unrelated download
+// happened to be first in the account's list instead of erroring loudly.
 type tbCreateUsenetData struct {
-	UsenetID float64 `json:"usenet_id"`
-	Hash     string  `json:"hash"`
+	UsenetDownloadID string `json:"usenetdownload_id"`
+	Hash             string `json:"hash"`
 }
 
 // CreateUsenetDownload submits a raw .nzb file to TorBox's own Usenet
@@ -204,7 +212,11 @@ func (c *TorBoxClient) CreateUsenetDownload(ctx context.Context, apiKey string, 
 	if !resp.Success {
 		return 0, fmt.Errorf("torbox: %s", resp.Detail)
 	}
-	return int(resp.Data.UsenetID), nil
+	id, err := strconv.Atoi(resp.Data.UsenetDownloadID)
+	if err != nil {
+		return 0, fmt.Errorf("torbox: parsing usenetdownload_id %q: %w", resp.Data.UsenetDownloadID, err)
+	}
+	return id, nil
 }
 
 type tbUsenetInfo struct {

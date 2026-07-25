@@ -104,7 +104,7 @@ func (f *torBoxFake) handler() http.HandlerFunc {
 			}
 			json.NewEncoder(w).Encode(tbEnvelope[tbCreateUsenetData]{
 				Success: true,
-				Data:    tbCreateUsenetData{UsenetID: 99},
+				Data:    tbCreateUsenetData{UsenetDownloadID: "99"},
 			})
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/usenet/mylist"):
 			f.usenetPolls++
