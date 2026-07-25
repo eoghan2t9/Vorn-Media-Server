@@ -19,6 +19,7 @@ import (
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/metadata"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/notify"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/nzb"
+	"github.com/eoghan2t9/vorn-media-server/backend/internal/prowlarr"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/scanner"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/store"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/subtitles"
@@ -94,6 +95,11 @@ type Server struct {
 	// goroutine before a freshly (re)built acquisition service replaces the
 	// old one -- guarded by reconfigureMu.
 	monitorCancel context.CancelFunc
+	// prowlarrCancel stops the running Prowlarr sync goroutine before a
+	// fresh one is started against newly (re)built torrent/NZB instances --
+	// guarded by reconfigureMu. nil whenever Prowlarr sync isn't running
+	// (not configured, or neither torrent nor NZB is enabled).
+	prowlarrCancel context.CancelFunc
 }
 
 func NewServer(deps Deps) *Server {
@@ -202,28 +208,39 @@ func (s *Server) reconfigure() error {
 		s.subtitlesSvc.Store(nil)
 	}
 
+	// torrentChanged/nzbChanged track whether the *instance* actually
+	// changed identity this call (started, stopped, or cycled) -- used
+	// below to decide whether Prowlarr sync needs to be restarted against
+	// a fresh instance, not just whether it's still enabled.
+	torrentChanged := false
 	if torrentEnabled && s.torrentSvc.Load() == nil {
 		ts, err := torrent.NewService(s.store, s.baseCfg.TorrentDownloadDir, s.baseCfg.TorrentPeerPort)
 		if err != nil {
 			log.Printf("httpapi: starting torrent service: %v", err)
 		} else {
 			s.torrentSvc.Store(ts)
+			torrentChanged = true
 		}
 	} else if !torrentEnabled {
 		if old := s.torrentSvc.Swap(nil); old != nil {
 			old.Close()
+			torrentChanged = true
 		}
 	}
 
+	nzbChanged := false
 	if nzbEnabled && s.nzbSvc.Load() == nil {
 		ns, err := nzb.NewService(s.store, s.baseCfg.NZBDownloadDir)
 		if err != nil {
 			log.Printf("httpapi: starting nzb service: %v", err)
 		} else {
 			s.nzbSvc.Store(ns)
+			nzbChanged = true
 		}
 	} else if !nzbEnabled {
-		s.nzbSvc.Store(nil)
+		if old := s.nzbSvc.Swap(nil); old != nil {
+			nzbChanged = true
+		}
 	}
 
 	tmdbClient, torrentSvc := s.tmdb.Load(), s.torrentSvc.Load()
@@ -248,6 +265,27 @@ func (s *Server) reconfigure() error {
 		} else {
 			s.acquisition.Store(nil)
 		}
+	}
+
+	// Prowlarr sync (env/compose-only -- no admin UI field, so its own
+	// config never changes at runtime) mirrors indexers into whichever of
+	// torrentSvc/nzbSvc are enabled. Restart it whenever either instance
+	// actually changed identity (a fresh instance needs a fresh sync
+	// pointed at it) or it isn't running yet but now should be; tear it
+	// down if neither acquisition source is enabled anymore.
+	wantProwlarr := s.baseCfg.ProwlarrBaseURL != "" &&
+		(s.baseCfg.ProwlarrAPIKey != "" || s.baseCfg.ProwlarrConfigPath != "") &&
+		(torrentSvc != nil || s.nzbSvc.Load() != nil)
+	if wantProwlarr && (s.prowlarrCancel == nil || torrentChanged || nzbChanged) {
+		if s.prowlarrCancel != nil {
+			s.prowlarrCancel()
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		s.prowlarrCancel = cancel
+		go prowlarr.NewSyncService(torrentSvc, s.nzbSvc.Load(), s.baseCfg.ProwlarrBaseURL, s.baseCfg.ProwlarrAPIKey, s.baseCfg.ProwlarrConfigPath).Run(ctx)
+	} else if !wantProwlarr && s.prowlarrCancel != nil {
+		s.prowlarrCancel()
+		s.prowlarrCancel = nil
 	}
 
 	return nil
@@ -293,17 +331,10 @@ func (r *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	return hj.Hijack()
 }
 
-// TorrentService/NZBService expose the current (possibly nil, possibly
-// hot-swapped) instance -- for main.go's Prowlarr sync wiring, which needs
-// concrete instances up front (see the "known limitation" note on
-// reconfigure: Prowlarr doesn't re-point at a later torrent/NZB toggle).
-func (s *Server) TorrentService() *torrent.Service { return s.torrentSvc.Load() }
-func (s *Server) NZBService() *nzb.Service         { return s.nzbSvc.Load() }
-
-// NewRouter returns the constructed Server (so callers can wire optional
-// external integrations like Prowlarr against its current services) and the
-// root HTTP handler for the Vorn backend.
-func NewRouter(deps Deps) (*Server, http.Handler) {
+// NewRouter returns the root HTTP handler for the Vorn backend. Prowlarr
+// sync is now wired up inside reconfigure (it restarts itself whenever
+// torrent/NZB change), so callers no longer need the underlying *Server.
+func NewRouter(deps Deps) http.Handler {
 	s := NewServer(deps)
 	mux := http.NewServeMux()
 
@@ -487,7 +518,7 @@ func NewRouter(deps Deps) (*Server, http.Handler) {
 	mux.HandleFunc("DELETE /api/admin/backups/{filename}", s.withAdmin(s.handleDeleteAutoBackup))
 	mux.HandleFunc("POST /api/admin/backups/{filename}/restore", s.withAdmin(s.handleRestoreAutoBackup))
 
-	return s, s.accessLog(withCORS(mux, deps.CORSOrigin))
+	return s.accessLog(withCORS(mux, deps.CORSOrigin))
 }
 
 // withCORS allows the frontend dev server (or, in production, whatever

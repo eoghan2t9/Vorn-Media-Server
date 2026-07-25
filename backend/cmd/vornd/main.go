@@ -17,7 +17,6 @@ import (
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/metadata"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/migrate"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/notify"
-	"github.com/eoghan2t9/vorn-media-server/backend/internal/prowlarr"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/scanner"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/store"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/sysstats"
@@ -132,7 +131,12 @@ func main() {
 	// Backups takes effect without a restart.
 	go backup.NewScheduler(cfg.PostgresDSN, cfg.BackupDir, st).Run(context.Background())
 
-	srv, router := httpapi.NewRouter(httpapi.Deps{
+	// Prowlarr sync (mirrors indexers configured inside a Prowlarr instance
+	// into Vorn's own torrent/NZB indexer tables) is wired up inside
+	// httpapi.Server.reconfigure now, not here -- it restarts itself
+	// whenever torrent/NZB actually change, so toggling either via Admin >
+	// Integrations re-points it at the fresh instance with no restart.
+	router := httpapi.NewRouter(httpapi.Deps{
 		Store:        st,
 		Config:       cfg,
 		PostgresDSN:  cfg.PostgresDSN,
@@ -148,25 +152,6 @@ func main() {
 		CORSOrigin:   cfg.CORSOrigin,
 		DevMode:      cfg.DevMode,
 	})
-
-	// Optional: mirror whatever indexers are configured inside a Prowlarr
-	// instance into Vorn's own torrent/NZB indexer tables (torrent-protocol
-	// indexers into the former, usenet-protocol into the latter), so
-	// bundling Prowlarr (see deploy/docker-compose.yml's "prowlarr" Compose
-	// profile) doesn't also require manually copying each indexer's URL/API
-	// key in by hand. Needs at least a base URL and one of an API key or a
-	// path to Prowlarr's config.xml to read it from, plus at least one of
-	// torrent/NZB acquisition actually enabled at boot (nothing to sync into
-	// otherwise); silently does nothing otherwise -- see internal/prowlarr.
-	// Unlike torrent/NZB/credentials, this doesn't hot-reload: it captures
-	// srv's torrent/NZB instances once, here -- toggling either off and back
-	// on later via Admin > Integrations leaves Prowlarr sync pointed at the
-	// original (possibly now-stale) instances until the process restarts.
-	if cfg.ProwlarrBaseURL != "" && (cfg.ProwlarrAPIKey != "" || cfg.ProwlarrConfigPath != "") &&
-		(srv.TorrentService() != nil || srv.NZBService() != nil) {
-		go prowlarr.NewSyncService(srv.TorrentService(), srv.NZBService(), cfg.ProwlarrBaseURL, cfg.ProwlarrAPIKey, cfg.ProwlarrConfigPath).Run(context.Background())
-		log.Printf("prowlarr sync enabled: %s", cfg.ProwlarrBaseURL)
-	}
 
 	settings, err := st.GetServerSettings()
 	if err != nil {
