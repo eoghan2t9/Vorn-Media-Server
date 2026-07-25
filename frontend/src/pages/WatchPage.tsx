@@ -143,7 +143,20 @@ export function WatchPage() {
         // segment fetch 401s and playback never starts. withCredentials
         // mirrors the credentials:'include' the rest of client.ts already
         // sets on every fetch() call.
-        const hls = new Hls({ xhrSetup: (xhr) => { xhr.withCredentials = true } })
+        //
+        // liveDurationInfinity: the backend's playlist has no ENDLIST until
+        // ffmpeg finishes remuxing/transcoding the *entire* file (session.go
+        // uses "-hls_playlist_type event", which only gets ENDLIST at the
+        // very end) -- until then hls.js treats it as a live stream, and
+        // without this flag it repeatedly shrinks/re-clamps the
+        // MediaSource's reported duration on every playlist refresh as the
+        // known-so-far total changes, which stalls playback right at the
+        // (stale) duration boundary until the next refresh. That's what
+        // "press play, inches forward a frame, stalls" was -- forcing
+        // duration to Infinity while it's still growing avoids the
+        // recurring clamp entirely; a real (non-live) duration still shows
+        // once the playlist is complete.
+        const hls = new Hls({ xhrSetup: (xhr) => { xhr.withCredentials = true }, liveDurationInfinity: true })
         hlsRef.current = hls
         // Only fatal errors -- hls.js already retries recoverable ones
         // (a dropped segment, a transient stall) internally, so reacting to
