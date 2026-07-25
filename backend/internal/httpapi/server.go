@@ -243,21 +243,25 @@ func (s *Server) reconfigure() error {
 		}
 	}
 
-	tmdbClient, torrentSvc := s.tmdb.Load(), s.torrentSvc.Load()
-	wantAcquisition := tmdbClient != nil && torrentSvc != nil
+	tmdbClient, torrentSvc, nzbSvc := s.tmdb.Load(), s.torrentSvc.Load(), s.nzbSvc.Load()
+	// Acquisition needs TMDb (to materialize placeholders) plus at least
+	// one acquisition source -- torrent+debrid or NZB/Usenet -- not
+	// necessarily torrent specifically, so an NZB-only setup (no torrent
+	// indexers at all) still gets on-demand acquisition.
+	wantAcquisition := tmdbClient != nil && (torrentSvc != nil || nzbSvc != nil)
 	current := s.acquisition.Load()
-	// Rebuild whenever existence should change, or the underlying tmdb/torrent
-	// instances changed identity (e.g. torrent was cycled off then on) --
-	// comparing by whether current is nil is enough for the existence flip;
-	// an unrelated reconfigure (say, just an OMDb key edit) leaves both
-	// tmdbClient/torrentSvc pointers untouched, so this is a no-op then.
-	if wantAcquisition != (current != nil) {
+	// Rebuild whenever existence should change, or the underlying tmdb/
+	// torrent/nzb instances changed identity (e.g. torrent or NZB was
+	// cycled off then on) -- comparing by whether current is nil is enough
+	// for the existence flip; an unrelated reconfigure (say, just an OMDb
+	// key edit) leaves all three pointers untouched, so this is a no-op then.
+	if wantAcquisition != (current != nil) || torrentChanged || nzbChanged {
 		if s.monitorCancel != nil {
 			s.monitorCancel()
 			s.monitorCancel = nil
 		}
 		if wantAcquisition {
-			acq := acquisition.NewService(s.store, tmdbClient, torrentSvc, s.debridSvc, s.notify)
+			acq := acquisition.NewService(s.store, tmdbClient, torrentSvc, nzbSvc, s.debridSvc, s.notify)
 			s.acquisition.Store(acq)
 			ctx, cancel := context.WithCancel(context.Background())
 			s.monitorCancel = cancel
@@ -275,14 +279,14 @@ func (s *Server) reconfigure() error {
 	// down if neither acquisition source is enabled anymore.
 	wantProwlarr := s.baseCfg.ProwlarrBaseURL != "" &&
 		(s.baseCfg.ProwlarrAPIKey != "" || s.baseCfg.ProwlarrConfigPath != "") &&
-		(torrentSvc != nil || s.nzbSvc.Load() != nil)
+		(torrentSvc != nil || nzbSvc != nil)
 	if wantProwlarr && (s.prowlarrCancel == nil || torrentChanged || nzbChanged) {
 		if s.prowlarrCancel != nil {
 			s.prowlarrCancel()
 		}
 		ctx, cancel := context.WithCancel(context.Background())
 		s.prowlarrCancel = cancel
-		go prowlarr.NewSyncService(torrentSvc, s.nzbSvc.Load(), s.baseCfg.ProwlarrBaseURL, s.baseCfg.ProwlarrAPIKey, s.baseCfg.ProwlarrConfigPath).Run(ctx)
+		go prowlarr.NewSyncService(torrentSvc, nzbSvc, s.baseCfg.ProwlarrBaseURL, s.baseCfg.ProwlarrAPIKey, s.baseCfg.ProwlarrConfigPath).Run(ctx)
 	} else if !wantProwlarr && s.prowlarrCancel != nil {
 		s.prowlarrCancel()
 		s.prowlarrCancel = nil

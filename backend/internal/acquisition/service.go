@@ -12,6 +12,7 @@ import (
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/debrid"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/metadata"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/notify"
+	"github.com/eoghan2t9/vorn-media-server/backend/internal/nzb"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/scanner"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/store"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/torrent"
@@ -25,10 +26,21 @@ const (
 	// which keeps running in the background regardless (see
 	// waitForOutcome's doc comment for why that's safe).
 	candidateTimeout = 5 * time.Minute
-	outcomePoll      = 2 * time.Second
+	// candidateTimeoutNZB is far more generous than candidateTimeout: a real
+	// NZB download+repair genuinely takes minutes (bounded by connection
+	// speed and file size), unlike debrid's near-instant cache-check, so 5
+	// minutes would give up on most perfectly-good downloads before they
+	// could ever finish.
+	candidateTimeoutNZB = 20 * time.Minute
+	outcomePoll         = 2 * time.Second
 	// maxCandidates caps a single Acquire's worst-case background runtime
 	// to roughly maxCandidates * candidateTimeout.
 	maxCandidates = 5
+	// maxNZBCandidates is far lower than maxCandidates: trying 5 sequential
+	// candidateTimeoutNZB-bounded downloads is impractical (worst case
+	// hours) -- the first couple either work or the Usenet provider has a
+	// real problem no amount of retrying fixes.
+	maxNZBCandidates = 2
 )
 
 // Service turns a TMDb title a user has opened or pressed play on into a
@@ -41,12 +53,13 @@ type Service struct {
 	store   *store.Store
 	tmdb    *metadata.TMDbClient
 	torrent *torrent.Service
+	nzb     *nzb.Service
 	debrid  *debrid.Service
 	notify  *notify.Service
 }
 
-func NewService(st *store.Store, tmdb *metadata.TMDbClient, t *torrent.Service, d *debrid.Service, n *notify.Service) *Service {
-	return &Service{store: st, tmdb: tmdb, torrent: t, debrid: d, notify: n}
+func NewService(st *store.Store, tmdb *metadata.TMDbClient, t *torrent.Service, n *nzb.Service, d *debrid.Service, notifySvc *notify.Service) *Service {
+	return &Service{store: st, tmdb: tmdb, torrent: t, nzb: n, debrid: d, notify: notifySvc}
 }
 
 // MaterializePlaceholder finds or creates the local placeholder media_item
@@ -235,41 +248,60 @@ func (s *Service) startAcquire(itemID string, blockOwned bool) error {
 	return nil
 }
 
-// runAcquire searches, then tries up to maxCandidates scored releases in
-// order (best first) until one actually resolves into a playable file --
-// not just the single top pick, since a release can look good on paper
-// (seeders, resolution) and still fail to resolve (dead torrent, provider
-// can't cache it, no video file inside).
+// runAcquire tries torrent+debrid first (near-instant when it works), and
+// only falls back to NZB/Usenet (a real download, genuinely minutes) if
+// torrent fails to produce a working release -- see acquireViaTorrent/
+// acquireViaNZB. Either tier is silently skipped (not a failure on its
+// own) if that source isn't configured at all.
 func (s *Service) runAcquire(item *store.MediaItem) {
-	searchCtx, cancel := context.WithTimeout(context.Background(), searchTimeout)
-	defer cancel()
-
 	query, err := s.buildSearchQuery(item)
 	if err != nil {
 		s.fail(item.ID, err)
 		return
 	}
-
-	candidates, err := s.torrent.Search(searchCtx, query)
-	if err != nil {
-		s.fail(item.ID, fmt.Errorf("searching indexers: %w", err))
-		return
-	}
-	if len(candidates) == 0 {
-		s.fail(item.ID, ErrNoSearchResults)
-		return
-	}
-
 	profile, err := s.store.GetQualityProfile(item.LibraryID)
 	if err != nil {
 		s.fail(item.ID, err)
 		return
 	}
 
+	torrentErr := s.acquireViaTorrent(item, query, profile)
+	if torrentErr == nil {
+		return
+	}
+	nzbErr := s.acquireViaNZB(item, query, profile)
+	if nzbErr == nil {
+		return
+	}
+
+	s.fail(item.ID, combineAcquireErrors(torrentErr, nzbErr))
+	s.notifySend("acquisition_failed", map[string]any{"itemId": item.ID, "title": item.Title})
+}
+
+// acquireViaTorrent searches, then tries up to maxCandidates scored
+// releases in order (best first) until one actually resolves into a
+// playable file -- not just the single top pick, since a release can look
+// good on paper (seeders, resolution) and still fail to resolve (dead
+// torrent, provider can't cache it, no video file inside). Returns nil on
+// success (having already sent the "acquired" notification).
+func (s *Service) acquireViaTorrent(item *store.MediaItem, query string, profile store.QualityProfile) error {
+	if s.torrent == nil {
+		return ErrTorrentNotConfigured
+	}
+	searchCtx, cancel := context.WithTimeout(context.Background(), searchTimeout)
+	defer cancel()
+
+	candidates, err := s.torrent.Search(searchCtx, query)
+	if err != nil {
+		return fmt.Errorf("searching indexers: %w", err)
+	}
+	if len(candidates) == 0 {
+		return ErrNoSearchResults
+	}
+
 	ranked := ScoreAndRank(candidates, profile)
 	if len(ranked) == 0 {
-		s.fail(item.ID, ErrNoAcceptableRelease)
-		return
+		return ErrNoAcceptableRelease
 	}
 	if len(ranked) > maxCandidates {
 		ranked = ranked[:maxCandidates]
@@ -277,14 +309,13 @@ func (s *Service) runAcquire(item *store.MediaItem) {
 
 	account, err := s.pickDebridAccount()
 	if err != nil {
-		s.fail(item.ID, err)
-		return
+		return err
 	}
 
 	for _, candidate := range ranked {
 		if s.tryCandidate(item, account, candidate) {
 			s.notifySend("acquired", map[string]any{"itemId": item.ID, "title": item.Title, "release": candidate.Title})
-			return
+			return nil
 		}
 	}
 
@@ -292,13 +323,66 @@ func (s *Service) runAcquire(item *store.MediaItem) {
 	// candidate's debrid.Service.run goroutine may still be running in the
 	// background and could succeed later -- clearing active_debrid_item_id
 	// fences that off too, same as between candidates, so a late finish
-	// can't silently resurrect an item the user has already been told
-	// failed.
+	// can't silently resurrect an item already handed off to the NZB tier.
 	if err := s.store.SetMediaItemActiveDebridItem(item.ID, ""); err != nil {
 		log.Printf("acquisition: clearing active resolve for %s: %v", item.ID, err)
 	}
-	s.fail(item.ID, errors.New("no candidate release could be resolved"))
-	s.notifySend("acquisition_failed", map[string]any{"itemId": item.ID, "title": item.Title})
+	return errors.New("no torrent candidate could be resolved")
+}
+
+// acquireViaNZB is acquireViaTorrent's NZB counterpart, tried only after it
+// fails -- see runAcquire.
+func (s *Service) acquireViaNZB(item *store.MediaItem, query string, profile store.QualityProfile) error {
+	if s.nzb == nil {
+		return ErrNZBNotConfigured
+	}
+	searchCtx, cancel := context.WithTimeout(context.Background(), searchTimeout)
+	defer cancel()
+
+	candidates, err := s.nzb.Search(searchCtx, query)
+	if err != nil {
+		return fmt.Errorf("searching NZB indexers: %w", err)
+	}
+	if len(candidates) == 0 {
+		return ErrNoNZBSearchResults
+	}
+
+	ranked := ScoreAndRankNZB(candidates, profile)
+	if len(ranked) == 0 {
+		return ErrNoAcceptableNZBRelease
+	}
+	if len(ranked) > maxNZBCandidates {
+		ranked = ranked[:maxNZBCandidates]
+	}
+
+	for _, candidate := range ranked {
+		fetchCtx, cancel := context.WithTimeout(context.Background(), searchTimeout)
+		ok := s.tryNZBCandidate(fetchCtx, item, candidate)
+		cancel()
+		if ok {
+			s.notifySend("acquired", map[string]any{"itemId": item.ID, "title": item.Title, "release": candidate.Title})
+			return nil
+		}
+	}
+
+	if err := s.store.SetMediaItemActiveNZBDownload(item.ID, ""); err != nil {
+		log.Printf("acquisition: clearing active NZB download for %s: %v", item.ID, err)
+	}
+	return errors.New("no NZB candidate could be resolved")
+}
+
+// combineAcquireErrors reports just the one tier's error when the other
+// was never attempted (not configured at all), or both when both were
+// tried and failed.
+func combineAcquireErrors(torrentErr, nzbErr error) error {
+	switch {
+	case errors.Is(torrentErr, ErrTorrentNotConfigured):
+		return nzbErr
+	case errors.Is(nzbErr, ErrNZBNotConfigured):
+		return torrentErr
+	default:
+		return fmt.Errorf("torrent: %v; nzb: %v", torrentErr, nzbErr)
+	}
 }
 
 // notifySend is a nil-safe wrapper around notify.Service.Send -- s.notify
@@ -382,6 +466,9 @@ func (s *Service) AcquireSeasonPack(ctx context.Context, seasonID string) error 
 	if err := s.store.SetMediaItemActiveDebridItem(season.ID, ""); err != nil {
 		log.Printf("acquisition: clearing active resolve for season %s: %v", season.ID, err)
 	}
+	if err := s.store.SetMediaItemActiveNZBDownload(season.ID, ""); err != nil {
+		log.Printf("acquisition: clearing active NZB download for season %s: %v", season.ID, err)
+	}
 
 	episodes, err := s.store.ListChildren(season.ID)
 	if err != nil {
@@ -399,8 +486,20 @@ func (s *Service) AcquireSeasonPack(ctx context.Context, seasonID string) error 
 }
 
 // tryAcquireSeasonPack searches for and tries season-pack candidates for
-// one season, returning true if one of them ends up fulfilling it.
+// one season, trying torrent+debrid first and falling back to NZB/Usenet
+// only if that fails -- same tiering as runAcquire (see acquireViaTorrent/
+// acquireViaNZB) -- returning true if one of them ends up fulfilling it.
 func (s *Service) tryAcquireSeasonPack(ctx context.Context, season, series *store.MediaItem, seasonNumber int) bool {
+	if s.trySeasonPackViaTorrent(ctx, season, series, seasonNumber) {
+		return true
+	}
+	return s.trySeasonPackViaNZB(ctx, season, series, seasonNumber)
+}
+
+func (s *Service) trySeasonPackViaTorrent(ctx context.Context, season, series *store.MediaItem, seasonNumber int) bool {
+	if s.torrent == nil {
+		return false
+	}
 	query := fmt.Sprintf("%s S%02d", series.Title, seasonNumber)
 	searchCtx, cancel := context.WithTimeout(ctx, searchTimeout)
 	defer cancel()
@@ -447,6 +546,55 @@ func (s *Service) tryAcquireSeasonPack(ctx context.Context, season, series *stor
 	return false
 }
 
+// trySeasonPackViaNZB is trySeasonPackViaTorrent's NZB counterpart, tried
+// only after it fails.
+func (s *Service) trySeasonPackViaNZB(ctx context.Context, season, series *store.MediaItem, seasonNumber int) bool {
+	if s.nzb == nil {
+		return false
+	}
+	query := fmt.Sprintf("%s S%02d", series.Title, seasonNumber)
+	searchCtx, cancel := context.WithTimeout(ctx, searchTimeout)
+	defer cancel()
+	candidates, err := s.nzb.Search(searchCtx, query)
+	if err != nil {
+		log.Printf("acquisition: searching NZB season pack for %s: %v", season.ID, err)
+		return false
+	}
+
+	var packCandidates []nzb.SearchResult
+	for _, c := range candidates {
+		if !scanner.LooksLikeSingleEpisode(c.Title) {
+			packCandidates = append(packCandidates, c)
+		}
+	}
+
+	profile, err := s.store.GetQualityProfile(season.LibraryID)
+	if err != nil {
+		log.Printf("acquisition: loading quality profile for season %s: %v", season.ID, err)
+		return false
+	}
+	ranked := ScoreAndRankNZB(packCandidates, profile)
+	if len(ranked) > maxNZBCandidates {
+		ranked = ranked[:maxNZBCandidates]
+	}
+	if len(ranked) == 0 {
+		return false
+	}
+
+	for _, candidate := range ranked {
+		fetchCtx, cancel := context.WithTimeout(ctx, searchTimeout)
+		ok := s.tryNZBCandidate(fetchCtx, season, candidate)
+		cancel()
+		if ok {
+			s.notifySend("acquired", map[string]any{
+				"itemId": season.ID, "title": fmt.Sprintf("%s Season %d", series.Title, seasonNumber), "release": candidate.Title,
+			})
+			return true
+		}
+	}
+	return false
+}
+
 // tryCandidate sends one scored release to debrid and waits to see whether
 // it specifically is the one that ends up fulfilling item.
 func (s *Service) tryCandidate(item *store.MediaItem, account *store.DebridAccount, candidate ScoredRelease) bool {
@@ -474,28 +622,60 @@ func (s *Service) tryCandidate(item *store.MediaItem, account *store.DebridAccou
 	if err := s.store.SetMediaItemActiveDebridItem(item.ID, newItem.ID); err != nil {
 		log.Printf("acquisition: recording active resolve for %s: %v", item.ID, err)
 	}
-	return s.waitForOutcome(item.ID, newItem.ID, candidateTimeout)
+	return s.waitForOutcome(item.ID, candidateTimeout, func() bool {
+		di, err := s.store.GetDebridItem(newItem.ID)
+		return err == nil && di.Status == "error"
+	})
 }
 
-// waitForOutcome polls until debridItemID's resolve reaches a terminal
-// state Vorn can act on: the media_item became 'owned' (this attempt won
-// -- confirmed by debrid.PromoteToExistingItem's own active_debrid_item_id
-// fencing check, not just "debrid_item says ready", since promotion can
-// still fail after that, e.g. no video file in the resolved release), the
-// media_item was set to 'error' by this attempt's own failed promotion,
-// the debrid_item itself errored (resolve failed before promotion ever
-// ran), or timeout.
+// tryNZBCandidate is tryCandidate's NZB counterpart: sends one scored NZB
+// release to nzb.Service and waits to see whether it specifically is the
+// one that ends up fulfilling item. item may be a movie/episode (single
+// file) or a season row (nzb.Service's onComplete branches on
+// item.Kind == "season" the same way debrid's does).
+func (s *Service) tryNZBCandidate(ctx context.Context, item *store.MediaItem, candidate ScoredNZBRelease) bool {
+	if err := s.store.SetMediaItemAcquisitionStatus(item.ID, "acquiring"); err != nil {
+		log.Printf("acquisition: setting status on %s: %v", item.ID, err)
+	}
+
+	data, err := nzb.FetchNZB(ctx, candidate.DownloadURL)
+	if err != nil {
+		log.Printf("acquisition: fetching NZB %q for %s: %v", candidate.Title, item.ID, err)
+		return false
+	}
+	rec, err := s.nzb.AddNZBForItem(data, item.LibraryID, item.ID)
+	if err != nil {
+		log.Printf("acquisition: starting NZB download %q for %s: %v", candidate.Title, item.ID, err)
+		return false
+	}
+	if err := s.store.SetMediaItemActiveNZBDownload(item.ID, rec.ID); err != nil {
+		log.Printf("acquisition: recording active NZB download for %s: %v", item.ID, err)
+	}
+	return s.waitForOutcome(item.ID, candidateTimeoutNZB, func() bool {
+		r, err := s.store.GetNZBDownload(rec.ID)
+		return err == nil && r.Status == "error"
+	})
+}
+
+// waitForOutcome polls until either isFailed reports the current resolve
+// attempt as terminally failed, or the media_item itself reaches a terminal
+// state: 'owned' (this attempt won -- confirmed by the promotion path's own
+// active-resolve fencing check, not just "the resolve says ready", since
+// promotion can still fail after that, e.g. no video file in the release)
+// or 'error' (this attempt's own failed promotion set it). isFailed is the
+// one thing that differs between sources: tryCandidate checks
+// GetDebridItem(...).Status, tryNZBCandidate checks GetNZBDownload(...).Status.
 //
-// A candidate that times out here keeps resolving in the background
-// (debrid.Service.run has its own longer internal timeout and nothing
-// cancels it from here) -- that's fine: active_debrid_item_id fencing
+// A candidate that times out here keeps resolving in the background (both
+// debrid.Service and nzb.Service have their own longer-running internal
+// processes and nothing cancels them from here) -- that's fine: the
+// active-resolve fencing (active_debrid_item_id / active_nzb_download_id)
 // means a late success or failure from an abandoned attempt is simply
-// ignored by promotion once a later candidate (or "give up") has taken
-// over, per PromoteToExistingItem's isAuthoritative check.
-func (s *Service) waitForOutcome(mediaItemID, debridItemID string, timeout time.Duration) bool {
+// ignored by promotion once a later candidate (or "give up") has taken over.
+func (s *Service) waitForOutcome(mediaItemID string, timeout time.Duration, isFailed func() bool) bool {
 	deadline := time.Now().Add(timeout)
 	for {
-		if di, err := s.store.GetDebridItem(debridItemID); err == nil && di.Status == "error" {
+		if isFailed() {
 			return false
 		}
 		if mi, err := s.store.GetMediaItem(mediaItemID); err == nil {

@@ -61,8 +61,14 @@ func (s *Store) DeleteUsenetServer(id string) error {
 }
 
 type NZBDownload struct {
-	ID          string
-	LibraryID   *string
+	ID        string
+	LibraryID *string
+	// MediaItemID is set only for the on-demand acquisition path (see
+	// acquisition.Service.tryNZBCandidate) -- it's what lets nzb.Service's
+	// onComplete callback promote into this exact placeholder instead of
+	// filename-guessing into LibraryID at large (PromoteCompleted). nil for
+	// the manual admin-driven Admin > NZB flow, same as debrid_items.
+	MediaItemID *string
 	Name        string
 	SavePath    string
 	Status      string // "downloading" | "repairing" | "completed" | "error" | "removed"
@@ -74,23 +80,24 @@ type NZBDownload struct {
 	CompletedAt *time.Time
 }
 
-const nzbColumns = `id, library_id, name, save_path, status, bytes_total, bytes_done, error, promoted, added_at, completed_at`
+const nzbColumns = `id, library_id, media_item_id, name, save_path, status, bytes_total, bytes_done, error, promoted, added_at, completed_at`
 
 func scanNZBDownload(row interface{ Scan(...any) error }, n *NZBDownload) error {
-	return row.Scan(&n.ID, &n.LibraryID, &n.Name, &n.SavePath, &n.Status, &n.BytesTotal, &n.BytesDone, &n.Error, &n.Promoted, &n.AddedAt, &n.CompletedAt)
+	return row.Scan(&n.ID, &n.LibraryID, &n.MediaItemID, &n.Name, &n.SavePath, &n.Status, &n.BytesTotal, &n.BytesDone, &n.Error, &n.Promoted, &n.AddedAt, &n.CompletedAt)
 }
 
 type CreateNZBDownloadInput struct {
-	LibraryID *string
-	Name      string
-	SavePath  string
+	LibraryID   *string
+	MediaItemID *string
+	Name        string
+	SavePath    string
 }
 
 func (s *Store) CreateNZBDownload(in CreateNZBDownloadInput) (*NZBDownload, error) {
 	n := &NZBDownload{}
 	row := s.db.QueryRow(
-		`INSERT INTO nzb_downloads (library_id, name, save_path) VALUES ($1, $2, $3) RETURNING `+nzbColumns,
-		in.LibraryID, in.Name, in.SavePath,
+		`INSERT INTO nzb_downloads (library_id, media_item_id, name, save_path) VALUES ($1, $2, $3, $4) RETURNING `+nzbColumns,
+		in.LibraryID, in.MediaItemID, in.Name, in.SavePath,
 	)
 	if err := scanNZBDownload(row, n); err != nil {
 		return nil, err

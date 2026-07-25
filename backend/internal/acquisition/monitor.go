@@ -141,44 +141,68 @@ func (m *MonitorScheduler) checkQualityUpgrades(ctx context.Context) {
 // checkUpgrade compares the current best available release for item
 // against what it's already playing (parsed from CurrentReleaseTitle) and,
 // if strictly better by resolution, resolves it through the same fenced
-// attempt Acquire's candidates use -- reusing tryCandidate means a failed
-// upgrade attempt can never touch item's existing path (tryCandidate only
-// ever writes success via debrid.PromoteToExistingItem, which requires
-// this attempt to still be the authoritative one when it finishes).
+// attempt Acquire's candidates use -- reusing tryCandidate/tryNZBCandidate
+// means a failed upgrade attempt can never touch item's existing path
+// (promotion only ever writes success when this attempt is still the
+// authoritative one when it finishes). Torrent is tried first (checked
+// only if s.torrent is configured); NZB is checked independently after,
+// even if torrent already found something, in case the NZB tier's best
+// candidate happens to itself be an upgrade over the (possibly still
+// torrent-current) release -- either successful upgrade returns
+// immediately rather than trying both.
 func (s *Service) checkUpgrade(ctx context.Context, item *store.MediaItem) error {
 	query, err := s.buildSearchQuery(item)
 	if err != nil {
 		return err
 	}
-	searchCtx, cancel := context.WithTimeout(ctx, searchTimeout)
-	defer cancel()
-	candidates, err := s.torrent.Search(searchCtx, query)
-	if err != nil {
-		return err
-	}
-
 	profile, err := s.store.GetQualityProfile(item.LibraryID)
 	if err != nil {
 		return err
 	}
-	ranked := ScoreAndRank(candidates, profile)
-	if len(ranked) == 0 {
-		return nil
-	}
-	best := ranked[0]
-
 	currentTier, _ := resolutionTier(ParseResolution(item.CurrentReleaseTitle))
-	newTier, newKnown := resolutionTier(best.Resolution)
-	if !newKnown || newTier <= currentTier {
-		return nil // nothing strictly better available right now
+
+	if s.torrent != nil {
+		searchCtx, cancel := context.WithTimeout(ctx, searchTimeout)
+		candidates, err := s.torrent.Search(searchCtx, query)
+		cancel()
+		if err != nil {
+			return err
+		}
+		ranked := ScoreAndRank(candidates, profile)
+		if len(ranked) > 0 {
+			best := ranked[0]
+			if newTier, known := resolutionTier(best.Resolution); known && newTier > currentTier {
+				account, err := s.pickDebridAccount()
+				if err != nil {
+					return err
+				}
+				if s.tryCandidate(item, account, best) {
+					s.notifySend("upgraded", map[string]any{"itemId": item.ID, "title": item.Title, "release": best.Title})
+					return nil
+				}
+			}
+		}
 	}
 
-	account, err := s.pickDebridAccount()
-	if err != nil {
-		return err
-	}
-	if s.tryCandidate(item, account, best) {
-		s.notifySend("upgraded", map[string]any{"itemId": item.ID, "title": item.Title, "release": best.Title})
+	if s.nzb != nil {
+		searchCtx, cancel := context.WithTimeout(ctx, searchTimeout)
+		candidates, err := s.nzb.Search(searchCtx, query)
+		cancel()
+		if err != nil {
+			return err
+		}
+		ranked := ScoreAndRankNZB(candidates, profile)
+		if len(ranked) > 0 {
+			best := ranked[0]
+			if newTier, known := resolutionTier(best.Resolution); known && newTier > currentTier {
+				fetchCtx, cancel := context.WithTimeout(ctx, searchTimeout)
+				ok := s.tryNZBCandidate(fetchCtx, item, best)
+				cancel()
+				if ok {
+					s.notifySend("upgraded", map[string]any{"itemId": item.ID, "title": item.Title, "release": best.Title})
+				}
+			}
+		}
 	}
 	return nil
 }

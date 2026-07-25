@@ -34,6 +34,7 @@ type MediaItem struct {
 	AcquisitionStatus    string // "owned" | "placeholder" | "searching" | "acquiring" | "error"
 	AcquisitionError     string
 	ActiveDebridItemID   *string // fences which resolve attempt is currently authorized to write Path -- see SetMediaItemActiveDebridItem
+	ActiveNZBDownloadID  *string // NZB's counterpart to ActiveDebridItemID -- see SetMediaItemActiveNZBDownload
 	Monitored            bool
 	CurrentReleaseTitle  string // the release title Path was last promoted from, for the quality-upgrade comparison
 }
@@ -43,13 +44,13 @@ const mediaItemColumns = `id, library_id, parent_id, kind, title, sort_title, ov
 	coalesce(metadata->>'posterUrl', ''), coalesce(metadata->>'backdropUrl', ''), coalesce(metadata->>'author', ''),
 	coalesce(metadata->>'logoUrl', ''), coalesce(metadata->>'ratingImdb', ''), coalesce(metadata->>'ratingRottenTomatoes', ''),
 	coalesce(metadata->>'ratingTmdb', ''), coalesce(metadata->>'trailerUrl', ''),
-	acquisition_status, acquisition_error, active_debrid_item_id, monitored, current_release_title`
+	acquisition_status, acquisition_error, active_debrid_item_id, active_nzb_download_id, monitored, current_release_title`
 
 func scanMediaItem(row interface{ Scan(...any) error }, m *MediaItem) error {
 	return row.Scan(&m.ID, &m.LibraryID, &m.ParentID, &m.Kind, &m.Title, &m.SortTitle, &m.Overview,
 		&m.SeasonNumber, &m.EpisodeNumber, &m.ReleaseDate, &m.Path, &m.TmdbID, &m.MetadataLocked, &m.AddedAt, &m.UpdatedAt,
 		&m.PosterURL, &m.BackdropURL, &m.Author, &m.LogoURL, &m.RatingIMDb, &m.RatingRottenTomatoes, &m.RatingTMDb, &m.TrailerURL,
-		&m.AcquisitionStatus, &m.AcquisitionError, &m.ActiveDebridItemID, &m.Monitored, &m.CurrentReleaseTitle)
+		&m.AcquisitionStatus, &m.AcquisitionError, &m.ActiveDebridItemID, &m.ActiveNZBDownloadID, &m.Monitored, &m.CurrentReleaseTitle)
 }
 
 // SetMediaItemPath is called once acquisition produces a real file/stream
@@ -97,6 +98,18 @@ func (s *Store) SetMediaItemActiveDebridItem(id, debridItemID string) error {
 		arg = debridItemID
 	}
 	_, err := s.db.Exec(`UPDATE media_items SET active_debrid_item_id = $1, updated_at = now() WHERE id = $2`, arg, id)
+	return err
+}
+
+// SetMediaItemActiveNZBDownload is SetMediaItemActiveDebridItem's NZB
+// counterpart -- the fencing token nzb.AuthorizedMediaItem checks before
+// promoting an on-demand NZB download into id.
+func (s *Store) SetMediaItemActiveNZBDownload(id, nzbDownloadID string) error {
+	var arg any
+	if nzbDownloadID != "" {
+		arg = nzbDownloadID
+	}
+	_, err := s.db.Exec(`UPDATE media_items SET active_nzb_download_id = $1, updated_at = now() WHERE id = $2`, arg, id)
 	return err
 }
 

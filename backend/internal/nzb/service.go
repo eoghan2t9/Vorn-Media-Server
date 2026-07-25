@@ -36,13 +36,46 @@ func NewService(st *store.Store, downloadDir string) (*Service, error) {
 		return nil, fmt.Errorf("nzb: creating download dir: %w", err)
 	}
 	svc := &Service{store: st, downloadDir: downloadDir}
-	svc.onComplete = func(n *store.NZBDownload) { PromoteCompleted(st, n) }
+	svc.onComplete = func(n *store.NZBDownload) {
+		if n.MediaItemID == nil {
+			PromoteCompleted(st, n)
+			return
+		}
+		mediaItem, err := AuthorizedMediaItem(st, n)
+		if err != nil {
+			log.Printf("nzb: checking whether %s is still authoritative for %s: %v", n.ID, *n.MediaItemID, err)
+			return
+		}
+		if mediaItem == nil {
+			log.Printf("nzb: %s is a stale/abandoned download, a later attempt already took over -- skipping promotion", n.ID)
+			return
+		}
+		if mediaItem.Kind == "season" {
+			PromoteSeasonPackToExistingItems(st, mediaItem, n)
+			return
+		}
+		PromoteToExistingItem(st, mediaItem, n)
+	}
 	return svc, nil
 }
 
 // AddNZB parses a .nzb file's bytes and starts downloading it in the
-// background against whichever configured Usenet server is enabled.
+// background against whichever configured Usenet server is enabled --
+// the manual, admin-driven flow (Admin > NZB), which always
+// filename-guess-promotes into libraryID at large (see PromoteCompleted).
 func (svc *Service) AddNZB(data []byte, libraryID *string) (*store.NZBDownload, error) {
+	return svc.addNZB(data, libraryID, nil)
+}
+
+// AddNZBForItem is AddNZB's on-demand-acquisition counterpart (the NZB
+// analog of debrid.Service.AddLink): it targets a specific existing
+// placeholder media_item rather than filename-guessing into a library,
+// via mediaItemID/AuthorizedMediaItem fencing (see promote.go).
+func (svc *Service) AddNZBForItem(data []byte, libraryID, mediaItemID string) (*store.NZBDownload, error) {
+	return svc.addNZB(data, &libraryID, &mediaItemID)
+}
+
+func (svc *Service) addNZB(data []byte, libraryID, mediaItemID *string) (*store.NZBDownload, error) {
 	doc, err := Parse(bytes.NewReader(data))
 	if err != nil {
 		return nil, fmt.Errorf("nzb: parsing nzb file: %w", err)
@@ -57,9 +90,10 @@ func (svc *Service) AddNZB(data []byte, libraryID *string) (*store.NZBDownload, 
 	}
 
 	rec, err := svc.store.CreateNZBDownload(store.CreateNZBDownloadInput{
-		LibraryID: libraryID,
-		Name:      name,
-		SavePath:  svc.downloadDir,
+		LibraryID:   libraryID,
+		MediaItemID: mediaItemID,
+		Name:        name,
+		SavePath:    svc.downloadDir,
 	})
 	if err != nil {
 		return nil, err

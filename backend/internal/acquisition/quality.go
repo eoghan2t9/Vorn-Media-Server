@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/eoghan2t9/vorn-media-server/backend/internal/nzb"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/store"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/torrent"
 )
@@ -109,6 +110,23 @@ var ErrNoAcceptableRelease = errors.New("acquisition: no release matched the qua
 // one shared "no release matched" message for both cases.
 var ErrNoSearchResults = errors.New("acquisition: no torrent search results found -- check that at least one torrent indexer is configured and enabled")
 
+// ErrNoNZBSearchResults/ErrNoAcceptableNZBRelease are ErrNoSearchResults/
+// ErrNoAcceptableRelease's NZB-tier counterparts -- kept as distinct
+// sentinels (rather than reusing the torrent-worded ones) so the message
+// an admin actually sees points at the right subsystem (NZB indexers, not
+// torrent ones) when acquireViaNZB is the tier that failed.
+var ErrNoNZBSearchResults = errors.New("acquisition: no NZB search results found -- check that at least one NZB indexer is configured and enabled")
+var ErrNoAcceptableNZBRelease = errors.New("acquisition: no NZB release matched the quality profile")
+
+// ErrTorrentNotConfigured/ErrNZBNotConfigured mean that tier of acquisition
+// was never even attempted -- torrent acquisition is disabled/no indexers
+// enabled, or no Usenet server is configured, respectively. Distinguished
+// from ErrNoSearchResults (torrent IS configured, the search just found
+// nothing) so combineAcquireErrors can report just the one tier's error
+// when the other was never in play.
+var ErrTorrentNotConfigured = errors.New("acquisition: torrent acquisition is not enabled")
+var ErrNZBNotConfigured = errors.New("acquisition: NZB/Usenet acquisition is not enabled")
+
 const seederScoreCap = 500
 
 // resolutionBonus rewards higher resolutions, but only among the tiers a
@@ -171,4 +189,53 @@ func ScoreAndPick(candidates []torrent.SearchResult, profile store.QualityProfil
 		return nil, ErrNoAcceptableRelease
 	}
 	return &ranked[0], nil
+}
+
+// ScoredNZBRelease is ScoredRelease's NZB counterpart -- nzb.SearchResult
+// has no Seeders/Peers (Usenet has no swarm-health concept), so it's scored
+// separately rather than forcing both into one type/function.
+type ScoredNZBRelease struct {
+	nzb.SearchResult
+	Resolution Resolution
+	Codec      string
+	Score      int
+}
+
+// ScoreAndRankNZB is ScoreAndRank's NZB counterpart: same resolution-band
+// filter and codec/remux bonuses (reusing the same title-string parsers,
+// which are source-agnostic), just with no seeders filter/bonus since NZB
+// candidates have nothing analogous to check.
+func ScoreAndRankNZB(candidates []nzb.SearchResult, profile store.QualityProfile) []ScoredNZBRelease {
+	minTier, ok := resolutionTier(Resolution(profile.MinResolution))
+	if !ok {
+		minTier = 0
+	}
+	maxTier, ok := resolutionTier(Resolution(profile.MaxResolution))
+	if !ok {
+		maxTier = len(resolutionOrder) - 1
+	}
+
+	var ranked []ScoredNZBRelease
+	for _, c := range candidates {
+		res := ParseResolution(c.Title)
+		if tier, known := resolutionTier(res); known && (tier < minTier || tier > maxTier) {
+			continue
+		}
+
+		codec := ParseCodec(c.Title)
+		score := 0
+		if tier, known := resolutionTier(res); known {
+			score += resolutionBonus(tier)
+		}
+		if profile.PreferredCodec != "" && codec == profile.PreferredCodec {
+			score += 50
+		}
+		if profile.PreferRemux && IsRemux(c.Title) {
+			score += 25
+		}
+
+		ranked = append(ranked, ScoredNZBRelease{SearchResult: c, Resolution: res, Codec: codec, Score: score})
+	}
+	sort.SliceStable(ranked, func(i, j int) bool { return ranked[i].Score > ranked[j].Score })
+	return ranked
 }
