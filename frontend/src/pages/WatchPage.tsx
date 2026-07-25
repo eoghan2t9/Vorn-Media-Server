@@ -1,4 +1,5 @@
 import Hls from 'hls.js'
+import 'plyr/dist/plyr.css'
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
@@ -8,17 +9,30 @@ import {
   getItem,
   getProgress,
   playItem,
+  subtitlesUrl,
   stopStreamSession,
   updateProgress,
   type AudioTrack,
-  type Chapter,
   type MediaItem,
   type PlayResponse,
 } from '../api/client'
+import { Select } from '../components/Select'
 import { detectClientCapabilities } from '../player/capabilities'
 import { findNextEpisode } from '../player/nextEpisode'
-import { PlayerShell } from '../player/PlayerShell'
+import { usePlyr } from '../player/usePlyr'
 import './WatchPage.css'
+
+const SUBTITLE_LANGUAGES = [
+  { code: 'off', label: 'Off' },
+  { code: 'en', label: 'English' },
+  { code: 'es', label: 'Spanish' },
+  { code: 'fr', label: 'French' },
+  { code: 'de', label: 'German' },
+  { code: 'it', label: 'Italian' },
+  { code: 'pt', label: 'Portuguese' },
+  { code: 'ru', label: 'Russian' },
+  { code: 'ja', label: 'Japanese' },
+]
 
 const PROGRESS_REPORT_INTERVAL_MS = 5000
 // How long to wait before a single, non-chained retry of a failed periodic
@@ -56,7 +70,6 @@ export function WatchPage() {
   const [acquiring, setAcquiring] = useState<AcquiringState | null>(null)
   const [retryKey, setRetryKey] = useState(0)
   const [audioTracks, setAudioTracks] = useState<AudioTrack[]>([])
-  const [chapters, setChapters] = useState<Chapter[]>([])
   const [audioTrackIndex, setAudioTrackIndexState] = useState<number | undefined>(undefined)
   // Mirrors audioTrackIndex so the playback effect below (scoped to
   // [id, retryKey], not audio-track changes) can always read the current
@@ -171,7 +184,6 @@ export function WatchPage() {
     async function handlePlayResponse(video: HTMLVideoElement, play: PlayResponse, resumeAt?: number) {
       midStreamRetries = 0
       setAudioTracks(play.audioTracks ?? [])
-      setChapters(play.chapters ?? [])
       if (play.mode === 'acquiring') {
         setAcquiring({ status: play.acquisitionStatus ?? 'searching', message: play.acquisitionError })
         if (play.acquisitionStatus !== 'error') pollAcquisition(video)
@@ -340,6 +352,8 @@ export function WatchPage() {
     }
   }, [id, retryKey])
 
+  usePlyr(videoRef)
+
   function handleTimeUpdate() {
     const video = videoRef.current
     if (!video || !nextEpisode || video.duration <= 0) return
@@ -361,19 +375,11 @@ export function WatchPage() {
   return (
     <div className="vorn-watch-page">
       <div className="vorn-video-wrap">
-        <PlayerShell
-          videoRef={videoRef}
-          itemId={id ?? ''}
-          hidden={!!acquiring}
-          subtitleLanguage={subtitleLanguage}
-          onSubtitleChange={setSubtitleLanguage}
-          audioTracks={audioTracks}
-          audioTrackIndex={audioTrackIndex}
-          onAudioTrackChange={(index) => switchAudioTrackRef.current(index)}
-          chapters={chapters}
-          onTimeUpdate={handleTimeUpdate}
-          onEnded={goToNextEpisode}
-        />
+        <video ref={videoRef} className="vorn-video" playsInline onTimeUpdate={handleTimeUpdate} onEnded={goToNextEpisode}>
+          {id && subtitleLanguage !== 'off' && (
+            <track key={subtitleLanguage} kind="subtitles" src={subtitlesUrl(id, subtitleLanguage)} srcLang={subtitleLanguage} default />
+          )}
+        </video>
 
         {acquiring && (
           <div className="vorn-acquiring-overlay">
@@ -406,6 +412,26 @@ export function WatchPage() {
         )}
       </div>
       {item && <h1 className="vorn-watch-title">{item.title}</h1>}
+
+      <div className="vorn-watch-track-pickers">
+        {audioTracks.length > 1 && (
+          <label className="vorn-watch-track-picker">
+            Audio
+            <Select
+              value={String(audioTrackIndex ?? audioTracks[0]?.index ?? 0)}
+              onChange={(v) => switchAudioTrackRef.current(Number(v))}
+              options={audioTracks.map((t) => ({
+                value: String(t.index),
+                label: `${t.title || t.language || t.codec}${t.channels ? ` (${t.channels}ch)` : ''}`,
+              }))}
+            />
+          </label>
+        )}
+        <label className="vorn-watch-track-picker">
+          Subtitles
+          <Select value={subtitleLanguage} onChange={setSubtitleLanguage} options={SUBTITLE_LANGUAGES.map((l) => ({ value: l.code, label: l.label }))} />
+        </label>
+      </div>
     </div>
   )
 }

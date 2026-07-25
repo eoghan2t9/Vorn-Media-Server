@@ -16,9 +16,36 @@
   box-shadow: var(--vorn-shadow-lg);
 }
 
+/* Plyr (see usePlyr.ts) wraps the <video> in its own .plyr div, taking over
+   the spot the element used to occupy directly -- match its corners/shadow
+   to the rest of the app's theme instead of Plyr's square default, and
+   carry the theme's accent color through via its documented CSS custom
+   properties rather than overriding Plyr's own stylesheet rules. */
+.vorn-video-wrap .plyr {
+  border-radius: var(--vorn-radius);
+  overflow: hidden;
+  box-shadow: var(--vorn-shadow-lg);
+  --plyr-color-main: var(--vorn-accent);
+  --plyr-range-fill-background: var(--vorn-gradient);
+}
+
 .vorn-watch-title {
   margin-top: 1rem;
   font-size: 1.2rem;
+}
+
+.vorn-watch-track-pickers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-top: 0.75rem;
+}
+
+.vorn-watch-track-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
 }
 
 /* Anchored to the video itself (via .vorn-video-wrap's position:relative)
