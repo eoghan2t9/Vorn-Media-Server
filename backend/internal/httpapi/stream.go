@@ -189,7 +189,19 @@ func (s *Server) handlePlayItem(w http.ResponseWriter, r *http.Request) {
 		// automatically, no frontend changes needed. A local scanned file
 		// failing to probe has no such replacement path, so that still
 		// falls through to the plain error below.
-		if s.acquisition.Load() != nil && item.AcquisitionStatus == "owned" && isRemoteURL(*item.Path) {
+		//
+		// Deliberately not restricted to AcquisitionStatus == "owned": by
+		// this point in the function "searching"/"acquiring" have already
+		// been handled above, so the only other states reaching here are
+		// "owned" (the common case) and "error" (e.g. an earlier attempt
+		// left behind by ResetStuckAcquisitions, or a real prior failure) --
+		// both have a real, present path that just needs replacing, and
+		// Reacquire's own startAcquire already treats "error" exactly like
+		// "placeholder" (kicks off a fresh attempt) internally, so gating
+		// this on "owned" only served to strand an "error" item with a dead
+		// link in a dead end: not empty enough to trigger a fresh Acquire,
+		// not "owned" enough to trigger a Reacquire.
+		if s.acquisition.Load() != nil && isRemoteURL(*item.Path) {
 			if rErr := s.acquisition.Load().Reacquire(r.Context(), item.ID); rErr == nil {
 				writeJSON(w, http.StatusAccepted, playResponse{Mode: "acquiring", AcquisitionStatus: "searching"})
 				return
