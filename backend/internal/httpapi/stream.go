@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -35,6 +36,28 @@ type playResponse struct {
 	PlaylistURL       string `json:"playlistUrl,omitempty"`
 	AcquisitionStatus string `json:"acquisitionStatus,omitempty"` // "searching" | "acquiring" | "error", only set when Mode == "acquiring"
 	AcquisitionError  string `json:"acquisitionError,omitempty"`
+}
+
+// playRequest is an optional JSON body on POST /api/items/{id}/play --
+// clients report codecs their player can decode natively (typically probed
+// via video.canPlayType()) so handlePlayItem's transcode.Decide call can
+// grant direct play beyond the conservative global baseline. An absent or
+// empty body decodes to the zero value, i.e. baseline-only behavior, so
+// older/other clients that don't send this need no special-casing.
+type playRequest struct {
+	VideoCodecs []string `json:"videoCodecs"`
+	AudioCodecs []string `json:"audioCodecs"`
+}
+
+// decodeClientCapabilities reads an optional playRequest JSON body without
+// treating a missing/empty body as an error -- most callers (or a client
+// mid-rollout) won't send one yet.
+func decodeClientCapabilities(r *http.Request) transcode.ClientCapabilities {
+	var req playRequest
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+	return transcode.ClientCapabilities{VideoCodecs: req.VideoCodecs, AudioCodecs: req.AudioCodecs}
 }
 
 // loadItemForPlayback loads a media item and checks the caller has access
@@ -80,6 +103,7 @@ func (s *Server) itemForPlayback(w http.ResponseWriter, r *http.Request, id stri
 
 func (s *Server) handlePlayItem(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	caps := decodeClientCapabilities(r)
 	item := s.loadItemForPlayback(w, r, id)
 	if item == nil {
 		return
@@ -124,7 +148,7 @@ func (s *Server) handlePlayItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	mode := transcode.Decide(info)
+	mode := transcode.Decide(info, caps)
 	if mode == transcode.ModeDirect {
 		writeJSON(w, http.StatusOK, playResponse{Mode: "direct", DirectURL: "/api/stream/direct/" + item.ID})
 		return

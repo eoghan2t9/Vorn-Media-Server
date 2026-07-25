@@ -1,3 +1,5 @@
+import type { ClientCapabilities } from '../player/capabilities'
+
 const API_BASE = import.meta.env.VITE_VORN_API_BASE ?? 'http://localhost:8080'
 
 export interface HealthResponse {
@@ -291,7 +293,11 @@ export interface PlayResponse {
   acquisitionStatus?: 'searching' | 'acquiring' | 'error'
   acquisitionError?: string
 }
-export const playItem = (id: string) => request<PlayResponse>(`/api/items/${id}/play`, { method: 'POST' })
+export const playItem = (id: string, caps?: ClientCapabilities) =>
+  request<PlayResponse>(`/api/items/${id}/play`, {
+    method: 'POST',
+    body: JSON.stringify({ videoCodecs: caps?.videoCodecs ?? [], audioCodecs: caps?.audioCodecs ?? [] }),
+  })
 
 export const stopStreamSession = (sessionId: string) =>
   request<void>(`/api/stream/session/${sessionId}`, { method: 'DELETE' })

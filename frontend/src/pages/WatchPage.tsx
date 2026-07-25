@@ -14,6 +14,7 @@ import {
   type MediaItem,
   type PlayResponse,
 } from '../api/client'
+import { detectClientCapabilities } from '../player/capabilities'
 import { findNextEpisode } from '../player/nextEpisode'
 import './WatchPage.css'
 
@@ -183,7 +184,7 @@ export function WatchPage() {
         hlsRef.current?.destroy()
         hlsRef.current = null
         if (progressTimer) clearInterval(progressTimer)
-        const play = await playItem(id!)
+        const play = await playItem(id!, detectClientCapabilities())
         if (cancelled) return
         await handlePlayResponse(video, play)
       } catch (err) {
@@ -209,7 +210,7 @@ export function WatchPage() {
           if (cancelled) return
           if (fresh.acquisitionStatus === 'owned') {
             clearInterval(acquisitionTimer)
-            const play = await playItem(id!)
+            const play = await playItem(id!, detectClientCapabilities())
             if (!cancelled) await handlePlayResponse(video, play)
           } else if (fresh.acquisitionStatus === 'error') {
             clearInterval(acquisitionTimer)
@@ -230,7 +231,7 @@ export function WatchPage() {
         setItem(loadedItem)
         findNextEpisode(loadedItem).then((n) => !cancelled && setNextEpisode(n))
 
-        const play = await playItem(id!)
+        const play = await playItem(id!, detectClientCapabilities())
         if (cancelled) return
         await handlePlayResponse(video, play)
       } catch (err) {
