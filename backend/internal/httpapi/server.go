@@ -8,6 +8,8 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -32,6 +34,15 @@ import (
 )
 
 const sessionCookieName = "vorn_session"
+
+// jellyfinWebDir is where backend.Dockerfile places Jellyfin's own official
+// web client (see the Dockerfile's jellyfin-web build stage for why: the
+// official Jellyfin apps expect a real server to host this, not just serve
+// the JSON API). Only present in the Docker deploy image -- a plain
+// `go run`/local dev build has no such directory, and NewRouter checks for
+// its existence before registering anything there, so local dev is
+// unaffected either way.
+const jellyfinWebDir = "/usr/share/vorn/jellyfin-web"
 
 // Deps bundles everything the HTTP layer needs. Metadata/Debrid/Notify are
 // still handed in pre-built (credential-free or internally hot-reloading
@@ -536,7 +547,35 @@ func NewRouter(deps Deps) http.Handler {
 	mux.HandleFunc("DELETE /api/admin/backups/{filename}", s.withAdmin(s.handleDeleteAutoBackup))
 	mux.HandleFunc("POST /api/admin/backups/{filename}/restore", s.withAdmin(s.handleRestoreAutoBackup))
 
+	// Registered last, as a catch-all -- Go's ServeMux always prefers the
+	// most specific matching pattern regardless of registration order, so
+	// this only ever serves paths nothing above claimed (in practice: "/"
+	// and the web client's own static asset requests). See jellyfinWebDir's
+	// doc comment for why this exists and why it's fine to skip entirely
+	// when the directory isn't there (local dev).
+	if info, err := os.Stat(jellyfinWebDir); err == nil && info.IsDir() {
+		mux.Handle("/", jellyfinWebHandler(jellyfinWebDir))
+	}
+
 	return s.accessLog(withCORS(embyPathCanonicalizer(mux, embyTemplates), deps.CORSOrigin))
+}
+
+// jellyfinWebHandler serves Jellyfin's bundled web client as static files,
+// falling back to index.html for any path that isn't a real file on disk --
+// the standard client-side-routed-SPA hosting pattern, since jellyfin-web
+// handles its own in-app navigation via the History API rather than the
+// server knowing about every possible route.
+func jellyfinWebHandler(webDir string) http.Handler {
+	fileServer := http.FileServer(http.Dir(webDir))
+	indexPath := filepath.Join(webDir, "index.html")
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		full := filepath.Join(webDir, filepath.Clean(r.URL.Path))
+		if info, err := os.Stat(full); err == nil && !info.IsDir() {
+			fileServer.ServeHTTP(w, r)
+			return
+		}
+		http.ServeFile(w, r, indexPath)
+	})
 }
 
 // canonicalizeEmbyPath finds a template in templates whose static path

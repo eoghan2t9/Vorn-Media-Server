@@ -27,9 +27,11 @@ import (
 // connection bug in the official apps (fixed upstream in 10.9.3, see
 // jellyfin/jellyfin#11658) that rejects the server as "unsupported" purely
 // because of the reported version string, nothing Vorn's own API shape
-// controls.
+// controls. Kept matching the jellyfin-web version bundled in
+// backend.Dockerfile (see jellyfinWebDir) so the reported server version
+// and the actual web client served at "/" never disagree.
 const (
-	jellyfinCompatVersion = "10.11.8"
+	jellyfinCompatVersion = "10.11.11"
 	embyCompatVersion     = "4.8.8.0"
 )
 
