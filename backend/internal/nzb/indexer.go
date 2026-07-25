@@ -163,22 +163,34 @@ func SearchIndexer(ctx context.Context, name, baseURL, apiKey, query string) ([]
 // standard Newznab spec (the same protocol Sonarr/Radarr/NZBHydra use this
 // exact way), so this needs no new indexer type/config, just a different
 // query mode against the same base URL/API key. season==0 means "movie"
-// (t=movie); season>0 means "TV episode" (t=tvsearch, with season/ep).
-// Indexers that don't actually support these functions typically just
-// return an empty result set or a Newznab error, both already handled the
-// same as any other SearchIndexer failure by the caller.
-func SearchIndexerByIMDb(ctx context.Context, name, baseURL, apiKey, imdbID string, season, episode int) ([]SearchResult, error) {
+// (t=movie, imdbid only -- movies have no TVDB id); season>0 means "TV
+// episode" (t=tvsearch, with season/ep). Both imdbid and tvdbid are sent
+// for tv-search when known: real indexers' supported tv-search params vary
+// (confirmed against a live NZBGeek account, whose tv-search doesn't
+// accept imdbid at all -- only tvdbid/rid/tvmazeid), and sending an id an
+// indexer doesn't support for a given mode is harmless, so sending both
+// maximizes compatibility without needing per-indexer capability
+// detection. Indexers that don't actually support these functions
+// typically just return an empty result set or a Newznab error, both
+// already handled the same as any other SearchIndexer failure by the
+// caller.
+func SearchIndexerByIMDb(ctx context.Context, name, baseURL, apiKey, imdbID, tvdbID string, season, episode int) ([]SearchResult, error) {
 	u, err := url.Parse(strings.TrimRight(baseURL, "/") + "/api")
 	if err != nil {
 		return nil, fmt.Errorf("nzb: parsing indexer URL: %w", err)
 	}
 	q := u.Query()
-	q.Set("imdbid", strings.TrimPrefix(imdbID, "tt"))
+	if imdbID != "" {
+		q.Set("imdbid", strings.TrimPrefix(imdbID, "tt"))
+	}
 	if season > 0 {
 		q.Set("t", "tvsearch")
 		q.Set("season", strconv.Itoa(season))
 		if episode > 0 {
 			q.Set("ep", strconv.Itoa(episode))
+		}
+		if tvdbID != "" {
+			q.Set("tvdbid", tvdbID)
 		}
 	} else {
 		q.Set("t", "movie")

@@ -46,10 +46,14 @@ func (svc *Service) Search(ctx context.Context, query string) ([]SearchResult, e
 // SearchByIMDb is Search's id-based counterpart: queries every enabled
 // indexer's t=movie/t=tvsearch function instead of the generic t=search
 // (see SearchIndexerByIMDb) -- same indexers, no separate config needed.
-// Returns (nil, nil) immediately if imdbID is empty rather than querying
-// every indexer for nothing.
-func (svc *Service) SearchByIMDb(ctx context.Context, imdbID string, season, episode int) ([]SearchResult, error) {
-	if imdbID == "" {
+// Both imdbID and tvdbID are accepted (either may be empty) since which one
+// an indexer's tv-search function actually supports varies -- confirmed
+// against a live NZBGeek account that its tv-search doesn't accept imdbid
+// at all, only tvdbid/rid/tvmazeid, unlike its movie-search which does take
+// imdbid. Returns (nil, nil) immediately if both are empty rather than
+// querying every indexer for nothing.
+func (svc *Service) SearchByIMDb(ctx context.Context, imdbID, tvdbID string, season, episode int) ([]SearchResult, error) {
+	if imdbID == "" && tvdbID == "" {
 		return nil, nil
 	}
 	indexers, err := svc.store.ListNZBIndexers()
@@ -69,9 +73,9 @@ func (svc *Service) SearchByIMDb(ctx context.Context, imdbID string, season, epi
 		wg.Add(1)
 		go func(idx *store.NZBIndexer) {
 			defer wg.Done()
-			res, err := SearchIndexerByIMDb(ctx, idx.Name, idx.BaseURL, idx.APIKey, imdbID, season, episode)
+			res, err := SearchIndexerByIMDb(ctx, idx.Name, idx.BaseURL, idx.APIKey, imdbID, tvdbID, season, episode)
 			if err != nil {
-				log.Printf("nzb: searching indexer %s by imdb id: %v", idx.Name, err)
+				log.Printf("nzb: searching indexer %s by imdb/tvdb id: %v", idx.Name, err)
 				return
 			}
 			mu.Lock()

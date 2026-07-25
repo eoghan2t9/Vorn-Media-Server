@@ -169,6 +169,9 @@ type MetadataUpdate struct {
 
 	// ImdbID -- see MediaItem.ImdbID for what it's used for.
 	ImdbID string
+
+	// TvdbID -- see MediaItem.TvdbID for what it's used for.
+	TvdbID int
 }
 
 // ApplyMetadata writes a provider match (or a manual admin correction) onto
@@ -217,6 +220,9 @@ func (s *Store) ApplyMetadata(itemID string, update MetadataUpdate, lock bool) e
 	}
 	if update.ImdbID != "" {
 		metadataJSON["imdbId"] = update.ImdbID
+	}
+	if update.TvdbID > 0 {
+		metadataJSON["tvdbId"] = update.TvdbID
 	}
 
 	_, err := s.db.Exec(

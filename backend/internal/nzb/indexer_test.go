@@ -28,7 +28,7 @@ func TestSearchIndexerByIMDb_Movie(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	results, err := SearchIndexerByIMDb(context.Background(), "TestIndexer", srv.URL, "test-key", "tt0137523", 0, 0)
+	results, err := SearchIndexerByIMDb(context.Background(), "TestIndexer", srv.URL, "test-key", "tt0137523", "", 0, 0)
 	if err != nil {
 		t.Fatalf("SearchIndexerByIMDb: %v", err)
 	}
@@ -37,22 +37,45 @@ func TestSearchIndexerByIMDb_Movie(t *testing.T) {
 	}
 }
 
+// TestSearchIndexerByIMDb_Episode guards against a real bug: confirmed
+// against a live NZBGeek account that its tv-search doesn't accept imdbid
+// at all (only tvdbid/rid/tvmazeid), so both IDs must be sent whenever
+// available for tv-search to actually work across real indexers.
 func TestSearchIndexerByIMDb_Episode(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
-		if q.Get("t") != "tvsearch" || q.Get("imdbid") != "9288030" || q.Get("season") != "2" || q.Get("ep") != "1" {
+		if q.Get("t") != "tvsearch" || q.Get("imdbid") != "9288030" || q.Get("tvdbid") != "81189" || q.Get("season") != "2" || q.Get("ep") != "1" {
 			t.Errorf("unexpected query: %s", r.URL.RawQuery)
 		}
 		w.Write([]byte(`<?xml version="1.0"?><rss><channel></channel></rss>`))
 	}))
 	defer srv.Close()
 
-	results, err := SearchIndexerByIMDb(context.Background(), "TestIndexer", srv.URL, "test-key", "tt9288030", 2, 1)
+	results, err := SearchIndexerByIMDb(context.Background(), "TestIndexer", srv.URL, "test-key", "tt9288030", "81189", 2, 1)
 	if err != nil {
 		t.Fatalf("SearchIndexerByIMDb: %v", err)
 	}
 	if len(results) != 0 {
 		t.Fatalf("expected 0 results, got %d", len(results))
+	}
+}
+
+// TestSearchIndexerByIMDb_TvdbOnly guards the specific real-world case that
+// motivated sending tvdbid at all: an indexer that ignores imdbid for
+// tv-search entirely must still get a usable query when only tvdbid is
+// known (e.g. imdbid wasn't backfilled, or TMDb has none on file).
+func TestSearchIndexerByIMDb_TvdbOnly(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if q.Has("imdbid") || q.Get("tvdbid") != "81189" || q.Get("season") != "1" || q.Get("ep") != "1" {
+			t.Errorf("unexpected query: %s", r.URL.RawQuery)
+		}
+		w.Write([]byte(`<?xml version="1.0"?><rss><channel></channel></rss>`))
+	}))
+	defer srv.Close()
+
+	if _, err := SearchIndexerByIMDb(context.Background(), "TestIndexer", srv.URL, "test-key", "", "81189", 1, 1); err != nil {
+		t.Fatalf("SearchIndexerByIMDb: %v", err)
 	}
 }
 
@@ -66,7 +89,7 @@ func TestSearchIndexerByIMDb_SeasonPackOmitsEp(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if _, err := SearchIndexerByIMDb(context.Background(), "TestIndexer", srv.URL, "test-key", "tt9288030", 3, 0); err != nil {
+	if _, err := SearchIndexerByIMDb(context.Background(), "TestIndexer", srv.URL, "test-key", "tt9288030", "", 3, 0); err != nil {
 		t.Fatalf("SearchIndexerByIMDb: %v", err)
 	}
 }

@@ -306,6 +306,10 @@ type SeriesDetails struct {
 	// torrent-search API and IMDb generally) keys episodes off the series'
 	// ID plus season/episode numbers, not a separate per-episode ID.
 	ImdbID string
+	// TvdbID is the whole series' TheTVDB ID -- most real-world Newznab
+	// indexers' tv-search function keys off this instead of (or in addition
+	// to) IMDb ID; see store.MediaItem.TvdbID.
+	TvdbID int
 }
 
 type tmdbSeriesDetailsResult struct {
@@ -334,7 +338,8 @@ func (c *TMDbClient) GetSeriesDetails(ctx context.Context, tmdbID int) (*SeriesD
 	}
 	out := &SeriesDetails{
 		TmdbID: resp.ID, Title: resp.Name, Overview: resp.Overview, FirstAirDate: resp.FirstAirDate,
-		PosterURL: imageURL(resp.PosterPath), BackdropURL: imageURL(resp.BackdropPath), ImdbID: resp.ExternalIDs.IMDbID,
+		PosterURL: imageURL(resp.PosterPath), BackdropURL: imageURL(resp.BackdropPath),
+		ImdbID: resp.ExternalIDs.IMDbID, TvdbID: resp.ExternalIDs.TVDbID,
 	}
 	for _, s := range resp.Seasons {
 		if s.SeasonNumber == 0 {

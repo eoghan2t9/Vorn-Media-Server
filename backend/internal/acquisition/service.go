@@ -174,11 +174,11 @@ func (s *Service) ensureExpectedRuntime(ctx context.Context, item *store.MediaIt
 		}
 		if item.RuntimeMinutes != nil {
 			// Episode runtime already known -- still worth checking whether
-			// the series itself is missing ImdbID (e.g. it was backfilled
-			// for runtime before this field existed), but skip the TMDb
-			// round-trip entirely if the series already has both.
+			// the series itself is missing ImdbID/TvdbID (e.g. it was
+			// backfilled for runtime before these fields existed), but skip
+			// the TMDb round-trip entirely if the series already has both.
 			series, err := s.store.GetMediaItem(*season.ParentID)
-			if err == nil && series.ImdbID != nil {
+			if err == nil && series.ImdbID != nil && series.TvdbID != nil {
 				return
 			}
 		}
@@ -229,14 +229,15 @@ func (s *Service) SyncSeriesTree(ctx context.Context, seriesItem *store.MediaIte
 		return fmt.Errorf("acquisition: fetching series details: %w", err)
 	}
 
-	// A whole series shares one IMDb ID -- TV search (torrent.SearchByIMDb)
-	// only ever needs the series' ID plus season/episode numbers, never a
-	// separate per-episode one -- so this backfills it on the series row
-	// itself using the GetSeriesDetails call already made above, not a
-	// second TMDb request.
-	if seriesItem.ImdbID == nil && details.ImdbID != "" {
-		if err := s.store.ApplyMetadata(seriesItem.ID, store.MetadataUpdate{ImdbID: details.ImdbID}, false); err != nil {
-			log.Printf("acquisition: applying backfilled imdb id to %s: %v", seriesItem.ID, err)
+	// A whole series shares one IMDb ID and one TheTVDB ID -- TV search
+	// (torrent.SearchByIMDb, nzb.SearchByIMDb) only ever needs the series'
+	// own ID(s) plus season/episode numbers, never a separate per-episode
+	// one -- so this backfills both on the series row itself using the
+	// GetSeriesDetails call already made above, not a second TMDb request.
+	if (seriesItem.ImdbID == nil && details.ImdbID != "") || (seriesItem.TvdbID == nil && details.TvdbID > 0) {
+		update := store.MetadataUpdate{ImdbID: details.ImdbID, TvdbID: details.TvdbID}
+		if err := s.store.ApplyMetadata(seriesItem.ID, update, false); err != nil {
+			log.Printf("acquisition: applying backfilled imdb/tvdb id to %s: %v", seriesItem.ID, err)
 		}
 	}
 
@@ -363,14 +364,19 @@ func (s *Service) runAcquire(item *store.MediaItem) {
 	s.notifySend("acquisition_failed", map[string]any{"itemId": item.ID, "title": item.Title})
 }
 
-// resolveImdbSearchParams returns the IMDb ID and season/episode numbers to
-// pass to torrent.SearchByIMDb for item -- a movie's own ImdbID, or an
-// episode's parent series' ImdbID plus the episode's season/episode
-// numbers (a whole series shares one IMDb ID, see SyncSeriesTree). Returns
-// an empty imdbID if it isn't known (not backfilled yet, or TMDb has none
-// on file for this title) -- callers should just skip the SearchByIMDb
-// call entirely in that case, exactly like SearchByIMDb itself does.
-func (s *Service) resolveImdbSearchParams(item *store.MediaItem) (imdbID string, season, episode int) {
+// resolveImdbSearchParams returns the IMDb/TheTVDB IDs and season/episode
+// numbers to pass to torrent.SearchByIMDb/nzb.SearchByIMDb for item -- a
+// movie's own ImdbID (movies have no TVDB id), or an episode's parent
+// series' ImdbID/TvdbID plus the episode's season/episode numbers (a whole
+// series shares one of each, see SyncSeriesTree). Both IDs are returned
+// when known since which one an indexer actually needs varies: TorBox's
+// torrent-search API and many Newznab indexers' movie-search accept IMDb
+// ID, but most real-world Newznab indexers' tv-search function keys off
+// TheTVDB ID instead (confirmed against a live NZBGeek account -- its own
+// caps document doesn't list imdbid as a supported tv-search param at all).
+// An empty imdbID/tvdbID means it isn't known yet (not backfilled, or TMDb
+// has none on file) -- callers skip whichever query that would drive.
+func (s *Service) resolveImdbSearchParams(item *store.MediaItem) (imdbID, tvdbID string, season, episode int) {
 	switch item.Kind {
 	case "movie":
 		if item.ImdbID != nil {
@@ -385,10 +391,15 @@ func (s *Service) resolveImdbSearchParams(item *store.MediaItem) (imdbID string,
 			return
 		}
 		series, err := s.store.GetMediaItem(*seasonItem.ParentID)
-		if err != nil || series.ImdbID == nil {
+		if err != nil {
 			return
 		}
-		imdbID = *series.ImdbID
+		if series.ImdbID != nil {
+			imdbID = *series.ImdbID
+		}
+		if series.TvdbID != nil {
+			tvdbID = strconv.Itoa(*series.TvdbID)
+		}
 		if item.SeasonNumber != nil {
 			season = *item.SeasonNumber
 		}
@@ -416,7 +427,7 @@ func (s *Service) acquireViaTorrent(item *store.MediaItem, query string, profile
 	if err != nil {
 		return fmt.Errorf("searching indexers: %w", err)
 	}
-	if imdbID, season, episode := s.resolveImdbSearchParams(item); imdbID != "" {
+	if imdbID, _, season, episode := s.resolveImdbSearchParams(item); imdbID != "" {
 		if imdbCandidates, err := s.torrent.SearchByIMDb(searchCtx, imdbID, season, episode); err != nil {
 			log.Printf("acquisition: TorBox indexer search for %s: %v", item.ID, err)
 		} else {
@@ -471,8 +482,8 @@ func (s *Service) acquireViaNZB(item *store.MediaItem, query string, profile sto
 	if err != nil {
 		return fmt.Errorf("searching NZB indexers: %w", err)
 	}
-	if imdbID, season, episode := s.resolveImdbSearchParams(item); imdbID != "" {
-		if imdbCandidates, err := s.nzb.SearchByIMDb(searchCtx, imdbID, season, episode); err != nil {
+	if imdbID, tvdbID, season, episode := s.resolveImdbSearchParams(item); imdbID != "" || tvdbID != "" {
+		if imdbCandidates, err := s.nzb.SearchByIMDb(searchCtx, imdbID, tvdbID, season, episode); err != nil {
 			log.Printf("acquisition: id-based NZB indexer search for %s: %v", item.ID, err)
 		} else {
 			candidates = append(candidates, imdbCandidates...)
@@ -713,8 +724,15 @@ func (s *Service) trySeasonPackViaNZB(ctx context.Context, season, series *store
 	// supports a season-only query (omitting ep) -- most indexers return
 	// season packs for exactly this query shape, the same one Sonarr itself
 	// sends for a season-pack search.
-	if series.ImdbID != nil {
-		if imdbCandidates, err := s.nzb.SearchByIMDb(searchCtx, *series.ImdbID, seasonNumber, 0); err != nil {
+	if series.ImdbID != nil || series.TvdbID != nil {
+		var imdbID, tvdbID string
+		if series.ImdbID != nil {
+			imdbID = *series.ImdbID
+		}
+		if series.TvdbID != nil {
+			tvdbID = strconv.Itoa(*series.TvdbID)
+		}
+		if imdbCandidates, err := s.nzb.SearchByIMDb(searchCtx, imdbID, tvdbID, seasonNumber, 0); err != nil {
 			log.Printf("acquisition: id-based NZB indexer search for season %s: %v", season.ID, err)
 		} else {
 			candidates = append(candidates, imdbCandidates...)

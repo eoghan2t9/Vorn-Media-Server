@@ -46,8 +46,15 @@ type MediaItem struct {
 	// ImdbID (e.g. "tt0137523"), from metadata->>'imdbId' -- distinct from
 	// RatingIMDb (an OMDb rating *string*, not an ID). nil until
 	// ensureExpectedRuntime backfills it. Used to query IMDb-ID-driven
-	// torrent indexers (see torrent.SearchByIMDb).
+	// torrent/NZB indexers (see torrent.SearchByIMDb/nzb.SearchByIMDb).
 	ImdbID *string
+	// TvdbID (series only), from metadata->>'tvdbId' -- most real-world
+	// Newznab indexers (confirmed against a live NZBGeek account: its own
+	// caps document lists tv-search's supportedParams as "q,rid,tvdbid,
+	// tvmazeid,season,ep" -- no imdbid at all) key TV search off TheTVDB ID,
+	// not IMDb ID, unlike movie search. nil until ensureExpectedRuntime
+	// backfills it.
+	TvdbID *int
 }
 
 const mediaItemColumns = `id, library_id, parent_id, kind, title, sort_title, overview, season_number, episode_number,
@@ -56,14 +63,14 @@ const mediaItemColumns = `id, library_id, parent_id, kind, title, sort_title, ov
 	coalesce(metadata->>'logoUrl', ''), coalesce(metadata->>'ratingImdb', ''), coalesce(metadata->>'ratingRottenTomatoes', ''),
 	coalesce(metadata->>'ratingTmdb', ''), coalesce(metadata->>'trailerUrl', ''),
 	acquisition_status, acquisition_error, active_debrid_item_id, active_nzb_download_id, monitored, current_release_title,
-	(metadata->>'runtimeMinutes')::int, metadata->>'imdbId'`
+	(metadata->>'runtimeMinutes')::int, metadata->>'imdbId', (metadata->>'tvdbId')::int`
 
 func scanMediaItem(row interface{ Scan(...any) error }, m *MediaItem) error {
 	return row.Scan(&m.ID, &m.LibraryID, &m.ParentID, &m.Kind, &m.Title, &m.SortTitle, &m.Overview,
 		&m.SeasonNumber, &m.EpisodeNumber, &m.ReleaseDate, &m.Path, &m.TmdbID, &m.MetadataLocked, &m.AddedAt, &m.UpdatedAt,
 		&m.PosterURL, &m.BackdropURL, &m.Author, &m.LogoURL, &m.RatingIMDb, &m.RatingRottenTomatoes, &m.RatingTMDb, &m.TrailerURL,
 		&m.AcquisitionStatus, &m.AcquisitionError, &m.ActiveDebridItemID, &m.ActiveNZBDownloadID, &m.Monitored, &m.CurrentReleaseTitle,
-		&m.RuntimeMinutes, &m.ImdbID)
+		&m.RuntimeMinutes, &m.ImdbID, &m.TvdbID)
 }
 
 // SetMediaItemPath is called once acquisition produces a real file/stream
