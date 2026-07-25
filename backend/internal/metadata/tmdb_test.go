@@ -229,9 +229,10 @@ func TestGetSeasonDetails(t *testing.T) {
 				Name          string `json:"name"`
 				Overview      string `json:"overview"`
 				AirDate       string `json:"air_date"`
+				Runtime       int    `json:"runtime"`
 			}{
-				{SeasonNumber: 1, EpisodeNumber: 1, Name: "Pilot", AirDate: "2008-01-20"},
-				{SeasonNumber: 1, EpisodeNumber: 2, Name: "Cat's in the Bag...", AirDate: "2008-01-27"},
+				{SeasonNumber: 1, EpisodeNumber: 1, Name: "Pilot", AirDate: "2008-01-20", Runtime: 58},
+				{SeasonNumber: 1, EpisodeNumber: 2, Name: "Cat's in the Bag...", AirDate: "2008-01-27", Runtime: 48},
 			},
 		})
 	})
@@ -240,7 +241,7 @@ func TestGetSeasonDetails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetSeasonDetails: %v", err)
 	}
-	if len(got) != 2 || got[0].Title != "Pilot" || got[1].EpisodeNumber != 2 {
+	if len(got) != 2 || got[0].Title != "Pilot" || got[1].EpisodeNumber != 2 || got[0].Runtime != 58 {
 		t.Fatalf("unexpected episodes: %+v", got)
 	}
 }

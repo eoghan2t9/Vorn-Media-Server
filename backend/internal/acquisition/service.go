@@ -101,7 +101,7 @@ func (s *Service) materializeMovie(ctx context.Context, libraryID string, tmdbID
 	if err != nil {
 		return nil, err
 	}
-	if err := s.applyTopLevelMetadata(item.ID, details.Overview, details.ReleaseDate, details.PosterURL, details.BackdropURL); err != nil {
+	if err := s.applyTopLevelMetadata(item.ID, details.Overview, details.ReleaseDate, details.PosterURL, details.BackdropURL, details.Runtime); err != nil {
 		log.Printf("acquisition: applying metadata to %s: %v", item.ID, err)
 	}
 	return s.store.GetMediaItem(item.ID)
@@ -118,7 +118,7 @@ func (s *Service) materializeSeries(ctx context.Context, libraryID string, tmdbI
 	if err != nil {
 		return nil, err
 	}
-	if err := s.applyTopLevelMetadata(item.ID, details.Overview, details.FirstAirDate, details.PosterURL, details.BackdropURL); err != nil {
+	if err := s.applyTopLevelMetadata(item.ID, details.Overview, details.FirstAirDate, details.PosterURL, details.BackdropURL, 0); err != nil {
 		log.Printf("acquisition: applying metadata to %s: %v", item.ID, err)
 	}
 	fresh, err := s.store.GetMediaItem(item.ID)
@@ -131,12 +131,69 @@ func (s *Service) materializeSeries(ctx context.Context, libraryID string, tmdbI
 	return fresh, nil
 }
 
-func (s *Service) applyTopLevelMetadata(itemID, overview, releaseDate, posterURL, backdropURL string) error {
-	update := store.MetadataUpdate{Overview: overview, PosterURL: posterURL, BackdropURL: backdropURL}
+func (s *Service) applyTopLevelMetadata(itemID, overview, releaseDate, posterURL, backdropURL string, runtimeMinutes int) error {
+	update := store.MetadataUpdate{Overview: overview, PosterURL: posterURL, BackdropURL: backdropURL, RuntimeMinutes: runtimeMinutes}
 	if d, err := time.Parse("2006-01-02", releaseDate); err == nil {
 		update.ReleaseDate = &d
 	}
 	return s.store.ApplyMetadata(itemID, update, false)
+}
+
+// ensureExpectedRuntime backfills item's (movie) or its episodes' (season/
+// episode) TMDb-reported runtime if missing, so debrid/nzb's promote.go
+// content-verification check (comparing a resolved release's actual probed
+// duration against media_items.metadata->>'runtimeMinutes') has something
+// to compare against -- an item materialized before this field existed
+// would otherwise silently skip verification forever. Best-effort: a
+// failed lookup just leaves it nil, letting verification skip for this one
+// attempt rather than blocking acquisition on a TMDb hiccup.
+func (s *Service) ensureExpectedRuntime(ctx context.Context, item *store.MediaItem) {
+	switch item.Kind {
+	case "movie":
+		if item.RuntimeMinutes != nil || item.TmdbID == nil {
+			return
+		}
+		details, err := s.tmdb.GetMovieDetails(ctx, *item.TmdbID)
+		if err != nil {
+			log.Printf("acquisition: backfilling runtime for %s: %v", item.ID, err)
+			return
+		}
+		if details.Runtime > 0 {
+			if err := s.store.ApplyMetadata(item.ID, store.MetadataUpdate{RuntimeMinutes: details.Runtime}, false); err != nil {
+				log.Printf("acquisition: applying backfilled runtime to %s: %v", item.ID, err)
+			}
+		}
+	case "episode":
+		if item.RuntimeMinutes != nil || item.ParentID == nil {
+			return
+		}
+		season, err := s.store.GetMediaItem(*item.ParentID)
+		if err != nil || season.ParentID == nil {
+			return
+		}
+		s.backfillSeriesEpisodeRuntimes(ctx, *season.ParentID)
+	case "season":
+		if item.ParentID == nil {
+			return
+		}
+		s.backfillSeriesEpisodeRuntimes(ctx, *item.ParentID)
+	}
+}
+
+// backfillSeriesEpisodeRuntimes re-syncs seriesID's whole episode tree,
+// which (once GetSeasonDetails/SyncSeriesTree parse/apply the Runtime field)
+// backfills every episode's expected runtime in one shot, not just the one
+// being acquired -- SyncSeriesTree is already idempotent/"safe to call
+// repeatedly".
+func (s *Service) backfillSeriesEpisodeRuntimes(ctx context.Context, seriesID string) {
+	series, err := s.store.GetMediaItem(seriesID)
+	if err != nil {
+		log.Printf("acquisition: loading series %s to backfill runtimes: %v", seriesID, err)
+		return
+	}
+	if err := s.SyncSeriesTree(ctx, series); err != nil {
+		log.Printf("acquisition: backfilling episode runtimes for series %s: %v", seriesID, err)
+	}
 }
 
 // SyncSeriesTree fetches seriesItem's season/episode list from TMDb and
@@ -195,9 +252,10 @@ func (s *Service) SyncSeriesTree(ctx context.Context, seriesItem *store.MediaIte
 				log.Printf("acquisition: episode S%02dE%02d for %s: %v", seasonNum, epNum, seriesItem.ID, err)
 				continue
 			}
-			if ep.Overview != "" {
-				if err := s.store.ApplyMetadata(existing.ID, store.MetadataUpdate{Overview: ep.Overview}, false); err != nil {
-					log.Printf("acquisition: applying episode overview to %s: %v", existing.ID, err)
+			if ep.Overview != "" || ep.Runtime > 0 {
+				update := store.MetadataUpdate{Overview: ep.Overview, RuntimeMinutes: ep.Runtime}
+				if err := s.store.ApplyMetadata(existing.ID, update, false); err != nil {
+					log.Printf("acquisition: applying episode metadata to %s: %v", existing.ID, err)
 				}
 			}
 		}
@@ -254,6 +312,10 @@ func (s *Service) startAcquire(itemID string, blockOwned bool) error {
 // acquireViaNZB. Either tier is silently skipped (not a failure on its
 // own) if that source isn't configured at all.
 func (s *Service) runAcquire(item *store.MediaItem) {
+	runtimeCtx, cancel := context.WithTimeout(context.Background(), searchTimeout)
+	s.ensureExpectedRuntime(runtimeCtx, item)
+	cancel()
+
 	query, err := s.buildSearchQuery(item)
 	if err != nil {
 		s.fail(item.ID, err)
@@ -458,6 +520,7 @@ func (s *Service) AcquireSeasonPack(ctx context.Context, seasonID string) error 
 	if err != nil {
 		return fmt.Errorf("acquisition: loading series for season %s: %w", seasonID, err)
 	}
+	s.ensureExpectedRuntime(ctx, season)
 
 	if s.tryAcquireSeasonPack(ctx, season, series, *season.SeasonNumber) {
 		return nil

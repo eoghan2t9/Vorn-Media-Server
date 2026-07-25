@@ -162,6 +162,10 @@ type MetadataUpdate struct {
 	// Rating is TMDb's own vote_average -- always available, unlike
 	// RatingIMDb/RatingRottenTomatoes which need OMDb configured.
 	Rating float64
+
+	// RuntimeMinutes is TMDb's reported runtime (movie) or per-episode
+	// runtime -- see MediaItem.RuntimeMinutes for what it's used for.
+	RuntimeMinutes int
 }
 
 // ApplyMetadata writes a provider match (or a manual admin correction) onto
@@ -204,6 +208,9 @@ func (s *Store) ApplyMetadata(itemID string, update MetadataUpdate, lock bool) e
 	}
 	if update.RatingRottenTomatoes != "" {
 		metadataJSON["ratingRottenTomatoes"] = update.RatingRottenTomatoes
+	}
+	if update.RuntimeMinutes > 0 {
+		metadataJSON["runtimeMinutes"] = update.RuntimeMinutes
 	}
 
 	_, err := s.db.Exec(

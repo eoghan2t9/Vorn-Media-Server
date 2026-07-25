@@ -1,13 +1,41 @@
 package nzb
 
 import (
+	"context"
 	"log"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/scanner"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/store"
+	"github.com/eoghan2t9/vorn-media-server/backend/internal/transcode"
 )
+
+// verifyProbeTimeout bounds how long a content-verification probe (see
+// transcode.VerifyRuntime) is allowed to take against a resolved path --
+// generous relative to the couple of seconds a real probe takes in
+// practice, without risking hanging promotion indefinitely on a slow/dead
+// link or file.
+const verifyProbeTimeout = 25 * time.Second
+
+// verifyRuntime is a small wrapper so both PromoteToExistingItem and
+// PromoteSeasonPackToExistingItems can check a resolved path (stream URL or
+// local file, transcode.Probe handles both) against a media_item's expected
+// TMDb runtime with one line, logging and returning false on any failure --
+// a nil expectedMinutes means "unknown, don't verify."
+func verifyRuntime(logPrefix, path string, expectedMinutes *int) bool {
+	if expectedMinutes == nil {
+		return true
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), verifyProbeTimeout)
+	defer cancel()
+	if err := transcode.VerifyRuntime(ctx, path, *expectedMinutes); err != nil {
+		log.Printf("nzb: content verification failed for %s: %v", logPrefix, err)
+		return false
+	}
+	return true
+}
 
 // PromoteCompleted turns a finished NZB download's video files into
 // browsable media_items. A download with no destination library, or one
@@ -120,6 +148,12 @@ func PromoteToExistingItem(st *store.Store, mediaItem *store.MediaItem, rec *sto
 			}
 			return
 		}
+		if !verifyRuntime(mediaItem.ID, best.StreamURL, mediaItem.RuntimeMinutes) {
+			if err := st.SetMediaItemAcquisitionError(mediaItem.ID, "resolved NZB failed content verification"); err != nil {
+				log.Printf("nzb: setting acquisition error on %s: %v", mediaItem.ID, err)
+			}
+			return
+		}
 		if err := st.SetMediaItemPath(mediaItem.ID, best.StreamURL, rec.Name); err != nil {
 			log.Printf("nzb: setting path on %s: %v", mediaItem.ID, err)
 			return
@@ -152,6 +186,12 @@ func PromoteToExistingItem(st *store.Store, mediaItem *store.MediaItem, rec *sto
 
 	if best == "" {
 		if err := st.SetMediaItemAcquisitionError(mediaItem.ID, "resolved NZB had no video file"); err != nil {
+			log.Printf("nzb: setting acquisition error on %s: %v", mediaItem.ID, err)
+		}
+		return
+	}
+	if !verifyRuntime(mediaItem.ID, best, mediaItem.RuntimeMinutes) {
+		if err := st.SetMediaItemAcquisitionError(mediaItem.ID, "resolved NZB failed content verification"); err != nil {
 			log.Printf("nzb: setting acquisition error on %s: %v", mediaItem.ID, err)
 		}
 		return
@@ -268,6 +308,9 @@ func PromoteSeasonPackToExistingItems(st *store.Store, seasonItem *store.MediaIt
 		ep, ok := byEpisodeNumber[epNum]
 		if !ok {
 			continue // pack contains an episode not in Vorn's synced tree (e.g. a special) -- ignore it
+		}
+		if !verifyRuntime(ep.ID, f.path, ep.RuntimeMinutes) {
+			continue // treated like an unmatched file -- skip this episode, not the whole pack
 		}
 		if err := st.SetMediaItemPath(ep.ID, f.path, rec.Name); err != nil {
 			log.Printf("nzb: setting path on episode %s: %v", ep.ID, err)

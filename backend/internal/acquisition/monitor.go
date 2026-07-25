@@ -151,6 +151,8 @@ func (m *MonitorScheduler) checkQualityUpgrades(ctx context.Context) {
 // torrent-current) release -- either successful upgrade returns
 // immediately rather than trying both.
 func (s *Service) checkUpgrade(ctx context.Context, item *store.MediaItem) error {
+	s.ensureExpectedRuntime(ctx, item)
+
 	query, err := s.buildSearchQuery(item)
 	if err != nil {
 		return err

@@ -37,6 +37,12 @@ type MediaItem struct {
 	ActiveNZBDownloadID  *string // NZB's counterpart to ActiveDebridItemID -- see SetMediaItemActiveNZBDownload
 	Monitored            bool
 	CurrentReleaseTitle  string // the release title Path was last promoted from, for the quality-upgrade comparison
+	// RuntimeMinutes is TMDb's reported runtime, from metadata->>'runtimeMinutes'
+	// -- nil until acquisition's ensureExpectedRuntime backfills it (or the
+	// item was materialized after this field existed). Used only by the
+	// content-verification check in debrid/nzb's promote.go, comparing
+	// against a resolved release's actual probed duration.
+	RuntimeMinutes *int
 }
 
 const mediaItemColumns = `id, library_id, parent_id, kind, title, sort_title, overview, season_number, episode_number,
@@ -44,13 +50,15 @@ const mediaItemColumns = `id, library_id, parent_id, kind, title, sort_title, ov
 	coalesce(metadata->>'posterUrl', ''), coalesce(metadata->>'backdropUrl', ''), coalesce(metadata->>'author', ''),
 	coalesce(metadata->>'logoUrl', ''), coalesce(metadata->>'ratingImdb', ''), coalesce(metadata->>'ratingRottenTomatoes', ''),
 	coalesce(metadata->>'ratingTmdb', ''), coalesce(metadata->>'trailerUrl', ''),
-	acquisition_status, acquisition_error, active_debrid_item_id, active_nzb_download_id, monitored, current_release_title`
+	acquisition_status, acquisition_error, active_debrid_item_id, active_nzb_download_id, monitored, current_release_title,
+	(metadata->>'runtimeMinutes')::int`
 
 func scanMediaItem(row interface{ Scan(...any) error }, m *MediaItem) error {
 	return row.Scan(&m.ID, &m.LibraryID, &m.ParentID, &m.Kind, &m.Title, &m.SortTitle, &m.Overview,
 		&m.SeasonNumber, &m.EpisodeNumber, &m.ReleaseDate, &m.Path, &m.TmdbID, &m.MetadataLocked, &m.AddedAt, &m.UpdatedAt,
 		&m.PosterURL, &m.BackdropURL, &m.Author, &m.LogoURL, &m.RatingIMDb, &m.RatingRottenTomatoes, &m.RatingTMDb, &m.TrailerURL,
-		&m.AcquisitionStatus, &m.AcquisitionError, &m.ActiveDebridItemID, &m.ActiveNZBDownloadID, &m.Monitored, &m.CurrentReleaseTitle)
+		&m.AcquisitionStatus, &m.AcquisitionError, &m.ActiveDebridItemID, &m.ActiveNZBDownloadID, &m.Monitored, &m.CurrentReleaseTitle,
+		&m.RuntimeMinutes)
 }
 
 // SetMediaItemPath is called once acquisition produces a real file/stream

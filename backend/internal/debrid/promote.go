@@ -1,11 +1,21 @@
 package debrid
 
 import (
+	"context"
 	"log"
+	"time"
 
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/scanner"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/store"
+	"github.com/eoghan2t9/vorn-media-server/backend/internal/transcode"
 )
+
+// verifyProbeTimeout bounds how long a content-verification probe (see
+// transcode.VerifyRuntime) is allowed to take against a resolved stream
+// URL -- generous relative to the ~2s a real probe against a provider CDN
+// takes in practice, without risking hanging promotion indefinitely on a
+// slow/dead link.
+const verifyProbeTimeout = 25 * time.Second
 
 // PromoteCompleted turns a resolved debrid item's files into browsable
 // media_items, same as the torrent/NZB auto-add watchers. Unlike those,
@@ -92,6 +102,19 @@ func PromoteToExistingItem(st *store.Store, mediaItem *store.MediaItem, item *st
 		return
 	}
 
+	if mediaItem.RuntimeMinutes != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), verifyProbeTimeout)
+		verifyErr := transcode.VerifyRuntime(ctx, best.StreamURL, *mediaItem.RuntimeMinutes)
+		cancel()
+		if verifyErr != nil {
+			log.Printf("debrid: content verification failed for %s: %v", mediaItem.ID, verifyErr)
+			if err := st.SetMediaItemAcquisitionError(mediaItem.ID, "resolved release failed content verification: "+verifyErr.Error()); err != nil {
+				log.Printf("debrid: setting acquisition error on %s: %v", mediaItem.ID, err)
+			}
+			return
+		}
+	}
+
 	if err := st.SetMediaItemPath(mediaItem.ID, best.StreamURL, item.Name); err != nil {
 		log.Printf("debrid: setting path on %s: %v", mediaItem.ID, err)
 		return
@@ -161,6 +184,15 @@ func PromoteSeasonPackToExistingItems(st *store.Store, seasonItem *store.MediaIt
 		ep, ok := byEpisodeNumber[epNum]
 		if !ok {
 			continue // pack contains an episode not in Vorn's synced tree (e.g. a special) -- ignore it
+		}
+		if ep.RuntimeMinutes != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), verifyProbeTimeout)
+			verifyErr := transcode.VerifyRuntime(ctx, f.StreamURL, *ep.RuntimeMinutes)
+			cancel()
+			if verifyErr != nil {
+				log.Printf("debrid: content verification failed for episode %s: %v", ep.ID, verifyErr)
+				continue // treated like an unmatched file -- skip this episode, not the whole pack
+			}
 		}
 		if err := st.SetMediaItemPath(ep.ID, f.StreamURL, item.Name); err != nil {
 			log.Printf("debrid: setting path on episode %s: %v", ep.ID, err)

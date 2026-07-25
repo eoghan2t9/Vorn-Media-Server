@@ -246,6 +246,11 @@ type MovieDetails struct {
 	ReleaseDate string
 	PosterURL   string
 	BackdropURL string
+	// Runtime is TMDb's reported runtime in minutes, 0 if TMDb has none on
+	// file. Used by acquisition's content-verification check (comparing
+	// against a resolved release's actual probed duration) rather than
+	// shown anywhere in the UI.
+	Runtime int
 }
 
 type tmdbMovieDetailsResult struct {
@@ -255,6 +260,7 @@ type tmdbMovieDetailsResult struct {
 	ReleaseDate  string `json:"release_date"`
 	PosterPath   string `json:"poster_path"`
 	BackdropPath string `json:"backdrop_path"`
+	Runtime      int    `json:"runtime"`
 }
 
 // GetMovieDetails fetches GET /movie/{id}.
@@ -265,7 +271,7 @@ func (c *TMDbClient) GetMovieDetails(ctx context.Context, tmdbID int) (*MovieDet
 	}
 	return &MovieDetails{
 		TmdbID: resp.ID, Title: resp.Title, Overview: resp.Overview, ReleaseDate: resp.ReleaseDate,
-		PosterURL: imageURL(resp.PosterPath), BackdropURL: imageURL(resp.BackdropPath),
+		PosterURL: imageURL(resp.PosterPath), BackdropURL: imageURL(resp.BackdropPath), Runtime: resp.Runtime,
 	}, nil
 }
 
@@ -331,6 +337,9 @@ type EpisodeDetails struct {
 	Title         string
 	Overview      string
 	AirDate       string
+	// Runtime is TMDb's reported episode runtime in minutes, 0 if TMDb has
+	// none on file -- see MovieDetails.Runtime for what it's used for.
+	Runtime int
 }
 
 type tmdbSeasonResult struct {
@@ -340,6 +349,7 @@ type tmdbSeasonResult struct {
 		Name          string `json:"name"`
 		Overview      string `json:"overview"`
 		AirDate       string `json:"air_date"`
+		Runtime       int    `json:"runtime"`
 	} `json:"episodes"`
 }
 
@@ -353,7 +363,7 @@ func (c *TMDbClient) GetSeasonDetails(ctx context.Context, tmdbID, seasonNumber 
 	out := make([]EpisodeDetails, 0, len(resp.Episodes))
 	for _, e := range resp.Episodes {
 		out = append(out, EpisodeDetails{
-			SeasonNumber: e.SeasonNumber, EpisodeNumber: e.EpisodeNumber,
+			SeasonNumber: e.SeasonNumber, EpisodeNumber: e.EpisodeNumber, Runtime: e.Runtime,
 			Title: e.Name, Overview: e.Overview, AirDate: e.AirDate,
 		})
 	}
