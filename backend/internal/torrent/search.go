@@ -45,15 +45,16 @@ func (svc *Service) Search(ctx context.Context, query string) ([]SearchResult, e
 	return results, nil
 }
 
-// SearchByIMDb is Search's TorBox-provider counterpart: TorBox's own
-// torrent-search API takes no free-text query at all, only an IMDb ID (see
-// searchTorBoxIndexer) -- season==0 means "movie", season>0 means
-// "episode" (episode defaults to 1 if not given, since there's no "whole
-// season" query mode). Returns (nil, nil) immediately if imdbID is empty
-// rather than querying every TorBox indexer for nothing, since a caller
-// with no IMDb ID on hand for this item can't usefully call this at all.
-func (svc *Service) SearchByIMDb(ctx context.Context, imdbID string, season, episode int) ([]SearchResult, error) {
-	if imdbID == "" {
+// SearchByIMDb is Search's id-based counterpart, covering both indexer
+// kinds: regular Torznab indexers' t=movie/t=tvsearch (see
+// SearchIndexerByIMDb -- the torrent-side sibling of Newznab, same
+// protocol family), and TorBox-provider indexers' own search-api (which
+// takes no free-text query at all, only an id -- see searchTorBoxIndexer;
+// only imdbID applies there today, tvdbID is Torznab-only for now).
+// Returns (nil, nil) immediately if both ids are empty rather than
+// querying every indexer for nothing.
+func (svc *Service) SearchByIMDb(ctx context.Context, imdbID, tvdbID string, season, episode int) ([]SearchResult, error) {
+	if imdbID == "" && tvdbID == "" {
 		return nil, nil
 	}
 	indexers, err := svc.store.ListTorrentIndexers()
@@ -67,18 +68,27 @@ func (svc *Service) SearchByIMDb(ctx context.Context, imdbID string, season, epi
 		results []SearchResult
 	)
 	for _, idx := range indexers {
-		if !idx.Enabled || idx.Provider != "torbox" {
+		if !idx.Enabled {
 			continue
 		}
 		wg.Add(1)
 		go func(idx *store.TorrentIndexer) {
 			defer wg.Done()
-			if err := svc.torboxLimiter.Wait(ctx); err != nil {
-				return
+			var res []SearchResult
+			var err error
+			if idx.Provider == "torbox" {
+				if imdbID == "" {
+					return // TorBox's search-api only takes imdbID today
+				}
+				if waitErr := svc.torboxLimiter.Wait(ctx); waitErr != nil {
+					return
+				}
+				res, err = searchTorBoxIndexer(ctx, idx.Name, idx.APIKey, imdbID, season, episode)
+			} else {
+				res, err = SearchIndexerByIMDb(ctx, idx.Name, idx.BaseURL, idx.APIKey, imdbID, tvdbID, season, episode)
 			}
-			res, err := searchTorBoxIndexer(ctx, idx.Name, idx.APIKey, imdbID, season, episode)
 			if err != nil {
-				log.Printf("torrent: searching TorBox indexer %s: %v", idx.Name, err)
+				log.Printf("torrent: searching indexer %s by imdb/tvdb id: %v", idx.Name, err)
 				return
 			}
 			mu.Lock()

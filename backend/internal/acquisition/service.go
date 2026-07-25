@@ -427,9 +427,9 @@ func (s *Service) acquireViaTorrent(item *store.MediaItem, query string, profile
 	if err != nil {
 		return fmt.Errorf("searching indexers: %w", err)
 	}
-	if imdbID, _, season, episode := s.resolveImdbSearchParams(item); imdbID != "" {
-		if imdbCandidates, err := s.torrent.SearchByIMDb(searchCtx, imdbID, season, episode); err != nil {
-			log.Printf("acquisition: TorBox indexer search for %s: %v", item.ID, err)
+	if imdbID, tvdbID, season, episode := s.resolveImdbSearchParams(item); imdbID != "" || tvdbID != "" {
+		if imdbCandidates, err := s.torrent.SearchByIMDb(searchCtx, imdbID, tvdbID, season, episode); err != nil {
+			log.Printf("acquisition: id-based torrent indexer search for %s: %v", item.ID, err)
 		} else {
 			candidates = append(candidates, imdbCandidates...)
 		}
@@ -655,15 +655,26 @@ func (s *Service) trySeasonPackViaTorrent(ctx context.Context, season, series *s
 		log.Printf("acquisition: searching season pack for %s: %v", season.ID, err)
 		return false
 	}
-	// TorBox's torrent-search API has no "whole season" query mode (season
-	// and episode are both required) -- episode=1 is sent as a
-	// representative probe, since many real season-pack releases are
-	// indexed under every episode they contain. The LooksLikeSingleEpisode
-	// filter below applies the same to whatever it finds as to Search's own
-	// Torznab results.
-	if series.ImdbID != nil {
-		if imdbCandidates, err := s.torrent.SearchByIMDb(searchCtx, *series.ImdbID, seasonNumber, 1); err != nil {
-			log.Printf("acquisition: TorBox indexer search for season %s: %v", season.ID, err)
+	// Real Torznab indexers' t=tvsearch genuinely supports a season-only
+	// query (episode 0 here omits ep entirely) -- most indexers return
+	// season packs for exactly that query shape, the same one Sonarr
+	// itself sends. TorBox's own search-api has no such mode (season and
+	// episode are both required) and defaults episode to 1 as a
+	// representative probe internally (see searchTorBoxIndexer) when it
+	// isn't given one, since many real season-pack releases are indexed
+	// under every episode they contain. Either way, the
+	// LooksLikeSingleEpisode filter below applies the same to whatever's
+	// found as to Search's own Torznab results.
+	if series.ImdbID != nil || series.TvdbID != nil {
+		var imdbID, tvdbID string
+		if series.ImdbID != nil {
+			imdbID = *series.ImdbID
+		}
+		if series.TvdbID != nil {
+			tvdbID = strconv.Itoa(*series.TvdbID)
+		}
+		if imdbCandidates, err := s.torrent.SearchByIMDb(searchCtx, imdbID, tvdbID, seasonNumber, 0); err != nil {
+			log.Printf("acquisition: id-based torrent indexer search for season %s: %v", season.ID, err)
 		} else {
 			candidates = append(candidates, imdbCandidates...)
 		}

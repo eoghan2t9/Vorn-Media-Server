@@ -120,7 +120,54 @@ func SearchIndexer(ctx context.Context, name, baseURL, apiKey, query string) ([]
 	}
 	u.RawQuery = q.Encode()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	return doTorznabRequest(ctx, name, u.String())
+}
+
+// SearchIndexerByIMDb queries a single Torznab-compatible indexer using its
+// id-based search functions (t=movie / t=tvsearch) instead of the generic
+// free-text t=search SearchIndexer uses -- Torznab is the torrent-side
+// sibling of the Newznab protocol nzb.SearchIndexerByIMDb already speaks
+// this same way, including the same "send both imdbid and tvdbid whenever
+// known" reasoning: which id an indexer's tv-search function actually
+// supports varies (a real Newznab account this codebase already tested
+// against doesn't accept imdbid for tv-search at all, only tvdbid), and an
+// indexer ignoring an id it doesn't support for a given mode is harmless.
+// A query is treated as "TV" (t=tvsearch) whenever a season is given or a
+// tvdbID is known (TVDB has no concept of movies), "movie" (t=movie,
+// imdbid only) otherwise.
+func SearchIndexerByIMDb(ctx context.Context, name, baseURL, apiKey, imdbID, tvdbID string, season, episode int) ([]SearchResult, error) {
+	u, err := url.Parse(strings.TrimRight(baseURL, "/") + "/api")
+	if err != nil {
+		return nil, fmt.Errorf("torrent: parsing indexer URL: %w", err)
+	}
+	q := u.Query()
+	if imdbID != "" {
+		q.Set("imdbid", strings.TrimPrefix(imdbID, "tt"))
+	}
+	if season > 0 || tvdbID != "" {
+		q.Set("t", "tvsearch")
+		if season > 0 {
+			q.Set("season", strconv.Itoa(season))
+			if episode > 0 {
+				q.Set("ep", strconv.Itoa(episode))
+			}
+		}
+		if tvdbID != "" {
+			q.Set("tvdbid", tvdbID)
+		}
+	} else {
+		q.Set("t", "movie")
+	}
+	if apiKey != "" {
+		q.Set("apikey", apiKey)
+	}
+	u.RawQuery = q.Encode()
+
+	return doTorznabRequest(ctx, name, u.String())
+}
+
+func doTorznabRequest(ctx context.Context, name, requestURL string) ([]SearchResult, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
 	if err != nil {
 		return nil, err
 	}

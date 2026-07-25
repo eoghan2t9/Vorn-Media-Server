@@ -172,10 +172,19 @@ func (s *Server) handleTorrentSearch(w http.ResponseWriter, r *http.Request) {
 	// A bare IMDb ID (e.g. "tt0295701") typed into this box would otherwise
 	// only ever be sent as a literal free-text query, which finds nothing --
 	// route it through the same id-based search acquisition uses
-	// internally too (TorBox-provider indexers), merging in whatever it
-	// finds. See imdbIDPattern in nzb.go.
+	// internally too, merging in whatever it finds. See imdbIDPattern in
+	// nzb.go.
 	if imdbIDPattern.MatchString(q) {
-		if idResults, err := s.torrentSvc.Load().SearchByIMDb(r.Context(), q, 0, 0); err != nil {
+		if idResults, err := s.torrentSvc.Load().SearchByIMDb(r.Context(), q, "", 0, 0); err != nil {
+			log.Printf("httpapi: id-based torrent search for %q: %v", q, err)
+		} else {
+			results = append(results, idResults...)
+		}
+	}
+	// TheTVDB id needs an explicit "tvdb:12345" prefix -- see tvdbIDPattern
+	// in nzb.go.
+	if m := tvdbIDPattern.FindStringSubmatch(q); m != nil {
+		if idResults, err := s.torrentSvc.Load().SearchByIMDb(r.Context(), "", m[1], 0, 0); err != nil {
 			log.Printf("httpapi: id-based torrent search for %q: %v", q, err)
 		} else {
 			results = append(results, idResults...)

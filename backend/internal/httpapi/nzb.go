@@ -21,6 +21,12 @@ const nzbServiceUnavailable = "NZB acquisition is not configured (set VORN_NZB_E
 // functions acquisition already uses internally.
 var imdbIDPattern = regexp.MustCompile(`^tt\d+$`)
 
+// tvdbIDPattern recognizes an explicit "tvdb:12345" query -- unlike an IMDb
+// ID, a bare TheTVDB id is just a plain number, indistinguishable from a
+// normal (if unusual) free-text search term, so it needs an explicit
+// prefix rather than being auto-detected the way imdbIDPattern is.
+var tvdbIDPattern = regexp.MustCompile(`(?i)^tvdb:(\d+)$`)
+
 type nzbDownloadResponse struct {
 	ID          string  `json:"id"`
 	LibraryID   *string `json:"libraryId,omitempty"`
@@ -314,6 +320,16 @@ func (s *Server) handleNZBSearch(w http.ResponseWriter, r *http.Request) {
 	// acquisition uses internally too, merging in whatever it finds.
 	if imdbIDPattern.MatchString(q) {
 		if idResults, err := s.nzbSvc.Load().SearchByIMDb(r.Context(), q, "", 0, 0); err != nil {
+			log.Printf("httpapi: id-based NZB search for %q: %v", q, err)
+		} else {
+			results = append(results, idResults...)
+		}
+	}
+	// TheTVDB id has no unambiguous shape of its own to auto-detect (just a
+	// plain number), so it needs an explicit "tvdb:12345" prefix rather
+	// than pattern-matching a bare query the way imdbIDPattern does.
+	if m := tvdbIDPattern.FindStringSubmatch(q); m != nil {
+		if idResults, err := s.nzbSvc.Load().SearchByIMDb(r.Context(), "", m[1], 0, 0); err != nil {
 			log.Printf("httpapi: id-based NZB search for %q: %v", q, err)
 		} else {
 			results = append(results, idResults...)
