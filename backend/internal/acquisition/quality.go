@@ -100,6 +100,15 @@ type ScoredRelease struct {
 // [MinResolution, MaxResolution]).
 var ErrNoAcceptableRelease = errors.New("acquisition: no release matched the quality profile")
 
+// ErrNoSearchResults is distinct from ErrNoAcceptableRelease: it means the
+// torrent search itself came back with zero candidates -- most commonly no
+// torrent indexers are configured/enabled at all, so there was nothing for
+// the quality profile to even filter. ErrNoAcceptableRelease, by contrast,
+// means candidates existed but every one failed the profile (seeders/
+// resolution) -- a much more specific, easier-to-act-on distinction than
+// one shared "no release matched" message for both cases.
+var ErrNoSearchResults = errors.New("acquisition: no torrent search results found -- check that at least one torrent indexer is configured and enabled")
+
 const seederScoreCap = 500
 
 // resolutionBonus rewards higher resolutions, but only among the tiers a

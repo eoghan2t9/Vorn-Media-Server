@@ -11,4 +11,4 @@ package version
 // (e.g. by the release pipeline that produces bare-metal binaries), but a
 // plain `go run`/`go build` (including the Docker image) reports this value
 // directly.
-var Version = "1.2.4"
+var Version = "1.2.5"

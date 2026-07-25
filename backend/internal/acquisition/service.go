@@ -255,6 +255,10 @@ func (s *Service) runAcquire(item *store.MediaItem) {
 		s.fail(item.ID, fmt.Errorf("searching indexers: %w", err))
 		return
 	}
+	if len(candidates) == 0 {
+		s.fail(item.ID, ErrNoSearchResults)
+		return
+	}
 
 	profile, err := s.store.GetQualityProfile(item.LibraryID)
 	if err != nil {
