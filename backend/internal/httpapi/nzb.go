@@ -2,7 +2,9 @@ package httpapi
 
 import (
 	"io"
+	"log"
 	"net/http"
+	"regexp"
 	"time"
 
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/nzb"
@@ -10,6 +12,14 @@ import (
 )
 
 const nzbServiceUnavailable = "NZB acquisition is not configured (set VORN_NZB_ENABLED=true)"
+
+// imdbIDPattern recognizes a bare IMDb ID (e.g. "tt0295701") typed into a
+// manual search box -- shared by handleNZBSearch and handleTorrentSearch,
+// both of which otherwise only ever send it as a literal free-text query
+// (which finds nothing, since no real release title contains the ID
+// itself as text) rather than routing it through the ID-based search
+// functions acquisition already uses internally.
+var imdbIDPattern = regexp.MustCompile(`^tt\d+$`)
 
 type nzbDownloadResponse struct {
 	ID          string  `json:"id"`
@@ -295,6 +305,19 @@ func (s *Server) handleNZBSearch(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "searching indexers")
 		return
+	}
+	// A bare IMDb ID (e.g. "tt0295701") typed into this box would otherwise
+	// only ever be sent as a literal free-text query, which finds nothing
+	// on real indexers -- confirmed live against NZBGeek: t=search&q=
+	// tt0295701 returns zero results, while t=movie&imdbid=0295701 returns
+	// real releases. Route it through the same id-based search
+	// acquisition uses internally too, merging in whatever it finds.
+	if imdbIDPattern.MatchString(q) {
+		if idResults, err := s.nzbSvc.Load().SearchByIMDb(r.Context(), q, "", 0, 0); err != nil {
+			log.Printf("httpapi: id-based NZB search for %q: %v", q, err)
+		} else {
+			results = append(results, idResults...)
+		}
 	}
 	resp := make([]nzbSearchResult, 0, len(results))
 	for _, res := range results {

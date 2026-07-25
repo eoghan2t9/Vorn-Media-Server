@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"io"
+	"log"
 	"net/http"
 	"time"
 
@@ -167,6 +168,18 @@ func (s *Server) handleTorrentSearch(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "searching indexers")
 		return
+	}
+	// A bare IMDb ID (e.g. "tt0295701") typed into this box would otherwise
+	// only ever be sent as a literal free-text query, which finds nothing --
+	// route it through the same id-based search acquisition uses
+	// internally too (TorBox-provider indexers), merging in whatever it
+	// finds. See imdbIDPattern in nzb.go.
+	if imdbIDPattern.MatchString(q) {
+		if idResults, err := s.torrentSvc.Load().SearchByIMDb(r.Context(), q, 0, 0); err != nil {
+			log.Printf("httpapi: id-based torrent search for %q: %v", q, err)
+		} else {
+			results = append(results, idResults...)
+		}
 	}
 	resp := make([]torrentSearchResult, 0, len(results))
 	for _, res := range results {

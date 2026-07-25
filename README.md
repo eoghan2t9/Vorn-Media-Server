@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/eoghan2t9/Vorn-Media-Server"></a>
-  <img alt="Version" src="https://img.shields.io/badge/version-4.5.16-blue">
+  <img alt="Version" src="https://img.shields.io/badge/version-4.5.17-blue">
   <img alt="Go backend" src="https://img.shields.io/badge/backend-Go-00ADD8">
   <img alt="React + TypeScript frontend" src="https://img.shields.io/badge/frontend-React%20%2B%20TypeScript-61DAFB">
   <img alt="Docker ready" src="https://img.shields.io/badge/docker-ready-2496ED">
