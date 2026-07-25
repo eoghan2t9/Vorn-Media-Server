@@ -126,7 +126,19 @@ func (m *Manager) StartSession(ctx context.Context, id, sourcePath string, copyV
 // buildFFmpegArgs is split out from run so the argument-building logic can
 // be unit tested without actually spawning ffmpeg.
 func buildFFmpegArgs(sess *Session, backend Backend, copyVideo bool, audioTrackIndex int) []string {
-	args := []string{"-hide_banner", "-y", "-i", sess.SourcePath}
+	// -sn: with no explicit -map, ffmpeg auto-includes every stream it knows
+	// how to handle for the output format -- for a source with embedded
+	// subtitle tracks (SRT/subrip is common), that means its HLS muxer
+	// silently emits an extra WebVTT subtitle rendition (its own playlist +
+	// per-segment .vtt files) alongside the video/audio segments. Vorn has
+	// its own separate, OpenSubtitles-backed subtitle system entirely
+	// unrelated to embedded tracks, and never serves this rendition or
+	// expects it to exist -- confirmed live that hls.js gets stuck
+	// endlessly re-requesting the same first segment on a title with
+	// embedded subtitles, while an otherwise-identical title with none
+	// played through cleanly. -sn drops subtitle streams unconditionally,
+	// regardless of audioTrackIndex, so this can never happen.
+	args := []string{"-hide_banner", "-y", "-i", sess.SourcePath, "-sn"}
 	if audioTrackIndex >= 0 {
 		// Any explicit -map disables ffmpeg's automatic default-stream
 		// selection entirely, so video must be mapped too even though it's

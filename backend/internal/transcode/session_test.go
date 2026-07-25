@@ -61,4 +61,22 @@ func TestBuildFFmpegArgs(t *testing.T) {
 			t.Errorf("expected explicit maps plus stream-copied video, got %v", args)
 		}
 	})
+
+	t.Run("always disables subtitle streams regardless of mode", func(t *testing.T) {
+		for _, tc := range []struct {
+			name            string
+			copyVideo       bool
+			audioTrackIndex int
+		}{
+			{"default remux", true, -1},
+			{"default transcode", false, -1},
+			{"explicit audio track, remux", true, 3},
+			{"explicit audio track, transcode", false, 3},
+		} {
+			args := buildFFmpegArgs(sess, backend, tc.copyVideo, tc.audioTrackIndex)
+			if !containsSeq(args, "-sn") {
+				t.Errorf("%s: expected -sn to always be present (source subtitle tracks otherwise get auto-muxed into an unserved VTT rendition), got %v", tc.name, args)
+			}
+		}
+	})
 }
