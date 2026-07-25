@@ -10,7 +10,14 @@ import (
 )
 
 const (
-	syncInterval  = 30 * time.Minute
+	// syncInterval is short (unlike e.g. metadata.Scheduler's 15 minutes)
+	// because tick's ListIndexers call hits Prowlarr's own co-located
+	// instance directly (a local Docker-network request, not a rate-limited
+	// third-party API) -- there's no meaningful cost to polling it often,
+	// and doing so is what makes "add a tracker in Prowlarr, it just shows
+	// up in Vorn" actually feel automatic rather than requiring a wait (or
+	// a restart) for the next sync.
+	syncInterval  = 30 * time.Second
 	apiKeyPoll    = 5 * time.Second
 	apiKeyTimeout = 5 * time.Minute
 )

@@ -132,6 +132,27 @@ services:
     ports:
       - "${VORN_PROWLARR_PORT:-9696}:9696"
 
+  # Optional: solves Cloudflare's JS challenge for indexers that sit behind
+  # it (a real headless browser under the hood, not a raw HTTP client, so
+  # it can pass what a plain request from Prowlarr can't). Same "off by
+  # default" shape as prowlarr above -- start it with the same `--profile
+  # prowlarr up -d` (it shares that profile since it's a Prowlarr
+  # companion, not a standalone feature), then in Prowlarr's own UI go to
+  # Settings > Indexer Proxies > Add > FlareSolverr, host
+  # http://flaresolverr:8191, and assign it to whichever indexer(s)
+  # actually need it (Settings > Indexers > edit > Indexer Proxy) -- it
+  # isn't applied automatically to every indexer.
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    restart: unless-stopped
+    profiles:
+      - prowlarr
+    environment:
+      LOG_LEVEL: "info"
+      TZ: "${VORN_TZ:-UTC}"
+    ports:
+      - "${VORN_FLARESOLVERR_PORT:-8191}:8191"
+
   frontend:
     build:
       context: ..
