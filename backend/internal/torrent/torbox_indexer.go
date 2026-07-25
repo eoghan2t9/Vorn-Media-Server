@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 )
 
 // torBoxSearchBaseURL is TorBox's own torrent-search API -- a distinct
@@ -23,7 +24,13 @@ const torBoxValidationIMDbID = "tt0137523"
 type torBoxSearchEnvelope struct {
 	Success bool   `json:"success"`
 	Detail  string `json:"detail"`
-	Data    struct {
+	// Error is a distinct response shape TorBox's search-api uses for rate
+	// limiting -- e.g. {"error": "Rate limit exceeded: 0 per 1 minute"},
+	// with no "success"/"detail" fields at all (confirmed against both
+	// production and AIOStreams' own TorBoxRateLimitErrorResponseSchema,
+	// which models this exact shape as a known, expected case).
+	Error string `json:"error"`
+	Data  struct {
 		Torrents []torBoxSearchTorrent `json:"torrents"`
 	} `json:"data"`
 }
@@ -37,22 +44,33 @@ type torBoxSearchTorrent struct {
 
 // searchTorBoxIndexer queries TorBox's torrent-search API, which -- unlike
 // every Torznab indexer SearchIndexer talks to -- takes no free-text query
-// at all: it's strictly GET /torrents/imdb:{id} for a movie, or
-// .../torrents/imdb:{id}?season=S&episode=E for a TV episode. There's no
-// "whole season" query mode (season+episode are both required), so
-// season-pack acquisition sends episode=1 as a representative probe --
-// many real season-pack releases are indexed under every episode they
-// contain, so this often still surfaces one; scanner.LooksLikeSingleEpisode
-// (already used by the NZB season-pack tier) filters the results the same
-// way regardless of which tier found them.
+// at all: it's strictly GET /torrents/imdb_id:{id} for a movie, or
+// .../torrents/imdb_id:{id}?season=S&episode=E for a TV episode. The
+// imdb_id: prefix and explicit search_user_engines=false match TorBox's
+// actively-maintained Stremio addon reference implementation
+// (github.com/Viren070/AIOStreams) rather than an older Prowlarr indexer
+// definition that used a bare "imdb:" prefix and omitted the param
+// entirely -- confirmed empirically that both prefixes/param combinations
+// return identical responses against a real account, so this is a
+// correctness/future-proofing match, not a fix for any specific observed
+// bug. There's no "whole season" query mode (season+episode are both
+// required), so season-pack acquisition sends episode=1 as a
+// representative probe -- many real season-pack releases are indexed
+// under every episode they contain, so this often still surfaces one;
+// scanner.LooksLikeSingleEpisode (already used by the NZB season-pack
+// tier) filters the results the same way regardless of which tier found
+// them.
 func searchTorBoxIndexer(ctx context.Context, name, apiKey, imdbID string, season, episode int) ([]SearchResult, error) {
-	path := fmt.Sprintf("/torrents/imdb:%s", imdbID)
+	q := url.Values{"search_user_engines": {"false"}, "check_owned": {"true"}, "metadata": {"false"}}
+	path := fmt.Sprintf("/torrents/imdb_id:%s", imdbID)
 	if season > 0 {
 		if episode <= 0 {
 			episode = 1
 		}
-		path = fmt.Sprintf("%s?season=%d&episode=%d", path, season, episode)
+		q.Set("season", fmt.Sprintf("%d", season))
+		q.Set("episode", fmt.Sprintf("%d", episode))
 	}
+	path += "?" + q.Encode()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, torBoxSearchBaseURL+path, nil)
 	if err != nil {
@@ -73,6 +91,9 @@ func searchTorBoxIndexer(ctx context.Context, name, apiKey, imdbID string, seaso
 	var envelope torBoxSearchEnvelope
 	if err := json.NewDecoder(resp.Body).Decode(&envelope); err != nil {
 		return nil, fmt.Errorf("torrent: decoding TorBox indexer %s response: %w", name, err)
+	}
+	if envelope.Error != "" {
+		return nil, fmt.Errorf("torrent: TorBox indexer %s: %s", name, envelope.Error)
 	}
 	if !envelope.Success {
 		return nil, fmt.Errorf("torrent: TorBox indexer %s: %s", name, envelope.Detail)

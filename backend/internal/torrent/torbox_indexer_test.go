@@ -15,8 +15,11 @@ func TestSearchTorBoxIndexer_Movie(t *testing.T) {
 			http.Error(w, "missing bearer token", http.StatusUnauthorized)
 			return
 		}
-		if !strings.HasSuffix(r.URL.Path, "/torrents/imdb:tt0137523") {
+		if !strings.HasSuffix(r.URL.Path, "/torrents/imdb_id:tt0137523") {
 			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		if r.URL.Query().Get("search_user_engines") != "false" {
+			t.Errorf("expected search_user_engines=false, got query: %s", r.URL.RawQuery)
 		}
 		json.NewEncoder(w).Encode(map[string]any{
 			"success": true,
@@ -49,7 +52,8 @@ func TestSearchTorBoxIndexer_Movie(t *testing.T) {
 
 func TestSearchTorBoxIndexer_Episode(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/torrents/imdb:tt9288030" || r.URL.RawQuery != "season=2&episode=1" {
+		q := r.URL.Query()
+		if r.URL.Path != "/torrents/imdb_id:tt9288030" || q.Get("season") != "2" || q.Get("episode") != "1" || q.Get("search_user_engines") != "false" {
 			t.Errorf("unexpected request: %s?%s", r.URL.Path, r.URL.RawQuery)
 		}
 		json.NewEncoder(w).Encode(map[string]any{
@@ -84,5 +88,28 @@ func TestSearchTorBoxIndexer_ErrorResponse(t *testing.T) {
 
 	if _, err := searchTorBoxIndexer(context.Background(), "TorBox", "bad-key", "tt0137523", 0, 0); err == nil {
 		t.Fatal("expected error for success:false response")
+	}
+}
+
+// TestSearchTorBoxIndexer_RateLimitResponse guards against a response shape
+// AIOStreams' own TorBoxRateLimitErrorResponseSchema models as a known,
+// distinct case: {"error": "..."} with no "success"/"detail" fields at
+// all -- even when (unlike the 429 status observed directly against
+// production) TorBox returns it with a 200 status, which would otherwise
+// slip past the status-code check and be silently treated as a successful
+// empty result.
+func TestSearchTorBoxIndexer_RateLimitResponse(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"error": "Rate limit exceeded: 0 per 1 minute"})
+	}))
+	defer srv.Close()
+
+	old := torBoxSearchBaseURL
+	torBoxSearchBaseURL = srv.URL
+	defer func() { torBoxSearchBaseURL = old }()
+
+	_, err := searchTorBoxIndexer(context.Background(), "TorBox", "test-key", "tt0137523", 0, 0)
+	if err == nil || !strings.Contains(err.Error(), "Rate limit exceeded") {
+		t.Fatalf("expected rate limit error, got: %v", err)
 	}
 }
