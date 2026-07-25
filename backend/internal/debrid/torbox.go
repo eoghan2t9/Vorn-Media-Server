@@ -261,24 +261,47 @@ func (c *TorBoxClient) WaitForUsenetCache(ctx context.Context, apiKey string, us
 	}
 }
 
+// usenetInfo fetches a single usenet download's status. Unlike
+// /torrents/mylist (which always wraps its result in a JSON array, even
+// when filtered down to one id), /usenet/mylist?id=X was observed in
+// production returning data as a bare JSON object rather than a
+// single-element array -- so data is decoded as json.RawMessage and
+// unmarshaled as whichever shape it actually is, rather than assuming one.
 func (c *TorBoxClient) usenetInfo(ctx context.Context, apiKey string, usenetID int) (*tbUsenetInfo, error) {
 	path := "/usenet/mylist?bypass_cache=true&id=" + url.QueryEscape(strconv.Itoa(usenetID))
-	var resp tbEnvelope[[]tbUsenetInfo]
+	var resp tbEnvelope[json.RawMessage]
 	if err := c.do(ctx, http.MethodGet, path, apiKey, "", nil, &resp); err != nil {
 		return nil, err
 	}
 	if !resp.Success {
 		return nil, fmt.Errorf("torbox: %s", resp.Detail)
 	}
-	for _, item := range resp.Data {
-		if item.ID == usenetID {
-			return &item, nil
+	raw := bytes.TrimSpace(resp.Data)
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil, nil
+	}
+
+	if raw[0] == '[' {
+		var items []tbUsenetInfo
+		if err := json.Unmarshal(raw, &items); err != nil {
+			return nil, fmt.Errorf("torbox: decoding usenet list: %w", err)
 		}
+		for _, item := range items {
+			if item.ID == usenetID {
+				return &item, nil
+			}
+		}
+		if len(items) > 0 {
+			return &items[0], nil
+		}
+		return nil, nil
 	}
-	if len(resp.Data) > 0 {
-		return &resp.Data[0], nil
+
+	var item tbUsenetInfo
+	if err := json.Unmarshal(raw, &item); err != nil {
+		return nil, fmt.Errorf("torbox: decoding usenet item: %w", err)
 	}
-	return nil, nil
+	return &item, nil
 }
 
 // RequestUsenetDownloadLink mirrors requestDownloadLink but against the

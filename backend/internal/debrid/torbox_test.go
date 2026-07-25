@@ -203,3 +203,29 @@ func TestTorBoxClient_Usenet(t *testing.T) {
 		t.Fatalf("unexpected link: %s", link)
 	}
 }
+
+// TestTorBoxClient_UsenetInfo_BareObjectShape guards against a real
+// production regression: /usenet/mylist?id=X was observed returning data
+// as a bare JSON object rather than a single-element array, unlike
+// /torrents/mylist's always-an-array shape. usenetInfo must handle both.
+func TestTorBoxClient_UsenetInfo_BareObjectShape(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"success":true,"data":{"id":42,"download_finished":true,"download_present":true,"progress":1,"files":[{"id":7,"name":"Movie.mkv","size":2000}]}}`))
+	}))
+	defer srv.Close()
+
+	c := NewTorBoxClient()
+	c.baseURL = srv.URL
+	c.limiter = newLimiter(1_000_000)
+
+	item, err := c.usenetInfo(context.Background(), "test-key", 42)
+	if err != nil {
+		t.Fatalf("usenetInfo: %v", err)
+	}
+	if item == nil || item.ID != 42 || !item.DownloadFinished || !item.DownloadPresent {
+		t.Fatalf("unexpected item: %+v", item)
+	}
+	if len(item.Files) != 1 || item.Files[0].Name != "Movie.mkv" {
+		t.Fatalf("unexpected files: %+v", item.Files)
+	}
+}
