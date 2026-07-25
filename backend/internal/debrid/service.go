@@ -21,18 +21,25 @@ type Service struct {
 	store      *store.Store
 	providers  map[string]Provider
 	onComplete func(*store.DebridItem)
+	// torboxLimiter is the one shared rate limiter for every TorBox
+	// interaction Vorn makes, across all three services that talk to it
+	// (this one's debrid-resolve client, nzb.Service's usenet caching,
+	// torrent.Service's indexer search) -- see TorBoxLimiter.
+	torboxLimiter *Limiter
 }
 
 func NewService(st *store.Store) *Service {
+	torboxLimiter := NewLimiter(torBoxRateLimit)
 	svc := &Service{
 		store: st,
 		providers: map[string]Provider{
 			"realdebrid": NewRealDebridClient(),
-			"torbox":     NewTorBoxClient(),
+			"torbox":     NewTorBoxClient(torboxLimiter),
 			"alldebrid":  NewAllDebridClient(),
 			"premiumize": NewPremiumizeClient(),
 			"debridlink": NewDebridLinkClient(),
 		},
+		torboxLimiter: torboxLimiter,
 	}
 	svc.onComplete = func(item *store.DebridItem) {
 		if item.MediaItemID == nil {
@@ -169,4 +176,13 @@ func (svc *Service) TestAccount(ctx context.Context, provider, apiKey string) (*
 		return nil, fmt.Errorf("debrid: unknown provider %q", provider)
 	}
 	return p.AccountInfo(ctx, apiKey)
+}
+
+// TorBoxLimiter exposes the one shared rate limiter every TorBox
+// interaction this process makes shares -- nzb.Service (usenet caching)
+// and torrent.Service (indexer search) both take this same instance at
+// construction, in httpapi.Server.reconfigure, rather than each building
+// their own independent 300/min budget against the same account.
+func (svc *Service) TorBoxLimiter() *Limiter {
+	return svc.torboxLimiter
 }

@@ -33,11 +33,18 @@ type TorBoxClient struct {
 	pollInterval time.Duration
 }
 
-func NewTorBoxClient() *TorBoxClient {
+// NewTorBoxClient takes limiter rather than constructing its own, since
+// TorBox's account credentials/rate limit apply account-wide -- Vorn talks
+// to TorBox from three independent services (this debrid-resolve client,
+// nzb.Service's usenet caching, torrent.Service's indexer search), and only
+// a single shared Limiter instance (see debrid.Service.TorBoxLimiter) makes
+// the 300/min cap a real, enforced budget across all three rather than
+// each getting its own independent window.
+func NewTorBoxClient(limiter *Limiter) *TorBoxClient {
 	return &TorBoxClient{
 		httpClient:   &http.Client{Timeout: 30 * time.Second},
 		baseURL:      torBoxBaseURL,
-		limiter:      NewLimiter(torBoxRateLimit),
+		limiter:      limiter,
 		pollInterval: tbPollInterval,
 	}
 }
@@ -222,8 +229,8 @@ func (c *TorBoxClient) CreateUsenetDownload(ctx context.Context, apiKey string, 
 }
 
 type tbUsenetInfo struct {
-	ID               int      `json:"id"`
-	DownloadFinished bool     `json:"download_finished"`
+	ID               int  `json:"id"`
+	DownloadFinished bool `json:"download_finished"`
 	// DownloadPresent lags DownloadFinished: TorBox's own SDK models these
 	// as separate booleans (unlike the torrent side, where the file list is
 	// known upfront from the torrent's metadata) -- download_finished flips

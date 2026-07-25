@@ -30,19 +30,24 @@ type Service struct {
 	downloadDir string
 	onComplete  func(*store.NZBDownload)
 	// torboxClient is constructed once and reused for every TorBox-provider
-	// download/account-test -- it holds its own persistent rate limiter
-	// (debrid.TorBoxClient), so a fresh debrid.NewTorBoxClient() per call
-	// would give every single attempt its own independent "fresh" 300/min
-	// budget instead of a real, shared cap across repeated attempts against
-	// the same account.
+	// download/account-test, sharing torboxLimiter with debrid.Service's own
+	// TorBox client and torrent.Service's indexer search -- a fresh
+	// debrid.NewTorBoxClient() per call (or an unshared limiter) would give
+	// every single attempt its own independent "fresh" 300/min budget
+	// instead of one real, shared cap across every TorBox interaction this
+	// process makes.
 	torboxClient *debrid.TorBoxClient
 }
 
-func NewService(st *store.Store, downloadDir string) (*Service, error) {
+// NewService takes torboxLimiter (see debrid.Service.TorBoxLimiter) rather
+// than constructing its own, so NZB's TorBox usenet-caching client shares
+// the exact same rate budget as debrid.Service's TorBox debrid-resolve
+// client and torrent.Service's TorBox indexer search.
+func NewService(st *store.Store, downloadDir string, torboxLimiter *debrid.Limiter) (*Service, error) {
 	if err := os.MkdirAll(downloadDir, 0o755); err != nil {
 		return nil, fmt.Errorf("nzb: creating download dir: %w", err)
 	}
-	svc := &Service{store: st, downloadDir: downloadDir, torboxClient: debrid.NewTorBoxClient()}
+	svc := &Service{store: st, downloadDir: downloadDir, torboxClient: debrid.NewTorBoxClient(torboxLimiter)}
 	svc.onComplete = func(n *store.NZBDownload) {
 		if n.MediaItemID == nil {
 			PromoteCompleted(st, n)

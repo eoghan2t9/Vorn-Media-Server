@@ -38,9 +38,9 @@ type MusicProvider interface {
 // rather than using the package consts directly -- same reasoning as
 // TMDbClient -- so tests can point them at an httptest server.
 type MusicBrainzProvider struct {
-	baseURL        string
+	baseURL         string
 	coverArtBaseURL string
-	client         httpDoer
+	client          httpDoer
 }
 
 func NewMusicBrainzProvider() *MusicBrainzProvider {

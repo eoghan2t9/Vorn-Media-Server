@@ -214,7 +214,7 @@ func (s *Server) reconfigure() error {
 	// a fresh instance, not just whether it's still enabled.
 	torrentChanged := false
 	if torrentEnabled && s.torrentSvc.Load() == nil {
-		ts, err := torrent.NewService(s.store, s.baseCfg.TorrentDownloadDir, s.baseCfg.TorrentPeerPort)
+		ts, err := torrent.NewService(s.store, s.baseCfg.TorrentDownloadDir, s.baseCfg.TorrentPeerPort, s.debridSvc.TorBoxLimiter())
 		if err != nil {
 			log.Printf("httpapi: starting torrent service: %v", err)
 		} else {
@@ -230,7 +230,7 @@ func (s *Server) reconfigure() error {
 
 	nzbChanged := false
 	if nzbEnabled && s.nzbSvc.Load() == nil {
-		ns, err := nzb.NewService(s.store, s.baseCfg.NZBDownloadDir)
+		ns, err := nzb.NewService(s.store, s.baseCfg.NZBDownloadDir, s.debridSvc.TorBoxLimiter())
 		if err != nil {
 			log.Printf("httpapi: starting nzb service: %v", err)
 		} else {

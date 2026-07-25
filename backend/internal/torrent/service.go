@@ -18,28 +18,30 @@ import (
 
 const progressPollInterval = 2 * time.Second
 
-// torBoxSearchRateLimit matches TorBox's own documented per-key cap (see
-// debrid.torBoxRateLimit) -- torBoxLimiter is one long-lived instance
-// shared across every SearchByIMDb call this Service ever makes, not a
-// fresh one per search, so the cap is a real, enforced budget rather than
-// each search getting its own independent "fresh" window.
-const torBoxSearchRateLimit = 300
-
 // Service manages the lifecycle of BitTorrent downloads: adding magnets or
 // .torrent files, persisting progress into Postgres, and promoting
 // completed downloads into the library.
 type Service struct {
-	store         *store.Store
-	client        *lt.Client
-	downloadDir   string
-	onComplete    func(*store.Torrent)
+	store       *store.Store
+	client      *lt.Client
+	downloadDir string
+	onComplete  func(*store.Torrent)
+	// torboxLimiter shares debrid.Service's TorBoxLimiter (see NewService)
+	// across every SearchByIMDb call this Service ever makes, rather than
+	// each search (or this Service vs. debrid's/nzb's own TorBox usage)
+	// getting its own independent "fresh" 300/min budget against the same
+	// account.
 	torboxLimiter *debrid.Limiter
 
 	mu     sync.Mutex
 	active map[string]*lt.Torrent // info hash -> handle
 }
 
-func NewService(st *store.Store, downloadDir string, peerPort int) (*Service, error) {
+// NewService takes torboxLimiter (see debrid.Service.TorBoxLimiter) rather
+// than constructing its own, so this Service's TorBox indexer search
+// shares the exact same rate budget as debrid.Service's TorBox debrid-
+// resolve client and nzb.Service's TorBox usenet caching.
+func NewService(st *store.Store, downloadDir string, peerPort int, torboxLimiter *debrid.Limiter) (*Service, error) {
 	if err := os.MkdirAll(downloadDir, 0o755); err != nil {
 		return nil, fmt.Errorf("torrent: creating download dir: %w", err)
 	}
@@ -52,7 +54,7 @@ func NewService(st *store.Store, downloadDir string, peerPort int) (*Service, er
 		client:        cl,
 		downloadDir:   downloadDir,
 		active:        make(map[string]*lt.Torrent),
-		torboxLimiter: debrid.NewLimiter(torBoxSearchRateLimit),
+		torboxLimiter: torboxLimiter,
 	}
 	svc.onComplete = func(t *store.Torrent) { PromoteCompleted(st, t) }
 	svc.resumeActive()

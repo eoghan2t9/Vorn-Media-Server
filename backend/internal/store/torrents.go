@@ -131,10 +131,10 @@ func (s *Store) RemoveTorrent(id string) error {
 }
 
 type TorrentIndexer struct {
-	ID        string
-	Name      string
-	BaseURL   string
-	APIKey    string
+	ID      string
+	Name    string
+	BaseURL string
+	APIKey  string
 	// Provider is "torznab" (default, any Torznab-compatible indexer manager
 	// -- Prowlarr, Jackett, etc.) or "torbox" (TorBox's own IMDb-ID-driven
 	// torrent search API, search-api.torbox.app -- see torrent.SearchByIMDb).
