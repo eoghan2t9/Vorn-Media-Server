@@ -76,14 +76,32 @@ type NZBDownload struct {
 	BytesDone   int64
 	Error       string
 	Promoted    bool
+	// Provider records which kind of Usenet server actually resolved this
+	// download ("nntp" | "torbox") -- set once run() picks a server, right
+	// before branching into runNNTP/runTorBox. promote.go relies on this
+	// (not "does nzb_files have rows") to decide whether to promote from
+	// stream URLs or a local directory, since a TorBox run can legitimately
+	// come back with zero cached files and must still be treated as a
+	// TorBox-streamed (no local directory ever created) outcome rather than
+	// falling back to NNTP's directory-walk.
+	Provider    string
 	AddedAt     time.Time
 	CompletedAt *time.Time
 }
 
-const nzbColumns = `id, library_id, media_item_id, name, save_path, status, bytes_total, bytes_done, error, promoted, added_at, completed_at`
+const nzbColumns = `id, library_id, media_item_id, name, save_path, status, bytes_total, bytes_done, error, promoted, provider, added_at, completed_at`
 
 func scanNZBDownload(row interface{ Scan(...any) error }, n *NZBDownload) error {
-	return row.Scan(&n.ID, &n.LibraryID, &n.MediaItemID, &n.Name, &n.SavePath, &n.Status, &n.BytesTotal, &n.BytesDone, &n.Error, &n.Promoted, &n.AddedAt, &n.CompletedAt)
+	return row.Scan(&n.ID, &n.LibraryID, &n.MediaItemID, &n.Name, &n.SavePath, &n.Status, &n.BytesTotal, &n.BytesDone, &n.Error, &n.Promoted, &n.Provider, &n.AddedAt, &n.CompletedAt)
+}
+
+// SetNZBDownloadProvider records which Usenet server provider resolved id,
+// called once at the top of run() right after pickServer succeeds (the
+// provider isn't known yet at CreateNZBDownload time, since that happens
+// before a goroutine even starts).
+func (s *Store) SetNZBDownloadProvider(id, provider string) error {
+	_, err := s.db.Exec(`UPDATE nzb_downloads SET provider = $1 WHERE id = $2`, provider, id)
+	return err
 }
 
 type CreateNZBDownloadInput struct {

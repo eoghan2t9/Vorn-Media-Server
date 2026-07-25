@@ -109,6 +109,9 @@ func (svc *Service) run(rec *store.NZBDownload, doc *NZB, data []byte) {
 		svc.finish(rec, err)
 		return
 	}
+	if err := svc.store.SetNZBDownloadProvider(rec.ID, server.Provider); err != nil {
+		log.Printf("nzb: recording provider for %s: %v", rec.ID, err)
+	}
 
 	if server.Provider == "torbox" {
 		svc.runTorBox(rec, data, server)

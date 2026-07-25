@@ -11,12 +11,15 @@ import (
 
 // PromoteCompleted turns a finished NZB download's video files into
 // browsable media_items. A download with no destination library, or one
-// already promoted, is skipped. If n resolved via a TorBox-provider Usenet
-// server, it has no local files at all -- nzb_files holds a stream URL per
-// file instead, and each one is promoted straight from that URL (mirroring
-// debrid.PromoteCompleted, no local storage). Otherwise (plain NNTP) it
-// falls back to the existing scanner.PromoteDirectory ingestion tail end
-// the filesystem scanner and torrent watcher also use.
+// already promoted, is skipped. n.Provider (recorded once run() picks a
+// server, see store.SetNZBDownloadProvider) decides how: "torbox" has no
+// local files at all -- nzb_files holds a stream URL per file instead, and
+// each one is promoted straight from that URL (mirroring
+// debrid.PromoteCompleted, no local storage), even if that list comes back
+// empty (a real TorBox edge case -- treated as "no video file", not as "try
+// scanning a directory that was never created"). Anything else (plain NNTP)
+// falls back to the existing scanner.PromoteDirectory ingestion tail end the
+// filesystem scanner and torrent watcher also use.
 func PromoteCompleted(st *store.Store, n *store.NZBDownload) {
 	if n.LibraryID == nil {
 		log.Printf("nzb: %s (%s) completed with no destination library; skipping auto-add", n.ID, n.Name)
@@ -26,12 +29,12 @@ func PromoteCompleted(st *store.Store, n *store.NZBDownload) {
 		return
 	}
 
-	files, err := st.ListNZBFiles(n.ID)
-	if err != nil {
-		log.Printf("nzb: listing files for %s: %v", n.ID, err)
-		return
-	}
-	if len(files) > 0 {
+	if n.Provider == "torbox" {
+		files, err := st.ListNZBFiles(n.ID)
+		if err != nil {
+			log.Printf("nzb: listing files for %s: %v", n.ID, err)
+			return
+		}
 		promoteStreamFiles(st, *n.LibraryID, files)
 		if err := st.MarkNZBPromoted(n.ID); err != nil {
 			log.Printf("nzb: marking %s promoted: %v", n.ID, err)
@@ -95,19 +98,21 @@ func yearPtr(y int) *int {
 
 // PromoteToExistingItem fulfils a specific placeholder media_item from a
 // completed on-demand NZB download -- the counterpart to
-// debrid.PromoteToExistingItem. If rec resolved via a TorBox-provider
-// Usenet server, nzb_files holds a stream URL per file and mediaItem.Path
-// is pointed straight at the largest one (no local storage, mirroring
-// debrid's own promotion). Otherwise (plain NNTP, which has no equivalent
-// direct-URL concept) it falls back to walking rec.SavePath/rec.Name on
-// disk and picking the largest video file found there.
+// debrid.PromoteToExistingItem. rec.Provider decides how: "torbox" means
+// nzb_files holds a stream URL per file and mediaItem.Path is pointed
+// straight at the largest one (no local storage, mirroring debrid's own
+// promotion) -- an empty file list here is a genuine "no video file"
+// outcome, not NNTP's directory case, since a TorBox run never writes a
+// local directory at all. Anything else (plain NNTP, which has no
+// equivalent direct-URL concept) falls back to walking rec.SavePath/rec.Name
+// on disk and picking the largest video file found there.
 func PromoteToExistingItem(st *store.Store, mediaItem *store.MediaItem, rec *store.NZBDownload) {
-	files, err := st.ListNZBFiles(rec.ID)
-	if err != nil {
-		log.Printf("nzb: listing files for %s: %v", rec.ID, err)
-		return
-	}
-	if len(files) > 0 {
+	if rec.Provider == "torbox" {
+		files, err := st.ListNZBFiles(rec.ID)
+		if err != nil {
+			log.Printf("nzb: listing files for %s: %v", rec.ID, err)
+			return
+		}
 		best := largestVideoNZBFile(files)
 		if best == nil {
 			if err := st.SetMediaItemAcquisitionError(mediaItem.ID, "resolved NZB had no video file"); err != nil {
@@ -175,11 +180,11 @@ func largestVideoNZBFile(files []*store.NZBFile) *store.NZBFile {
 }
 
 // PromoteSeasonPackToExistingItems mirrors
-// debrid.PromoteSeasonPackToExistingItems: if rec resolved via a
-// TorBox-provider Usenet server, nzb_files holds a stream URL per file and
-// each episode's path is pointed straight at its matching one (no local
-// storage). Otherwise (plain NNTP) rec's download directory holds the whole
-// season on disk instead, and this falls back to walking it. Either way,
+// debrid.PromoteSeasonPackToExistingItems: rec.Provider decides how --
+// "torbox" means nzb_files holds a stream URL per file and each episode's
+// path is pointed straight at its matching one (no local storage); anything
+// else (plain NNTP) means rec's download directory holds the whole season on
+// disk instead, and this falls back to walking it. Either way,
 // each file is matched to its episode by parsing season/episode numbers out
 // of its own filename (scanner.ParseFilename, the same parser scan-promoted
 // episodes use) and looked up among seasonItem's episode children --
@@ -198,19 +203,18 @@ func PromoteSeasonPackToExistingItems(st *store.Store, seasonItem *store.MediaIt
 		}
 	}
 
-	files, err := st.ListNZBFiles(rec.ID)
-	if err != nil {
-		log.Printf("nzb: listing files for %s: %v", rec.ID, err)
-		return
-	}
-
 	type sized struct {
 		path string
 		size int64
 	}
 	bestPerEpisode := make(map[int]sized)
 
-	if len(files) > 0 {
+	if rec.Provider == "torbox" {
+		files, err := st.ListNZBFiles(rec.ID)
+		if err != nil {
+			log.Printf("nzb: listing files for %s: %v", rec.ID, err)
+			return
+		}
 		for _, f := range files {
 			if !scanner.IsVideoFile(f.Name) {
 				continue
