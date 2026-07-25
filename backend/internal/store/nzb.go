@@ -160,6 +160,46 @@ func (s *Store) RemoveNZBDownload(id string) error {
 	return err
 }
 
+// NZBFile is an nzb_downloads counterpart to DebridFile: populated only
+// when the download resolved via a TorBox-provider Usenet server, which
+// (unlike plain NNTP) returns a direct HTTP stream URL per file instead of
+// requiring Vorn to fetch and store the bytes itself. A download resolved
+// over plain NNTP has no NZBFile rows at all.
+type NZBFile struct {
+	ID            string
+	NZBDownloadID string
+	Name          string
+	SizeBytes     int64
+	StreamURL     string
+}
+
+func (s *Store) AddNZBFile(downloadID, name string, sizeBytes int64, streamURL string) (*NZBFile, error) {
+	f := &NZBFile{NZBDownloadID: downloadID, Name: name, SizeBytes: sizeBytes, StreamURL: streamURL}
+	err := s.db.QueryRow(
+		`INSERT INTO nzb_files (nzb_download_id, name, size_bytes, stream_url) VALUES ($1, $2, $3, $4) RETURNING id`,
+		downloadID, name, sizeBytes, streamURL,
+	).Scan(&f.ID)
+	return f, err
+}
+
+func (s *Store) ListNZBFiles(downloadID string) ([]*NZBFile, error) {
+	rows, err := s.db.Query(`SELECT id, nzb_download_id, name, size_bytes, stream_url FROM nzb_files WHERE nzb_download_id = $1`, downloadID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []*NZBFile
+	for rows.Next() {
+		f := &NZBFile{}
+		if err := rows.Scan(&f.ID, &f.NZBDownloadID, &f.Name, &f.SizeBytes, &f.StreamURL); err != nil {
+			return nil, err
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
 type NZBIndexer struct {
 	ID        string
 	Name      string
