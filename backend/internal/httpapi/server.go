@@ -122,6 +122,16 @@ func NewServer(deps Deps) *Server {
 	if settings, err := s.store.GetServerSettings(); err == nil {
 		s.trustCloudflare.Store(settings.TrustCloudflare)
 	}
+	// Any item still 'searching'/'acquiring' at this point belongs to a
+	// runAcquire goroutine that can't possibly still be running -- the
+	// process that owned it just (re)started -- so it would otherwise be
+	// stuck reporting "acquiring" forever with no retry path. See
+	// store.ResetStuckAcquisitions.
+	if n, err := s.store.ResetStuckAcquisitions(); err != nil {
+		log.Printf("httpapi: resetting stuck acquisitions: %v", err)
+	} else if n > 0 {
+		log.Printf("httpapi: reset %d item(s) stuck in searching/acquiring from a previous run", n)
+	}
 	startCloudflareRangeRefresh()
 	if err := s.reconfigure(); err != nil {
 		log.Printf("httpapi: initial reconfigure: %v", err)

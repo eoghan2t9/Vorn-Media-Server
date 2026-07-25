@@ -105,6 +105,28 @@ func (s *Store) SetMediaItemAcquisitionStatus(id, status string) error {
 	return err
 }
 
+// ResetStuckAcquisitions flips every item still in 'searching'/'acquiring'
+// back to 'error' -- both states only ever exist while a background
+// runAcquire goroutine (acquisition.Service) is actively working an item,
+// and that goroutine runs on context.Background() with no persistence of
+// its own, so a process restart (deploy, crash, host reboot) abandons it
+// mid-flight with no code path left to ever finish or retry it: Acquire/
+// Reacquire only start a fresh attempt for 'placeholder'/'error'/'owned'
+// items, never for one already 'searching'/'acquiring'. Called once at
+// server startup (before anything can be in flight, since that requires a
+// running server) so a play click on a previously-wedged item retries
+// cleanly instead of reporting "acquiring" forever.
+func (s *Store) ResetStuckAcquisitions() (int, error) {
+	res, err := s.db.Exec(
+		`UPDATE media_items SET acquisition_status = 'error', acquisition_error = 'interrupted by a server restart', updated_at = now() WHERE acquisition_status IN ('searching', 'acquiring')`,
+	)
+	if err != nil {
+		return 0, err
+	}
+	n, err := res.RowsAffected()
+	return int(n), err
+}
+
 // SetMediaItemActiveDebridItem records debridItemID as the sole resolve
 // attempt currently authorized to write id's path -- called before polling
 // for that attempt's outcome. A promotion whose own debrid_item no longer
