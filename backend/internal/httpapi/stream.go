@@ -59,10 +59,15 @@ type chapterResponse struct {
 }
 
 type playResponse struct {
-	Mode              string               `json:"mode"` // "direct" | "transcode" | "acquiring"
-	DirectURL         string               `json:"directUrl,omitempty"`
-	SessionID         string               `json:"sessionId,omitempty"`
-	PlaylistURL       string               `json:"playlistUrl,omitempty"`
+	Mode        string `json:"mode"` // "direct" | "progressive" | "transcode" | "acquiring"
+	DirectURL   string `json:"directUrl,omitempty"`
+	SessionID   string `json:"sessionId,omitempty"`
+	PlaylistURL string `json:"playlistUrl,omitempty"`
+	// ProgressiveURL is set for Mode == "progressive" -- a ModeRemux session
+	// (see transcode.ModeRemux), served as a single growing MP4 file rather
+	// than an HLS playlist. The frontend plays it exactly like DirectURL
+	// (plain video.src, no hls.js) -- see WatchPage's attach().
+	ProgressiveURL    string               `json:"progressiveUrl,omitempty"`
 	AcquisitionStatus string               `json:"acquisitionStatus,omitempty"` // "searching" | "acquiring" | "error", only set when Mode == "acquiring"
 	AcquisitionError  string               `json:"acquisitionError,omitempty"`
 	AudioTracks       []audioTrackResponse `json:"audioTracks,omitempty"`
@@ -223,12 +228,27 @@ func (s *Server) handlePlayItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ModeRemux is an internal distinction only -- the client just needs to
-	// know "there's a session to poll", same as a full transcode.
+	isRemux := mode == transcode.ModeRemux
 	sessionID := uuid.NewString()
-	sess, err := s.transcodeMgr.StartSession(context.Background(), sessionID, *item.Path, mode == transcode.ModeRemux, audioTrackIndex)
+	sess, err := s.transcodeMgr.StartSession(context.Background(), sessionID, *item.Path, isRemux, audioTrackIndex)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "starting transcode session")
+		return
+	}
+
+	// ModeRemux is served as a single progressive MP4 (see
+	// Session.ProgressiveOutputPath/streamGrowingFile) rather than an HLS
+	// playlist -- the frontend needs to know which, since it plays a
+	// progressive URL exactly like direct play (plain video.src, no
+	// hls.js) instead of attaching hls.js to a playlist.
+	if isRemux {
+		writeJSON(w, http.StatusAccepted, playResponse{
+			Mode:           "progressive",
+			SessionID:      sess.ID,
+			ProgressiveURL: "/api/stream/session/" + sess.ID + "/output.mp4",
+			AudioTracks:    audioTracks,
+			Chapters:       chapters,
+		})
 		return
 	}
 	writeJSON(w, http.StatusAccepted, playResponse{
@@ -331,6 +351,17 @@ func (s *Server) handleSessionFile(w http.ResponseWriter, r *http.Request) {
 	// "succeeding" (304 is not an error). No Last-Modified/ETag at all means
 	// there is nothing for a conditional request to validate against, so
 	// every fetch gets the real 200 + full body.
+	w.Header().Set("Cache-Control", "no-store")
+
+	if strings.HasSuffix(file, ".mp4") {
+		// ModeRemux's progressive output -- ffmpeg is likely still writing
+		// this file, so it's followed in place rather than read once. See
+		// streamGrowingFile.
+		w.Header().Set("Content-Type", "video/mp4")
+		streamGrowingFile(w, r, sess, fullPath)
+		return
+	}
+
 	f, err := os.Open(fullPath)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "file not ready")
@@ -343,7 +374,6 @@ func (s *Server) handleSessionFile(w http.ResponseWriter, r *http.Request) {
 	} else if strings.HasSuffix(file, ".ts") {
 		w.Header().Set("Content-Type", "video/mp2t")
 	}
-	w.Header().Set("Cache-Control", "no-store")
 	if info, err := f.Stat(); err == nil {
 		w.Header().Set("Content-Length", strconv.FormatInt(info.Size(), 10))
 	}
@@ -352,6 +382,59 @@ func (s *Server) handleSessionFile(w http.ResponseWriter, r *http.Request) {
 	// page) just breaks the pipe, same as any other write to an
 	// http.ResponseWriter for a client that's gone.
 	_, _ = io.Copy(w, f)
+}
+
+// streamGrowingFile serves fullPath as ffmpeg writes it, following its
+// growth in place instead of stopping at EOF -- ModeRemux's progressive MP4
+// output is deliberately played while still being produced (see
+// buildFFmpegArgs's frag_keyframe+empty_moov). No Content-Length is set --
+// the total size isn't known upfront, so the response streams as chunked
+// transfer -- and Range requests aren't honored (Accept-Ranges: none) since
+// seeking into not-yet-written content isn't meaningful; a client that sends
+// one anyway just gets the whole thing from the start, which is the
+// standard, spec-valid fallback for a server that doesn't support ranges.
+// Stops when: the session is done (Stopped/Failed) and there's nothing left
+// to read, or the request itself is cancelled (client disconnected/sought
+// away/navigated off the page).
+func streamGrowingFile(w http.ResponseWriter, r *http.Request, sess *transcode.Session, fullPath string) {
+	f, err := os.Open(fullPath)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "file not ready")
+		return
+	}
+	defer f.Close()
+
+	w.Header().Set("Accept-Ranges", "none")
+	w.WriteHeader(http.StatusOK)
+	flusher, _ := w.(http.Flusher)
+
+	buf := make([]byte, 256*1024)
+	for {
+		n, readErr := f.Read(buf)
+		if n > 0 {
+			if _, writeErr := w.Write(buf[:n]); writeErr != nil {
+				return // client disconnected
+			}
+			if flusher != nil {
+				flusher.Flush()
+			}
+		}
+		if readErr == io.EOF {
+			status := sess.Status()
+			if status != transcode.StatusRunning && status != transcode.StatusStarting {
+				return // ffmpeg is done producing output and we've drained all of it
+			}
+			select {
+			case <-r.Context().Done():
+				return
+			case <-time.After(sessionFileWaitInterval):
+			}
+			continue
+		}
+		if readErr != nil {
+			return
+		}
+	}
 }
 
 // waitForSessionFile polls for fullPath to appear, bounded by

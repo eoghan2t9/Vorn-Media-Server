@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"os/exec"
+	"path/filepath"
 	"strconv"
+	"strings"
 )
 
 type MediaInfo struct {
@@ -23,6 +25,15 @@ type MediaInfo struct {
 	// most TV/movie rips -- the frontend's skip-intro button only appears
 	// when a chapter's title actually looks like an intro/recap.
 	Chapters []ChapterInfo
+	// ContainerNative reports whether the source's own container can be
+	// played directly by a browser <video> element -- distinct from codec
+	// compatibility. No mainstream browser can demux Matroska (.mkv), by far
+	// the most common scene/usenet release container, regardless of how
+	// compatible the codecs inside it are; Decide uses this so a
+	// codec-compatible .mkv doesn't get wrongly sent as ModeDirect (a 302
+	// straight to a URL the browser can't parse at all) instead of the fast
+	// container-only remux that case actually needs. See isNativeContainer.
+	ContainerNative bool
 }
 
 type AudioTrackInfo struct {
@@ -84,7 +95,30 @@ func Probe(ctx context.Context, path string) (*MediaInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	return parseFFprobeOutput(out)
+	info, err := parseFFprobeOutput(out)
+	if err != nil {
+		return nil, err
+	}
+	info.ContainerNative = isNativeContainer(path)
+	return info, nil
+}
+
+// nativeContainerExts are the file extensions a browser <video>/<audio>
+// element can actually demux on its own. Deliberately keyed on extension
+// rather than ffprobe's own format_name -- libavformat's matroska demuxer
+// reports the same "matroska,webm" format_name for both a real .mkv and a
+// browser-native .webm, so format_name alone can't tell them apart; the
+// extension the release was actually saved under can.
+var nativeContainerExts = map[string]bool{
+	".mp4": true, ".m4v": true, ".mov": true, ".webm": true,
+	".mp3": true, ".m4a": true, ".aac": true, ".ogg": true, ".flac": true, ".wav": true,
+}
+
+func isNativeContainer(path string) bool {
+	if i := strings.IndexByte(path, '?'); i >= 0 {
+		path = path[:i]
+	}
+	return nativeContainerExts[strings.ToLower(filepath.Ext(path))]
 }
 
 // parseFFprobeOutput is split out from Probe so the JSON-parsing logic can

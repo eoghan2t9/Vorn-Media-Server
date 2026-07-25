@@ -46,6 +46,14 @@ func (s *Session) PlaylistPath() string {
 	return filepath.Join(s.OutputDir, "playlist.m3u8")
 }
 
+// ProgressiveOutputPath is the single growing MP4 file a ModeRemux session
+// writes to -- see buildFFmpegArgs's copyVideo branch. Unlike the HLS path,
+// there's no playlist/segment split: the file is served as ffmpeg writes it
+// (see httpapi.streamGrowingFile).
+func (s *Session) ProgressiveOutputPath() string {
+	return filepath.Join(s.OutputDir, "output.mp4")
+}
+
 // Manager runs and tracks HLS transcode sessions, bounding how many run
 // concurrently so playback and library scans share the host's CPU/GPU
 // instead of one starving the other under load.
@@ -87,13 +95,19 @@ func (m *Manager) bestBackend() Backend {
 	return Backend{Name: "software", Encoder: "libx264"}
 }
 
-// StartSession launches an ffmpeg process that transcodes sourcePath into
-// an HLS playlist + segments under a per-session directory, using the best
+// StartSession launches an ffmpeg process against sourcePath, using the best
 // available backend. copyVideo (see transcode.ModeRemux) skips video
-// re-encoding entirely -- the video stream is copied as-is and only audio
-// is converted, for a file whose video codec is already web-compatible but
-// whose audio isn't. audioTrackIndex selects a specific audio stream (the N
-// in "-map 0:a:N", i.e. AudioTrackInfo.Index from Probe) -- pass -1 to keep
+// re-encoding entirely -- the video stream is copied as-is into a single
+// growing progressive MP4 file (ProgressiveOutputPath), for a file whose
+// video codec is already web-compatible but whose container and/or audio
+// codec isn't; ffmpeg does this at close to disk/network speed, not
+// CPU-bound like a real encode, and Vorn serves it as ffmpeg writes it
+// rather than waiting for the whole thing (see httpapi.streamGrowingFile).
+// A real re-encode (copyVideo false) still produces an incremental HLS
+// playlist/segments under OutputDir, since encoding genuinely takes
+// wall-clock time proportional to the content's length and can't just be
+// waited out. audioTrackIndex selects a specific audio stream (the N in
+// "-map 0:a:N", i.e. AudioTrackInfo.Index from Probe) -- pass -1 to keep
 // ffmpeg's default automatic stream selection, which is what every caller
 // that hasn't been given an explicit track choice should do. It blocks only
 // until the queue slot is acquired and the process has been started, not
@@ -145,16 +159,30 @@ func buildFFmpegArgs(sess *Session, backend Backend, copyVideo bool, audioTrackI
 		// unaffected by the audio track choice.
 		args = append(args, "-map", "0:v:0", "-map", fmt.Sprintf("0:a:%d", audioTrackIndex))
 	}
+
 	if copyVideo {
-		// No device/filter/preset args -- those all only matter when
-		// actually encoding video, which a stream copy skips entirely.
-		args = append(args, "-c:v", "copy")
-	} else {
-		args = append(args, backend.DeviceArgs...)
-		args = append(args, backend.FilterArgs...)
-		args = append(args, backend.ExtraArgs...)
-		args = append(args, "-c:v", backend.Encoder)
+		// A plain progressive MP4, not HLS -- ModeRemux only ever needs a
+		// container repackage and/or an audio fixup, both of which run at
+		// close to disk/network speed (no real encode), so there's no need
+		// for HLS's incremental-segment machinery at all here. frag_keyframe
+		// + empty_moov produce a fragmented MP4 that can be parsed/played as
+		// it's written, the same underlying trick MSE-based playback uses
+		// internally, just fed to the browser as a plain HTTP stream instead
+		// -- see httpapi.streamGrowingFile, which serves this file as ffmpeg
+		// writes it rather than waiting for the whole thing.
+		return append(args,
+			"-c:v", "copy",
+			"-c:a", "aac",
+			"-movflags", "frag_keyframe+empty_moov+default_base_moof",
+			"-f", "mp4",
+			sess.ProgressiveOutputPath(),
+		)
 	}
+
+	args = append(args, backend.DeviceArgs...)
+	args = append(args, backend.FilterArgs...)
+	args = append(args, backend.ExtraArgs...)
+	args = append(args, "-c:v", backend.Encoder)
 	return append(args,
 		"-c:a", "aac",
 		"-f", "hls",
@@ -175,7 +203,7 @@ func (m *Manager) run(ctx context.Context, sess *Session, backend Backend, copyV
 	defer func() { <-m.sem }()
 
 	if copyVideo {
-		log.Printf("transcode: session %s remuxing (video copied as-is, audio only)", sess.ID)
+		log.Printf("transcode: session %s remuxing to progressive MP4 (video copied as-is)", sess.ID)
 	}
 	args := buildFFmpegArgs(sess, backend, copyVideo, audioTrackIndex)
 

@@ -298,10 +298,15 @@ export interface Chapter {
   title?: string
 }
 export interface PlayResponse {
-  mode: 'direct' | 'transcode' | 'acquiring'
+  mode: 'direct' | 'progressive' | 'transcode' | 'acquiring'
   directUrl?: string
   sessionId?: string
   playlistUrl?: string
+  // Set for mode === 'progressive' -- a fast container/audio-only remux
+  // served as a single (possibly still-growing) MP4 file rather than an
+  // HLS playlist. Played exactly like directUrl (plain video.src, no
+  // hls.js) -- see WatchPage's attach().
+  progressiveUrl?: string
   acquisitionStatus?: 'searching' | 'acquiring' | 'error'
   acquisitionError?: string
   audioTracks?: AudioTrack[]

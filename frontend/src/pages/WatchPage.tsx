@@ -134,7 +134,15 @@ export function WatchPage() {
     // PROGRESS_REPORT_INTERVAL_MS).
     async function attach(video: HTMLVideoElement, play: PlayResponse, resumeAt?: number) {
       if (play.sessionId) sessionIdRef.current = play.sessionId
-      const url = play.mode === 'direct' ? `${API_BASE}${play.directUrl}` : `${API_BASE}${play.playlistUrl}`
+      // progressive (see transcode.ModeRemux) is played exactly like direct
+      // -- plain video.src, no hls.js -- it's just a possibly-still-growing
+      // MP4 file rather than a pre-existing URL.
+      const url =
+        play.mode === 'direct'
+          ? `${API_BASE}${play.directUrl}`
+          : play.mode === 'progressive'
+            ? `${API_BASE}${play.progressiveUrl}`
+            : `${API_BASE}${play.playlistUrl}`
 
       if (play.mode === 'transcode' && Hls.isSupported()) {
         // The API and the frontend are on different origins/ports (see

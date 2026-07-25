@@ -55,6 +55,29 @@ func TestBuildFFmpegArgs(t *testing.T) {
 		}
 	})
 
+	t.Run("copyVideo produces a progressive MP4, not HLS", func(t *testing.T) {
+		args := buildFFmpegArgs(sess, backend, true, -1)
+		if !containsSeq(args, "-f", "mp4") {
+			t.Errorf("expected -f mp4 for a ModeRemux session, got %v", args)
+		}
+		if !containsSeq(args, "-movflags", "frag_keyframe+empty_moov+default_base_moof") {
+			t.Errorf("expected fragmented-MP4 movflags so the file is playable while still being written, got %v", args)
+		}
+		if containsSeq(args, "-f", "hls") || containsSeq(args, "-hls_time") {
+			t.Errorf("a progressive MP4 remux should have no HLS args at all, got %v", args)
+		}
+	})
+
+	t.Run("real transcode (copyVideo false) still produces incremental HLS", func(t *testing.T) {
+		args := buildFFmpegArgs(sess, backend, false, -1)
+		if !containsSeq(args, "-f", "hls") {
+			t.Errorf("a real re-encode needs incremental HLS delivery, got %v", args)
+		}
+		if containsSeq(args, "-f", "mp4") {
+			t.Errorf("did not expect the progressive-MP4 path for a real transcode, got %v", args)
+		}
+	})
+
 	t.Run("copyVideo with an explicit audio track still maps video explicitly", func(t *testing.T) {
 		args := buildFFmpegArgs(sess, backend, true, 1)
 		if !containsSeq(args, "-map", "0:v:0") || !containsSeq(args, "-map", "0:a:1") || !containsSeq(args, "-c:v", "copy") {

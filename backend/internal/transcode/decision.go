@@ -6,13 +6,16 @@ type PlaybackMode string
 const (
 	ModeDirect PlaybackMode = "direct"
 	// ModeRemux means the video stream is already web-compatible and can be
-	// copied as-is -- only the audio codec needs converting, so the
-	// resulting HLS session skips video re-encoding entirely (see
-	// Manager.StartSession's copyVideo). This is the common case of e.g.
-	// H.264 video paired with DTS/AC3/TrueHD audio (frequent on
-	// scene/remux releases): stream-copying video is nearly free (no
-	// CPU-bound encode at all, just re-muxing), turning what would
-	// otherwise be a full re-encode into a near-instant HLS start.
+	// copied as-is -- only the container and/or audio codec need fixing, so
+	// ffmpeg just repackages into a plain progressive MP4 (see
+	// Manager.StartSession's copyVideo) instead of transcoding video at all.
+	// This covers both the classic "H.264 video, DTS/AC3/TrueHD audio"
+	// scene-release case AND the even more common "everything's actually
+	// compatible, it's just wrapped in an .mkv" case (mainstream browsers
+	// can't demux Matroska at all, regardless of the codecs inside it --
+	// see MediaInfo.ContainerNative). Stream-copying video is nearly free
+	// (no CPU-bound encode, just re-muxing), so this is a near-instant
+	// start either way.
 	ModeRemux     PlaybackMode = "remux"
 	ModeTranscode PlaybackMode = "transcode"
 )
@@ -58,8 +61,8 @@ func (c ClientCapabilities) supportsAudio(codec string) bool {
 }
 
 // Decide reports whether info can be sent to caps's client as-is (direct
-// play), needs its video stream copied as-is with only audio converted
-// (remux -- see ModeRemux), or needs a full re-encode (transcode).
+// play), needs repackaging into a plain MP4 with its video stream copied
+// as-is (remux -- see ModeRemux), or needs a full re-encode (transcode).
 func Decide(info *MediaInfo, caps ClientCapabilities) PlaybackMode {
 	// An audio-only file (music track, audiobook chapter) has no video stream
 	// at all -- info.VideoCodec is "", which must not be treated the same as
@@ -67,13 +70,17 @@ func Decide(info *MediaInfo, caps ClientCapabilities) PlaybackMode {
 	// needlessly forced through transcoding even when the audio codec alone
 	// is already browser-playable. It also must not be eligible for
 	// ModeRemux below (there is no video stream to "copy"), which is why
-	// that branch additionally requires hasVideo.
+	// that branch additionally requires hasVideo. The container check is
+	// skipped for audio-only too -- direct play failures there are a codec
+	// problem, not a "browser can't demux this container" one, the way
+	// video-in-.mkv specifically is.
 	hasVideo := info.VideoCodec != ""
 	videoCompatible := !hasVideo || webCompatibleVideoCodecs[info.VideoCodec] || caps.supportsVideo(info.VideoCodec)
 	audioCompatible := webCompatibleAudioCodecs[info.AudioCodec] || caps.supportsAudio(info.AudioCodec)
+	containerCompatible := !hasVideo || info.ContainerNative
 
 	switch {
-	case videoCompatible && audioCompatible:
+	case videoCompatible && audioCompatible && containerCompatible:
 		return ModeDirect
 	case hasVideo && videoCompatible:
 		return ModeRemux
