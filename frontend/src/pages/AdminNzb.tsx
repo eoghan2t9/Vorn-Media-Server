@@ -15,6 +15,8 @@ import {
   searchNZB,
   testNZBIndexer,
   testUsenetServer,
+  updateNZBIndexer,
+  updateUsenetServer,
   type Library,
   type NZBDownload,
   type NZBIndexer,
@@ -94,6 +96,9 @@ export function AdminNzb() {
   const [serverMaxConnections, setServerMaxConnections] = useState('10')
   const [testingServer, setTestingServer] = useState(false)
   const [serverTestResult, setServerTestResult] = useState<{ ok: boolean; message: string } | null>(null)
+  // Set while editing an existing server (row's Edit button) instead of
+  // adding a new one -- see editingIndexerId below for the same pattern.
+  const [editingServerId, setEditingServerId] = useState<string | null>(null)
 
   const [indexers, setIndexers] = useState<NZBIndexer[]>([])
   const [indexerPreset, setIndexerPreset] = useState('')
@@ -102,6 +107,11 @@ export function AdminNzb() {
   const [indexerApiKey, setIndexerApiKey] = useState('')
   const [testingIndexer, setTestingIndexer] = useState(false)
   const [indexerTestResult, setIndexerTestResult] = useState<{ ok: boolean; message: string } | null>(null)
+  // Set while editing an existing indexer (row's Edit button) instead of
+  // adding a new one -- reuses the same form, just routed to the update API
+  // on submit. Password/API key fields stay blank in this mode (the list
+  // endpoint never echoes them back), meaning "keep the current value".
+  const [editingIndexerId, setEditingIndexerId] = useState<string | null>(null)
 
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<NZBSearchResult[] | null>(null)
@@ -169,33 +179,79 @@ export function AdminNzb() {
     }
   }
 
+  function resetServerForm() {
+    setEditingServerId(null)
+    setServerProvider('nntp')
+    setServerPreset('')
+    setServerName('')
+    setServerHost('')
+    setServerPort('563')
+    setServerUseTls(true)
+    setServerUsername('')
+    setServerPassword('')
+    setServerApiKey('')
+    setServerMaxConnections('10')
+    setServerTestResult(null)
+  }
+
+  function handleEditServer(s: UsenetServer) {
+    setError(null)
+    setEditingServerId(s.id)
+    setServerProvider(s.provider)
+    setServerPreset('')
+    setServerName(s.name)
+    setServerHost(s.provider === 'torbox' ? '' : s.host)
+    setServerPort(s.provider === 'torbox' ? '563' : String(s.port))
+    setServerUseTls(s.provider === 'torbox' ? true : s.useTls)
+    setServerUsername(s.provider === 'torbox' ? '' : s.username)
+    setServerPassword('')
+    setServerApiKey('')
+    setServerMaxConnections(s.provider === 'torbox' ? '10' : String(s.maxConnections))
+    setServerTestResult(null)
+  }
+
   async function handleAddServer(e: FormEvent) {
     e.preventDefault()
     setError(null)
     try {
-      const server =
-        serverProvider === 'torbox'
-          ? await createUsenetServer({ name: serverName, provider: 'torbox', apiKey: serverApiKey })
-          : await createUsenetServer({
-              name: serverName,
-              provider: 'nntp',
-              host: serverHost,
-              port: Number(serverPort),
-              useTls: serverUseTls,
-              username: serverUsername || undefined,
-              password: serverPassword || undefined,
-              maxConnections: Number(serverMaxConnections),
-            })
-      setServers((list) => [...list, server])
-      setServerPreset('')
-      setServerName('')
-      setServerHost('')
-      setServerUsername('')
-      setServerPassword('')
-      setServerApiKey('')
-      setServerTestResult(null)
+      if (editingServerId) {
+        const server =
+          serverProvider === 'torbox'
+            ? await updateUsenetServer(editingServerId, {
+                name: serverName,
+                provider: 'torbox',
+                apiKey: serverApiKey || undefined,
+              })
+            : await updateUsenetServer(editingServerId, {
+                name: serverName,
+                provider: 'nntp',
+                host: serverHost,
+                port: Number(serverPort),
+                useTls: serverUseTls,
+                username: serverUsername || undefined,
+                password: serverPassword || undefined,
+                maxConnections: Number(serverMaxConnections),
+              })
+        setServers((list) => list.map((s) => (s.id === server.id ? server : s)))
+      } else {
+        const server =
+          serverProvider === 'torbox'
+            ? await createUsenetServer({ name: serverName, provider: 'torbox', apiKey: serverApiKey })
+            : await createUsenetServer({
+                name: serverName,
+                provider: 'nntp',
+                host: serverHost,
+                port: Number(serverPort),
+                useTls: serverUseTls,
+                username: serverUsername || undefined,
+                password: serverPassword || undefined,
+                maxConnections: Number(serverMaxConnections),
+              })
+        setServers((list) => [...list, server])
+      }
+      resetServerForm()
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to add usenet server')
+      setError(err instanceof ApiError ? err.message : `Failed to ${editingServerId ? 'save' : 'add'} usenet server`)
     }
   }
 
@@ -228,6 +284,7 @@ export function AdminNzb() {
     try {
       await deleteUsenetServer(id)
       setServers((list) => list.filter((s) => s.id !== id))
+      if (editingServerId === id) resetServerForm()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to delete usenet server')
     }
@@ -243,19 +300,43 @@ export function AdminNzb() {
     }
   }
 
+  function resetIndexerForm() {
+    setEditingIndexerId(null)
+    setIndexerPreset('')
+    setIndexerName('')
+    setIndexerBaseUrl('')
+    setIndexerApiKey('')
+    setIndexerTestResult(null)
+  }
+
+  function handleEditIndexer(idx: NZBIndexer) {
+    setError(null)
+    setEditingIndexerId(idx.id)
+    setIndexerPreset('')
+    setIndexerName(idx.name)
+    setIndexerBaseUrl(idx.baseUrl)
+    setIndexerApiKey('')
+    setIndexerTestResult(null)
+  }
+
   async function handleAddIndexer(e: FormEvent) {
     e.preventDefault()
     setError(null)
     try {
-      const idx = await createNZBIndexer({ name: indexerName, baseUrl: indexerBaseUrl, apiKey: indexerApiKey })
-      setIndexers((list) => [...list, idx])
-      setIndexerPreset('')
-      setIndexerName('')
-      setIndexerBaseUrl('')
-      setIndexerApiKey('')
-      setIndexerTestResult(null)
+      if (editingIndexerId) {
+        const idx = await updateNZBIndexer(editingIndexerId, {
+          name: indexerName,
+          baseUrl: indexerBaseUrl,
+          apiKey: indexerApiKey || undefined,
+        })
+        setIndexers((list) => list.map((i) => (i.id === idx.id ? idx : i)))
+      } else {
+        const idx = await createNZBIndexer({ name: indexerName, baseUrl: indexerBaseUrl, apiKey: indexerApiKey })
+        setIndexers((list) => [...list, idx])
+      }
+      resetIndexerForm()
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to add indexer')
+      setError(err instanceof ApiError ? err.message : `Failed to ${editingIndexerId ? 'save' : 'add'} indexer`)
     }
   }
 
@@ -278,6 +359,7 @@ export function AdminNzb() {
     try {
       await deleteNZBIndexer(id)
       setIndexers((list) => list.filter((i) => i.id !== id))
+      if (editingIndexerId === id) resetIndexerForm()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to delete indexer')
     }
@@ -448,9 +530,14 @@ export function AdminNzb() {
                 <td>{idx.name}</td>
                 <td>{idx.baseUrl}</td>
                 <td>
-                  <button type="button" className="vorn-btn-danger" onClick={() => handleDeleteIndexer(idx.id)}>
-                    Delete
-                  </button>
+                  <div className="vorn-button-group">
+                    <button type="button" onClick={() => handleEditIndexer(idx)}>
+                      Edit
+                    </button>
+                    <button type="button" className="vorn-btn-danger" onClick={() => handleDeleteIndexer(idx.id)}>
+                      Delete
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -472,11 +559,20 @@ export function AdminNzb() {
             style={{ minWidth: '16rem' }}
             required
           />
-          <input placeholder="API key" value={indexerApiKey} onChange={(e) => setIndexerApiKey(e.target.value)} />
+          <input
+            placeholder={editingIndexerId ? 'API key (leave blank to keep current)' : 'API key'}
+            value={indexerApiKey}
+            onChange={(e) => setIndexerApiKey(e.target.value)}
+          />
           <button type="button" onClick={handleTestIndexer} disabled={testingIndexer || !indexerBaseUrl}>
             {testingIndexer ? 'Testing…' : 'Test'}
           </button>
-          <button type="submit">Add indexer</button>
+          <button type="submit">{editingIndexerId ? 'Save indexer' : 'Add indexer'}</button>
+          {editingIndexerId && (
+            <button type="button" onClick={resetIndexerForm}>
+              Cancel
+            </button>
+          )}
         </form>
         {indexerTestResult && (
           <p className={indexerTestResult.ok ? 'vorn-test-result-ok' : 'vorn-form-error'} style={{ marginTop: '0.6rem' }}>
@@ -516,9 +612,14 @@ export function AdminNzb() {
                 <td>{s.provider === 'torbox' ? '—' : s.useTls ? 'yes' : 'no'}</td>
                 <td>{s.provider === 'torbox' ? '—' : s.maxConnections}</td>
                 <td>
-                  <button type="button" className="vorn-btn-danger" onClick={() => handleDeleteServer(s.id)}>
-                    Delete
-                  </button>
+                  <div className="vorn-button-group">
+                    <button type="button" onClick={() => handleEditServer(s)}>
+                      Edit
+                    </button>
+                    <button type="button" className="vorn-btn-danger" onClick={() => handleDeleteServer(s.id)}>
+                      Delete
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -537,12 +638,12 @@ export function AdminNzb() {
           <input placeholder="Name" value={serverName} onChange={(e) => setServerName(e.target.value)} required />
           {serverProvider === 'torbox' ? (
             <input
-              placeholder="TorBox API key"
+              placeholder={editingServerId ? 'TorBox API key (leave blank to keep current)' : 'TorBox API key'}
               type="password"
               value={serverApiKey}
               onChange={(e) => setServerApiKey(e.target.value)}
               style={{ minWidth: '16rem' }}
-              required
+              required={!editingServerId}
             />
           ) : (
             <>
@@ -566,7 +667,7 @@ export function AdminNzb() {
               </label>
               <input placeholder="Username (optional)" value={serverUsername} onChange={(e) => setServerUsername(e.target.value)} />
               <input
-                placeholder="Password (optional)"
+                placeholder={editingServerId ? 'Password (leave blank to keep current)' : 'Password (optional)'}
                 type="password"
                 value={serverPassword}
                 onChange={(e) => setServerPassword(e.target.value)}
@@ -587,7 +688,12 @@ export function AdminNzb() {
           >
             {testingServer ? 'Testing…' : 'Test'}
           </button>
-          <button type="submit">Add server</button>
+          <button type="submit">{editingServerId ? 'Save server' : 'Add server'}</button>
+          {editingServerId && (
+            <button type="button" onClick={resetServerForm}>
+              Cancel
+            </button>
+          )}
         </form>
         {serverTestResult && (
           <p className={serverTestResult.ok ? 'vorn-test-result-ok' : 'vorn-form-error'} style={{ marginTop: '0.6rem' }}>

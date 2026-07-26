@@ -99,6 +99,10 @@ func (svc *Service) RemoveIndexer(id string) error {
 	return svc.store.DeleteNZBIndexer(id)
 }
 
+func (svc *Service) UpdateIndexer(id string, in store.UpdateNZBIndexerInput) (*store.NZBIndexer, error) {
+	return svc.store.UpdateNZBIndexer(id, in)
+}
+
 // AddNZBFromURL fetches a .nzb file from a search result's download URL
 // and starts downloading it, the same way AddNZB does for an uploaded file.
 func (svc *Service) AddNZBFromURL(ctx context.Context, downloadURL string, libraryID *string) (*store.NZBDownload, error) {

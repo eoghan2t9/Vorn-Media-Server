@@ -12,6 +12,7 @@ import {
   removeTorrent,
   searchTorrents,
   testTorrentIndexer,
+  updateTorrentIndexer,
   type Library,
   type Torrent,
   type TorrentIndexer,
@@ -62,6 +63,11 @@ export function AdminTorrents() {
   const [indexerApiKey, setIndexerApiKey] = useState('')
   const [testingIndexer, setTestingIndexer] = useState(false)
   const [indexerTestResult, setIndexerTestResult] = useState<{ ok: boolean; message: string } | null>(null)
+  // Set while editing an existing indexer (row's Edit button) instead of
+  // adding a new one -- reuses the same form, just routed to the update API
+  // on submit. The API key field stays blank in this mode (the list
+  // endpoint never echoes it back), meaning "keep the current key".
+  const [editingIndexerId, setEditingIndexerId] = useState<string | null>(null)
 
   // Prefilled from ?q=... when arriving via the "Search torrents" deep link
   // on Admin > Requests -- the query still auto-runs below rather than just
@@ -142,24 +148,51 @@ export function AdminTorrents() {
     }
   }
 
+  function resetIndexerForm() {
+    setEditingIndexerId(null)
+    setIndexerProvider('torznab')
+    setIndexerPreset('')
+    setIndexerName('')
+    setIndexerBaseUrl('')
+    setIndexerApiKey('')
+    setIndexerTestResult(null)
+  }
+
+  function handleEditIndexer(idx: TorrentIndexer) {
+    setError(null)
+    setEditingIndexerId(idx.id)
+    setIndexerProvider(idx.provider)
+    setIndexerPreset('')
+    setIndexerName(idx.name)
+    setIndexerBaseUrl(idx.provider === 'torbox' ? '' : idx.baseUrl)
+    setIndexerApiKey('')
+    setIndexerTestResult(null)
+  }
+
   async function handleAddIndexer(e: FormEvent) {
     e.preventDefault()
     setError(null)
     try {
-      const idx = await createTorrentIndexer({
-        name: indexerName,
-        baseUrl: indexerProvider === 'torbox' ? '' : indexerBaseUrl,
-        apiKey: indexerApiKey,
-        provider: indexerProvider,
-      })
-      setIndexers((list) => [...list, idx])
-      setIndexerPreset('')
-      setIndexerName('')
-      setIndexerBaseUrl('')
-      setIndexerApiKey('')
-      setIndexerTestResult(null)
+      if (editingIndexerId) {
+        const idx = await updateTorrentIndexer(editingIndexerId, {
+          name: indexerName,
+          baseUrl: indexerProvider === 'torbox' ? '' : indexerBaseUrl,
+          apiKey: indexerApiKey || undefined,
+          provider: indexerProvider,
+        })
+        setIndexers((list) => list.map((i) => (i.id === idx.id ? idx : i)))
+      } else {
+        const idx = await createTorrentIndexer({
+          name: indexerName,
+          baseUrl: indexerProvider === 'torbox' ? '' : indexerBaseUrl,
+          apiKey: indexerApiKey,
+          provider: indexerProvider,
+        })
+        setIndexers((list) => [...list, idx])
+      }
+      resetIndexerForm()
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to add indexer')
+      setError(err instanceof ApiError ? err.message : `Failed to ${editingIndexerId ? 'save' : 'add'} indexer`)
     }
   }
 
@@ -186,6 +219,7 @@ export function AdminTorrents() {
     try {
       await deleteTorrentIndexer(id)
       setIndexers((list) => list.filter((i) => i.id !== id))
+      if (editingIndexerId === id) resetIndexerForm()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to delete indexer')
     }
@@ -380,9 +414,14 @@ export function AdminTorrents() {
                 <td>{idx.provider === 'torbox' ? 'TorBox' : 'Torznab'}</td>
                 <td>{idx.provider === 'torbox' ? '—' : idx.baseUrl}</td>
                 <td>
-                  <button type="button" className="vorn-btn-danger" onClick={() => handleDeleteIndexer(idx.id)}>
-                    Delete
-                  </button>
+                  <div className="vorn-button-group">
+                    <button type="button" onClick={() => handleEditIndexer(idx)}>
+                      Edit
+                    </button>
+                    <button type="button" className="vorn-btn-danger" onClick={() => handleDeleteIndexer(idx.id)}>
+                      Delete
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -401,12 +440,12 @@ export function AdminTorrents() {
           <input placeholder="Name" value={indexerName} onChange={(e) => setIndexerName(e.target.value)} required />
           {indexerProvider === 'torbox' ? (
             <input
-              placeholder="TorBox API key"
+              placeholder={editingIndexerId ? 'TorBox API key (leave blank to keep current)' : 'TorBox API key'}
               type="password"
               value={indexerApiKey}
               onChange={(e) => setIndexerApiKey(e.target.value)}
               style={{ minWidth: '16rem' }}
-              required
+              required={!editingIndexerId}
             />
           ) : (
             <>
@@ -423,7 +462,11 @@ export function AdminTorrents() {
                 style={{ minWidth: '16rem' }}
                 required
               />
-              <input placeholder="API key (optional)" value={indexerApiKey} onChange={(e) => setIndexerApiKey(e.target.value)} />
+              <input
+                placeholder={editingIndexerId ? 'API key (leave blank to keep current)' : 'API key (optional)'}
+                value={indexerApiKey}
+                onChange={(e) => setIndexerApiKey(e.target.value)}
+              />
             </>
           )}
           <button
@@ -433,7 +476,12 @@ export function AdminTorrents() {
           >
             {testingIndexer ? 'Testing…' : 'Test'}
           </button>
-          <button type="submit">Add indexer</button>
+          <button type="submit">{editingIndexerId ? 'Save indexer' : 'Add indexer'}</button>
+          {editingIndexerId && (
+            <button type="button" onClick={resetIndexerForm}>
+              Cancel
+            </button>
+          )}
         </form>
         {indexerProvider === 'torbox' && (
           <p className="vorn-panel-subtitle" style={{ margin: '0.6rem 0 0' }}>

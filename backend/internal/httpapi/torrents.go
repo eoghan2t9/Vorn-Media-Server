@@ -324,6 +324,44 @@ func (s *Server) handleTestTorrentIndexer(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, testResultResponse{OK: true})
 }
 
+// updateIndexerRequest fields are pointers so an omitted field leaves it
+// unchanged -- in particular, an admin editing name/baseUrl shouldn't have
+// to resend the API key, and handleListTorrentIndexers never echoes it back
+// for them to resend in the first place. An explicit empty string clears
+// the API key, distinct from omitting the field.
+type updateIndexerRequest struct {
+	Name     *string `json:"name"`
+	BaseURL  *string `json:"baseUrl"`
+	APIKey   *string `json:"apiKey"`
+	Provider *string `json:"provider"`
+	Enabled  *bool   `json:"enabled"`
+}
+
+func (s *Server) handleUpdateTorrentIndexer(w http.ResponseWriter, r *http.Request) {
+	if s.torrentSvc.Load() == nil {
+		writeError(w, http.StatusServiceUnavailable, torrentServiceUnavailable)
+		return
+	}
+	var req updateIndexerRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	id := r.PathValue("id")
+	idx, err := s.torrentSvc.Load().UpdateIndexer(id, store.UpdateTorrentIndexerInput{
+		Name:     req.Name,
+		BaseURL:  req.BaseURL,
+		APIKey:   req.APIKey,
+		Provider: req.Provider,
+		Enabled:  req.Enabled,
+	})
+	if err != nil {
+		s.writeStoreErr(w, err, "updating indexer")
+		return
+	}
+	writeJSON(w, http.StatusOK, toTorrentIndexerResponse(idx))
+}
+
 func (s *Server) handleDeleteTorrentIndexer(w http.ResponseWriter, r *http.Request) {
 	if s.torrentSvc.Load() == nil {
 		writeError(w, http.StatusServiceUnavailable, torrentServiceUnavailable)

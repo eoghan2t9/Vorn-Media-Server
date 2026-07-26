@@ -60,6 +60,76 @@ func (s *Store) DeleteUsenetServer(id string) error {
 	return checkRowsAffected(res, err)
 }
 
+// UpdateUsenetServerInput fields are pointers so nil means "leave this field
+// unchanged" -- in particular, an admin editing host/port/username shouldn't
+// have to resend the password/API key, and the API never echoes secrets
+// back for them to resend in the first place. A non-nil empty
+// Password/APIKey explicitly clears it.
+type UpdateUsenetServerInput struct {
+	Name           *string
+	Provider       *string
+	Host           *string
+	Port           *int
+	UseTLS         *bool
+	Username       *string
+	Password       *string
+	APIKey         *string
+	MaxConnections *int
+	Enabled        *bool
+}
+
+func (s *Store) UpdateUsenetServer(id string, in UpdateUsenetServerInput) (*UsenetServer, error) {
+	u := &UsenetServer{}
+	err := s.db.QueryRow(
+		`SELECT id, name, provider, host, port, use_tls, username, password, api_key, max_connections, enabled, created_at
+		 FROM usenet_servers WHERE id = $1`, id,
+	).Scan(&u.ID, &u.Name, &u.Provider, &u.Host, &u.Port, &u.UseTLS, &u.Username, &u.Password, &u.APIKey, &u.MaxConnections, &u.Enabled, &u.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if in.Name != nil {
+		u.Name = *in.Name
+	}
+	if in.Provider != nil {
+		u.Provider = *in.Provider
+	}
+	if in.Host != nil {
+		u.Host = *in.Host
+	}
+	if in.Port != nil {
+		u.Port = *in.Port
+	}
+	if in.UseTLS != nil {
+		u.UseTLS = *in.UseTLS
+	}
+	if in.Username != nil {
+		u.Username = *in.Username
+	}
+	if in.Password != nil {
+		u.Password = *in.Password
+	}
+	if in.APIKey != nil {
+		u.APIKey = *in.APIKey
+	}
+	if in.MaxConnections != nil {
+		u.MaxConnections = *in.MaxConnections
+	}
+	if in.Enabled != nil {
+		u.Enabled = *in.Enabled
+	}
+	if _, err := s.db.Exec(
+		`UPDATE usenet_servers SET name = $1, provider = $2, host = $3, port = $4, use_tls = $5, username = $6,
+		 password = $7, api_key = $8, max_connections = $9, enabled = $10 WHERE id = $11`,
+		u.Name, u.Provider, u.Host, u.Port, u.UseTLS, u.Username, u.Password, u.APIKey, u.MaxConnections, u.Enabled, id,
+	); err != nil {
+		return nil, err
+	}
+	return u, nil
+}
+
 type NZBDownload struct {
 	ID        string
 	LibraryID *string
@@ -257,4 +327,46 @@ func (s *Store) ListNZBIndexers() ([]*NZBIndexer, error) {
 func (s *Store) DeleteNZBIndexer(id string) error {
 	res, err := s.db.Exec(`DELETE FROM nzb_indexers WHERE id = $1`, id)
 	return checkRowsAffected(res, err)
+}
+
+// UpdateNZBIndexerInput fields are pointers so nil means "leave this field
+// unchanged" -- see UpdateTorrentIndexerInput for the reasoning. A non-nil
+// empty APIKey explicitly clears it.
+type UpdateNZBIndexerInput struct {
+	Name    *string
+	BaseURL *string
+	APIKey  *string
+	Enabled *bool
+}
+
+func (s *Store) UpdateNZBIndexer(id string, in UpdateNZBIndexerInput) (*NZBIndexer, error) {
+	idx := &NZBIndexer{}
+	err := s.db.QueryRow(
+		`SELECT id, name, base_url, api_key, enabled, created_at FROM nzb_indexers WHERE id = $1`, id,
+	).Scan(&idx.ID, &idx.Name, &idx.BaseURL, &idx.APIKey, &idx.Enabled, &idx.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if in.Name != nil {
+		idx.Name = *in.Name
+	}
+	if in.BaseURL != nil {
+		idx.BaseURL = *in.BaseURL
+	}
+	if in.APIKey != nil {
+		idx.APIKey = *in.APIKey
+	}
+	if in.Enabled != nil {
+		idx.Enabled = *in.Enabled
+	}
+	if _, err := s.db.Exec(
+		`UPDATE nzb_indexers SET name = $1, base_url = $2, api_key = $3, enabled = $4 WHERE id = $5`,
+		idx.Name, idx.BaseURL, idx.APIKey, idx.Enabled, id,
+	); err != nil {
+		return nil, err
+	}
+	return idx, nil
 }

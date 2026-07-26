@@ -301,6 +301,53 @@ func (s *Server) handleTestUsenetServer(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, testResultResponse{OK: true})
 }
 
+// updateUsenetServerRequest fields are pointers so an omitted field leaves it
+// unchanged -- see updateIndexerRequest in torrents.go for the same
+// reasoning applied to password/apiKey here. An explicit empty string
+// clears the password/apiKey, distinct from omitting the field.
+type updateUsenetServerRequest struct {
+	Name           *string `json:"name"`
+	Provider       *string `json:"provider"`
+	Host           *string `json:"host"`
+	Port           *int    `json:"port"`
+	UseTLS         *bool   `json:"useTls"`
+	Username       *string `json:"username"`
+	Password       *string `json:"password"`
+	APIKey         *string `json:"apiKey"`
+	MaxConnections *int    `json:"maxConnections"`
+	Enabled        *bool   `json:"enabled"`
+}
+
+func (s *Server) handleUpdateUsenetServer(w http.ResponseWriter, r *http.Request) {
+	if s.nzbSvc.Load() == nil {
+		writeError(w, http.StatusServiceUnavailable, nzbServiceUnavailable)
+		return
+	}
+	var req updateUsenetServerRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	id := r.PathValue("id")
+	u, err := s.nzbSvc.Load().UpdateServer(id, store.UpdateUsenetServerInput{
+		Name:           req.Name,
+		Provider:       req.Provider,
+		Host:           req.Host,
+		Port:           req.Port,
+		UseTLS:         req.UseTLS,
+		Username:       req.Username,
+		Password:       req.Password,
+		APIKey:         req.APIKey,
+		MaxConnections: req.MaxConnections,
+		Enabled:        req.Enabled,
+	})
+	if err != nil {
+		s.writeStoreErr(w, err, "updating usenet server")
+		return
+	}
+	writeJSON(w, http.StatusOK, toUsenetServerResponse(u))
+}
+
 func (s *Server) handleDeleteUsenetServer(w http.ResponseWriter, r *http.Request) {
 	if s.nzbSvc.Load() == nil {
 		writeError(w, http.StatusServiceUnavailable, nzbServiceUnavailable)
@@ -514,6 +561,30 @@ func (s *Server) handleTestNZBIndexer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, testResultResponse{OK: true})
+}
+
+func (s *Server) handleUpdateNZBIndexer(w http.ResponseWriter, r *http.Request) {
+	if s.nzbSvc.Load() == nil {
+		writeError(w, http.StatusServiceUnavailable, nzbServiceUnavailable)
+		return
+	}
+	var req updateIndexerRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	id := r.PathValue("id")
+	idx, err := s.nzbSvc.Load().UpdateIndexer(id, store.UpdateNZBIndexerInput{
+		Name:    req.Name,
+		BaseURL: req.BaseURL,
+		APIKey:  req.APIKey,
+		Enabled: req.Enabled,
+	})
+	if err != nil {
+		s.writeStoreErr(w, err, "updating indexer")
+		return
+	}
+	writeJSON(w, http.StatusOK, toNZBIndexerResponse(idx))
 }
 
 func (s *Server) handleDeleteNZBIndexer(w http.ResponseWriter, r *http.Request) {

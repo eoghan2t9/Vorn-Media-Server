@@ -111,3 +111,7 @@ func (svc *Service) ListIndexers() ([]*store.TorrentIndexer, error) {
 func (svc *Service) RemoveIndexer(id string) error {
 	return svc.store.DeleteTorrentIndexer(id)
 }
+
+func (svc *Service) UpdateIndexer(id string, in store.UpdateTorrentIndexerInput) (*store.TorrentIndexer, error) {
+	return svc.store.UpdateTorrentIndexer(id, in)
+}

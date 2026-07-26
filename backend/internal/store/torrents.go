@@ -156,6 +156,54 @@ func (s *Store) CreateTorrentIndexer(name, baseURL, apiKey, provider string) (*T
 	return idx, err
 }
 
+// UpdateTorrentIndexerInput fields are pointers so nil means "leave this
+// field unchanged" -- in particular, an admin rotating name/baseUrl/provider
+// shouldn't have to resend the API key, and the API never echoes it back for
+// them to resend in the first place. A non-nil empty APIKey explicitly
+// clears it.
+type UpdateTorrentIndexerInput struct {
+	Name     *string
+	BaseURL  *string
+	APIKey   *string
+	Provider *string
+	Enabled  *bool
+}
+
+func (s *Store) UpdateTorrentIndexer(id string, in UpdateTorrentIndexerInput) (*TorrentIndexer, error) {
+	idx := &TorrentIndexer{}
+	err := s.db.QueryRow(
+		`SELECT id, name, base_url, api_key, provider, enabled, created_at FROM torrent_indexers WHERE id = $1`, id,
+	).Scan(&idx.ID, &idx.Name, &idx.BaseURL, &idx.APIKey, &idx.Provider, &idx.Enabled, &idx.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if in.Name != nil {
+		idx.Name = *in.Name
+	}
+	if in.BaseURL != nil {
+		idx.BaseURL = *in.BaseURL
+	}
+	if in.APIKey != nil {
+		idx.APIKey = *in.APIKey
+	}
+	if in.Provider != nil {
+		idx.Provider = *in.Provider
+	}
+	if in.Enabled != nil {
+		idx.Enabled = *in.Enabled
+	}
+	if _, err := s.db.Exec(
+		`UPDATE torrent_indexers SET name = $1, base_url = $2, api_key = $3, provider = $4, enabled = $5 WHERE id = $6`,
+		idx.Name, idx.BaseURL, idx.APIKey, idx.Provider, idx.Enabled, id,
+	); err != nil {
+		return nil, err
+	}
+	return idx, nil
+}
+
 func (s *Store) ListTorrentIndexers() ([]*TorrentIndexer, error) {
 	rows, err := s.db.Query(`SELECT id, name, base_url, api_key, provider, enabled, created_at FROM torrent_indexers ORDER BY created_at`)
 	if err != nil {

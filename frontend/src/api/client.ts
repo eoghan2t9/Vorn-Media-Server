@@ -487,6 +487,11 @@ export const listTorrentIndexers = () => request<TorrentIndexer[]>('/api/torrent
 export const createTorrentIndexer = (input: { name: string; baseUrl: string; apiKey?: string; provider?: TorrentIndexerProvider }) =>
   request<TorrentIndexer>('/api/torrent-indexers', { method: 'POST', body: JSON.stringify(input) })
 
+export const updateTorrentIndexer = (
+  id: string,
+  input: { name?: string; baseUrl?: string; apiKey?: string; provider?: TorrentIndexerProvider; enabled?: boolean },
+) => request<TorrentIndexer>(`/api/torrent-indexers/${id}`, { method: 'PATCH', body: JSON.stringify(input) })
+
 export const deleteTorrentIndexer = (id: string) =>
   request<void>(`/api/torrent-indexers/${id}`, { method: 'DELETE' })
 
@@ -548,6 +553,9 @@ export const listNZBIndexers = () => request<NZBIndexer[]>('/api/nzb-indexers')
 export const createNZBIndexer = (input: { name: string; baseUrl: string; apiKey?: string }) =>
   request<NZBIndexer>('/api/nzb-indexers', { method: 'POST', body: JSON.stringify(input) })
 
+export const updateNZBIndexer = (id: string, input: { name?: string; baseUrl?: string; apiKey?: string; enabled?: boolean }) =>
+  request<NZBIndexer>(`/api/nzb-indexers/${id}`, { method: 'PATCH', body: JSON.stringify(input) })
+
 export const deleteNZBIndexer = (id: string) => request<void>(`/api/nzb-indexers/${id}`, { method: 'DELETE' })
 
 export const testNZBIndexer = (input: { baseUrl: string; apiKey?: string }) =>
@@ -582,6 +590,21 @@ export interface CreateUsenetServerInput {
 }
 export const createUsenetServer = (input: CreateUsenetServerInput) =>
   request<UsenetServer>('/api/usenet-servers', { method: 'POST', body: JSON.stringify(input) })
+
+export interface UpdateUsenetServerInput {
+  name?: string
+  provider?: UsenetServerProvider
+  host?: string
+  port?: number
+  useTls?: boolean
+  username?: string
+  password?: string
+  apiKey?: string
+  maxConnections?: number
+  enabled?: boolean
+}
+export const updateUsenetServer = (id: string, input: UpdateUsenetServerInput) =>
+  request<UsenetServer>(`/api/usenet-servers/${id}`, { method: 'PATCH', body: JSON.stringify(input) })
 
 export const deleteUsenetServer = (id: string) =>
   request<void>(`/api/usenet-servers/${id}`, { method: 'DELETE' })

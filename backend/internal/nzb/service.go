@@ -421,3 +421,7 @@ func (svc *Service) ListServers() ([]*store.UsenetServer, error) {
 func (svc *Service) RemoveServer(id string) error {
 	return svc.store.DeleteUsenetServer(id)
 }
+
+func (svc *Service) UpdateServer(id string, in store.UpdateUsenetServerInput) (*store.UsenetServer, error) {
+	return svc.store.UpdateUsenetServer(id, in)
+}
