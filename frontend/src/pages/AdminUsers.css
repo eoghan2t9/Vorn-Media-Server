@@ -88,14 +88,14 @@
 .vorn-table th,
 .vorn-table td {
   text-align: left;
-  padding: 0.55rem 0.75rem;
+  padding: 0.35rem 0.65rem;
   border-bottom: 1px solid var(--vorn-border);
-  font-size: 0.9rem;
+  font-size: 0.82rem;
 }
 
 .vorn-table th {
   color: var(--vorn-text-muted);
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   font-weight: 600;
@@ -129,10 +129,10 @@
   }
 
   .vorn-table tbody tr {
-    margin-bottom: 1rem;
+    margin-bottom: 0.75rem;
     border: 1px solid var(--vorn-border);
     border-radius: var(--vorn-radius);
-    padding: 0.6rem 0.75rem;
+    padding: 0.5rem 0.65rem;
   }
 
   .vorn-table td {
@@ -140,7 +140,7 @@
     justify-content: space-between;
     align-items: flex-start;
     gap: 1rem;
-    padding: 0.4rem 0;
+    padding: 0.3rem 0;
     border-bottom: 1px solid var(--vorn-border);
   }
 
