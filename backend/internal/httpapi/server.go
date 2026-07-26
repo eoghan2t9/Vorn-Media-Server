@@ -483,7 +483,11 @@ func NewRouter(deps Deps) http.Handler {
 		handler http.HandlerFunc
 	}{
 		{"GET", "/System/Info/Public", s.handleJfPublicSystemInfo},
+		{"GET", "/QuickConnect/Enabled", s.handleJfQuickConnectEnabled},
+		{"GET", "/Users/Public", s.handleJfPublicUsers},
+		{"GET", "/Branding/Configuration", s.handleJfBrandingConfiguration},
 		{"POST", "/Users/AuthenticateByName", s.handleJfAuthenticateByName},
+		{"GET", "/Users/{id}", s.withJellyfinAuth(s.handleJfUser)},
 		{"GET", "/Users/{userId}/Views", s.withJellyfinAuth(s.handleJfUserViews)},
 		{"GET", "/Users/{userId}/Items", s.withJellyfinAuth(s.handleJfItems)},
 		{"GET", "/Items", s.withJellyfinAuth(s.handleJfItems)},
@@ -496,6 +500,11 @@ func NewRouter(deps Deps) http.Handler {
 		{"POST", "/Sessions/Playing", s.withJellyfinAuth(s.jfUpdateProgress)},
 		{"POST", "/Sessions/Playing/Progress", s.withJellyfinAuth(s.jfUpdateProgress)},
 		{"POST", "/Sessions/Playing/Stopped", s.withJellyfinAuth(s.jfUpdateProgress)},
+		{"POST", "/Sessions/Capabilities", s.withJellyfinAuth(s.handleJfCapabilities)},
+		{"POST", "/Sessions/Capabilities/Full", s.withJellyfinAuth(s.handleJfCapabilities)},
+		{"GET", "/DisplayPreferences/{id}", s.withJellyfinAuth(s.handleJfGetDisplayPreferences)},
+		{"POST", "/DisplayPreferences/{id}", s.withJellyfinAuth(s.handleJfUpdateDisplayPreferences)},
+		{"GET", "/socket", s.withJellyfinAuth(s.handleJfSocket)},
 	}
 	// jfTemplates covers BOTH the bare and /emby-prefixed forms of every
 	// route -- confirmed live that even the genuine, official jellyfin-web

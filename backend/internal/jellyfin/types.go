@@ -6,11 +6,13 @@
 //
 // In scope: server discovery, AuthenticateByName, library views, item
 // browsing/detail, poster/backdrop images, PlaybackInfo (direct play only),
-// video streaming, and play-progress reporting. Out of scope for this pass:
-// user/library management (Vorn has its own admin API for that), search,
-// collections/playlists/favorites, and Jellyfin's HLS transcode-session
-// protocol -- transcoding still happens through Vorn's own player, just not
-// through a Jellyfin-shaped session negotiation.
+// video streaming, play-progress reporting, and a WebSocket keep-alive (just
+// enough for official apps to stop blocking their post-login spinner on it --
+// no real-time push, since Vorn has nothing to push). Out of scope for this
+// pass: user/library management (Vorn has its own admin API for that),
+// search, collections/playlists/favorites, and Jellyfin's HLS
+// transcode-session protocol -- transcoding still happens through Vorn's own
+// player, just not through a Jellyfin-shaped session negotiation.
 package jellyfin
 
 // TicksPerSecond is Jellyfin's tick unit: 100 nanoseconds.
@@ -25,6 +27,27 @@ func SecondsToTicks(seconds float64) int64 {
 
 func TicksToSeconds(ticks int64) float64 {
 	return float64(ticks) / TicksPerSecond
+}
+
+// BrandingOptions backs the login screen's Branding/Configuration call.
+// Vorn doesn't support custom branding, so every field is left at its
+// JSON zero value -- an empty LoginDisclaimer/CustomCss and
+// SplashscreenEnabled: false, all valid, real values.
+type BrandingOptions struct {
+	LoginDisclaimer     string `json:"LoginDisclaimer"`
+	CustomCss           string `json:"CustomCss"`
+	SplashscreenEnabled bool   `json:"SplashscreenEnabled"`
+}
+
+// DisplayPreferencesDto backs GET/POST DisplayPreferences/{id}: Vorn has its
+// own settings UI and doesn't persist per-client display prefs, so GET
+// always returns an empty CustomPrefs map (the client itself guards against
+// a missing one, but an explicit empty object is the honest, documented
+// value) and POST is a no-op.
+type DisplayPreferencesDto struct {
+	Id          string            `json:"Id"`
+	CustomPrefs map[string]string `json:"CustomPrefs"`
+	Client      string            `json:"Client,omitempty"`
 }
 
 type PublicSystemInfo struct {
@@ -44,13 +67,39 @@ type UserPolicy struct {
 	EnableAllFolders bool `json:"EnableAllFolders"`
 }
 
+// UserConfiguration is accessed directly (no safe-navigation) by several
+// real client plugins -- e.g. the chromecast plugin does
+// `getUser(id).then(u => u.Configuration.CastReceiverId)` with no guard for
+// a missing Configuration -- so UserDto must always include one, and its
+// array fields must marshal as `[]`, never `null`, since client code also
+// reads their .length directly.
+type UserConfiguration struct {
+	AudioLanguagePreference    string   `json:"AudioLanguagePreference"`
+	PlayDefaultAudioTrack      bool     `json:"PlayDefaultAudioTrack"`
+	SubtitleLanguagePreference string   `json:"SubtitleLanguagePreference"`
+	DisplayMissingEpisodes     bool     `json:"DisplayMissingEpisodes"`
+	GroupedFolders             []string `json:"GroupedFolders"`
+	SubtitleMode               string   `json:"SubtitleMode"`
+	DisplayCollectionsView     bool     `json:"DisplayCollectionsView"`
+	EnableLocalPassword        bool     `json:"EnableLocalPassword"`
+	OrderedViews               []string `json:"OrderedViews"`
+	LatestItemsExcludes        []string `json:"LatestItemsExcludes"`
+	MyMediaExcludes            []string `json:"MyMediaExcludes"`
+	HidePlayedInLatest         bool     `json:"HidePlayedInLatest"`
+	RememberAudioSelections    bool     `json:"RememberAudioSelections"`
+	RememberSubtitleSelections bool     `json:"RememberSubtitleSelections"`
+	EnableNextEpisodeAutoPlay  bool     `json:"EnableNextEpisodeAutoPlay"`
+	CastReceiverId             string   `json:"CastReceiverId"`
+}
+
 type UserDto struct {
-	Id                    string     `json:"Id"`
-	Name                  string     `json:"Name"`
-	ServerId              string     `json:"ServerId"`
-	HasPassword           bool       `json:"HasPassword"`
-	HasConfiguredPassword bool       `json:"HasConfiguredPassword"`
-	Policy                UserPolicy `json:"Policy"`
+	Id                    string            `json:"Id"`
+	Name                  string            `json:"Name"`
+	ServerId              string            `json:"ServerId"`
+	HasPassword           bool              `json:"HasPassword"`
+	HasConfiguredPassword bool              `json:"HasConfiguredPassword"`
+	Policy                UserPolicy        `json:"Policy"`
+	Configuration         UserConfiguration `json:"Configuration"`
 }
 
 type SessionInfo struct {

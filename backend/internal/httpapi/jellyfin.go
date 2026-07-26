@@ -32,7 +32,7 @@ import (
 // and the actual web client served at "/" never disagree.
 const (
 	jellyfinCompatVersion = "10.11.11"
-	embyCompatVersion     = "4.8.8.0"
+	embyCompatVersion     = "4.9.5.0"
 )
 
 // decodeJSONLenient decodes a JSON body without decodeJSON's
@@ -56,6 +56,45 @@ func (s *Server) handleJfPublicSystemInfo(w http.ResponseWriter, r *http.Request
 		Id:                     s.serverID,
 		StartupWizardCompleted: true,
 	})
+}
+
+// handleJfQuickConnectEnabled, handleJfPublicUsers, and
+// handleJfBrandingConfiguration back the login screen's own preload calls --
+// confirmed live (headless browser against the real bundled jellyfin-web)
+// that these being unregistered, not the login POST itself, is what made the
+// screen hang: two of the three throw an uncaught "Unexpected token '<' is
+// not valid JSON" pageerror when the "/" SPA catch-all hands back
+// index.html, since the client calls all three before a user ever submits
+// credentials. Vorn has no quick-connect, no public/quick-select user list,
+// and no custom branding, so honest empty/disabled responses are correct,
+// not just a workaround.
+func (s *Server) handleJfQuickConnectEnabled(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, false)
+}
+
+func (s *Server) handleJfPublicUsers(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, []jellyfin.UserDto{})
+}
+
+func (s *Server) handleJfBrandingConfiguration(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, jellyfin.BrandingOptions{})
+}
+
+// handleJfGetDisplayPreferences/handleJfUpdateDisplayPreferences back
+// GET/POST DisplayPreferences/{id} -- called right after login (before the
+// client ever navigates to the home screen), so confirmed live that leaving
+// this unregistered (same "/" SPA-catch-all-returns-HTML-with-200" failure
+// as Users/Public and Branding/Configuration) blocked the post-login
+// redirect entirely, leaving the login screen showing forever.
+func (s *Server) handleJfGetDisplayPreferences(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, jellyfin.DisplayPreferencesDto{
+		Id:          r.PathValue("id"),
+		CustomPrefs: map[string]string{},
+	})
+}
+
+func (s *Server) handleJfUpdateDisplayPreferences(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNoContent)
 }
 
 type jfAuthRequest struct {
@@ -91,18 +130,62 @@ func (s *Server) handleJfAuthenticateByName(w http.ResponseWriter, r *http.Reque
 	}
 
 	writeJSON(w, http.StatusOK, jellyfin.AuthenticationResult{
-		User: jellyfin.UserDto{
-			Id:                    user.ID,
-			Name:                  user.Username,
-			ServerId:              s.serverID,
-			HasPassword:           true,
-			HasConfiguredPassword: true,
-			Policy:                jellyfin.UserPolicy{IsAdministrator: user.IsAdmin, EnableAllFolders: true},
-		},
+		User:        s.toJfUserDto(user),
 		SessionInfo: jellyfin.SessionInfo{Id: tokenHash[:16], UserId: user.ID, UserName: user.Username},
 		AccessToken: token,
 		ServerId:    s.serverID,
 	})
+}
+
+func (s *Server) toJfUserDto(user *store.User) jellyfin.UserDto {
+	return jellyfin.UserDto{
+		Id:                    user.ID,
+		Name:                  user.Username,
+		ServerId:              s.serverID,
+		HasPassword:           true,
+		HasConfiguredPassword: true,
+		Policy:                jellyfin.UserPolicy{IsAdministrator: user.IsAdmin, EnableAllFolders: true},
+		Configuration: jellyfin.UserConfiguration{
+			PlayDefaultAudioTrack:      true,
+			GroupedFolders:             []string{},
+			OrderedViews:               []string{},
+			LatestItemsExcludes:        []string{},
+			MyMediaExcludes:            []string{},
+			HidePlayedInLatest:         true,
+			RememberAudioSelections:    true,
+			RememberSubtitleSelections: true,
+			EnableNextEpisodeAutoPlay:  true,
+		},
+	}
+}
+
+// handleJfUser backs GET /Users/{id} -- the bare "look up this user" route
+// jellyfin-web calls repeatedly on the home screen (distinct from
+// /Users/{userId}/Views or /Items). Confirmed live it's called right after
+// login and, left unregistered, hit the same "/" SPA-catch-all JSON-parse
+// failure as the other login-adjacent routes.
+func (s *Server) handleJfUser(w http.ResponseWriter, r *http.Request) {
+	user, err := s.store.GetUserByID(r.PathValue("id"))
+	if err != nil {
+		s.writeStoreErr(w, err, "loading user")
+		return
+	}
+	writeJSON(w, http.StatusOK, s.toJfUserDto(user))
+}
+
+// handleJfCapabilities backs both Sessions/Capabilities (query-string form)
+// and Sessions/Capabilities/Full (JSON body): official clients POST here
+// immediately after AuthenticateByName to report their supported codecs/
+// playback features. Confirmed live that this route being unregistered (it
+// fell through to the "/" SPA catch-all and got index.html back with a 200)
+// made the client treat the just-succeeded login as broken and restart its
+// whole connect sequence from scratch -- an endless AuthenticateByName retry
+// loop that looked like the login screen hanging. Vorn always offers direct
+// play (see handleJfPlaybackInfo), so there's nothing in the reported
+// capabilities Vorn needs to act on; an honest 204 is all real Jellyfin
+// servers send back too.
+func (s *Server) handleJfCapabilities(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // toJfItem converts a media item into a BaseItemDto, filling in the poster/
