@@ -8,9 +8,11 @@ import {
   type ContentRequest,
   type DiscoverResult,
 } from '../api/client'
+import { Pagination } from '../components/Pagination'
 import { Poster } from '../components/Poster'
 import { RatingBadge } from '../components/RatingBadge'
 import { Select } from '../components/Select'
+import { usePagination } from '../components/usePagination'
 import './ViewerHome.css'
 import './AdminUsers.css'
 import './Requests.css'
@@ -78,6 +80,8 @@ export function Requests() {
   function existingRequestFor(tmdbId: number, type: 'movie' | 'series') {
     return myRequests.find((r) => r.tmdbId === tmdbId && r.mediaType === type)
   }
+
+  const myRequestsPage = usePagination(myRequests)
 
   return (
     <div className="vorn-requests-page">
@@ -154,7 +158,7 @@ export function Requests() {
                 </tr>
               </thead>
               <tbody>
-                {myRequests.map((r) => (
+                {myRequestsPage.pageItems.map((r) => (
                   <tr key={r.id}>
                     <td data-label="Title">{r.title}</td>
                     <td data-label="Type">{r.mediaType}</td>
@@ -191,6 +195,7 @@ export function Requests() {
             </table>
           </div>
         )}
+        <Pagination page={myRequestsPage.page} totalPages={myRequestsPage.totalPages} onChange={myRequestsPage.setPage} />
       </div>
     </div>
   )

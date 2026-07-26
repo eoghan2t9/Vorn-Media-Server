@@ -8,7 +8,9 @@ import {
   type ContentRequest,
   type ContentRequestStatus,
 } from '../api/client'
+import { Pagination } from '../components/Pagination'
 import { Select } from '../components/Select'
+import { usePagination } from '../components/usePagination'
 import './AdminUsers.css'
 
 const STATUS_FILTERS: { value: string; label: string }[] = [
@@ -25,6 +27,7 @@ export function AdminRequests() {
   const [error, setError] = useState<string | null>(null)
   const [decidingId, setDecidingId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const requestsPage = usePagination(requests)
 
   function load() {
     listAdminContentRequests((statusFilter || undefined) as ContentRequestStatus | undefined)
@@ -33,6 +36,11 @@ export function AdminRequests() {
   }
 
   useEffect(load, [statusFilter])
+  // Changing the status filter swaps in an entirely different set of
+  // requests -- staying on, say, page 3 of "Pending" after switching to
+  // "Declined" would likely just show an empty/truncated page instead of
+  // that filter's actual first results.
+  useEffect(() => requestsPage.setPage(1), [statusFilter])
 
   async function handleDecide(id: string, status: 'approved' | 'declined') {
     setError(null)
@@ -92,7 +100,7 @@ export function AdminRequests() {
                 </tr>
               </thead>
               <tbody>
-                {requests.map((r) => (
+                {requestsPage.pageItems.map((r) => (
                   <tr key={r.id}>
                     <td data-label="Title">{r.title}</td>
                     <td data-label="Type">{r.mediaType}</td>
@@ -140,6 +148,7 @@ export function AdminRequests() {
             </table>
           </div>
         )}
+        <Pagination page={requestsPage.page} totalPages={requestsPage.totalPages} onChange={requestsPage.setPage} />
       </div>
     </section>
   )

@@ -1,0 +1,9 @@
+.vorn-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  margin: 0.75rem 0 0;
+  font-size: 0.85rem;
+  color: var(--vorn-text-muted);
+}

@@ -25,7 +25,9 @@ import {
   type UsenetServerProvider,
 } from '../api/client'
 import { FileDropzone, type FileDropzoneHandle } from '../components/FileDropzone'
+import { Pagination } from '../components/Pagination'
 import { Select } from '../components/Select'
+import { usePagination } from '../components/usePagination'
 import './AdminUsers.css'
 
 function formatBytes(n: number) {
@@ -371,6 +373,7 @@ export function AdminNzb() {
     setSearching(true)
     try {
       setResults(await searchNZB(query))
+      resultsPage.setPage(1)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Search failed')
     } finally {
@@ -390,6 +393,9 @@ export function AdminNzb() {
       setDownloadingResult(null)
     }
   }
+
+  const downloadsPage = usePagination(downloads)
+  const resultsPage = usePagination(results ?? [])
 
   return (
     <section className="vorn-admin-page">
@@ -415,7 +421,7 @@ export function AdminNzb() {
             </tr>
           </thead>
           <tbody>
-            {downloads.map((n) => (
+            {downloadsPage.pageItems.map((n) => (
               <tr key={n.id}>
                 <td data-label="Name">{n.name}</td>
                 <td data-label="Status">{n.status === 'error' ? `error: ${n.error}` : n.status}</td>
@@ -439,6 +445,7 @@ export function AdminNzb() {
           </tbody>
         </table>
         </div>
+        <Pagination page={downloadsPage.page} totalPages={downloadsPage.totalPages} onChange={downloadsPage.setPage} />
       </div>
 
       <div className="vorn-panel">
@@ -474,6 +481,7 @@ export function AdminNzb() {
           </button>
         </form>
         {results && (
+          <>
           <div className="vorn-table-wrap">
           <table className="vorn-table">
             <thead>
@@ -485,7 +493,7 @@ export function AdminNzb() {
               </tr>
             </thead>
             <tbody>
-              {results.map((r, i) => (
+              {resultsPage.pageItems.map((r, i) => (
                 <tr key={i}>
                   <td data-label="Title">{r.title}</td>
                   <td data-label="Indexer">{r.indexerName}</td>
@@ -504,6 +512,8 @@ export function AdminNzb() {
             </tbody>
           </table>
           </div>
+          <Pagination page={resultsPage.page} totalPages={resultsPage.totalPages} onChange={resultsPage.setPage} />
+          </>
         )}
       </div>
 

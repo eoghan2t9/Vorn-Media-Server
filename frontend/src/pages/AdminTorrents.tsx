@@ -20,7 +20,9 @@ import {
   type TorrentSearchResult,
 } from '../api/client'
 import { FileDropzone, type FileDropzoneHandle } from '../components/FileDropzone'
+import { Pagination } from '../components/Pagination'
 import { Select } from '../components/Select'
+import { usePagination } from '../components/usePagination'
 import './AdminUsers.css'
 
 function formatBytes(n: number) {
@@ -230,6 +232,7 @@ export function AdminTorrents() {
     setSearching(true)
     try {
       setResults(await searchTorrents(q))
+      resultsPage.setPage(1)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Search failed')
     } finally {
@@ -264,6 +267,9 @@ export function AdminTorrents() {
     }
   }
 
+  const torrentsPage = usePagination(torrents)
+  const resultsPage = usePagination(results ?? [])
+
   return (
     <section className="vorn-admin-page">
       <div className="vorn-admin-page-header">
@@ -288,7 +294,7 @@ export function AdminTorrents() {
             </tr>
           </thead>
           <tbody>
-            {torrents.map((t) => (
+            {torrentsPage.pageItems.map((t) => (
               <tr key={t.id}>
                 <td data-label="Name">{t.name || t.infoHash}</td>
                 <td data-label="Status">{t.status === 'error' ? `error: ${t.error}` : t.status}</td>
@@ -312,6 +318,7 @@ export function AdminTorrents() {
           </tbody>
         </table>
         </div>
+        <Pagination page={torrentsPage.page} totalPages={torrentsPage.totalPages} onChange={torrentsPage.setPage} />
       </div>
 
       <div className="vorn-panel">
@@ -362,6 +369,7 @@ export function AdminTorrents() {
           </button>
         </form>
         {results && (
+          <>
           <div className="vorn-table-wrap">
           <table className="vorn-table">
             <thead>
@@ -374,7 +382,7 @@ export function AdminTorrents() {
               </tr>
             </thead>
             <tbody>
-              {results.map((r, i) => (
+              {resultsPage.pageItems.map((r, i) => (
                 <tr key={i}>
                   <td data-label="Title">{r.title}</td>
                   <td data-label="Indexer">{r.indexerName}</td>
@@ -390,6 +398,8 @@ export function AdminTorrents() {
             </tbody>
           </table>
           </div>
+          <Pagination page={resultsPage.page} totalPages={resultsPage.totalPages} onChange={resultsPage.setPage} />
+          </>
         )}
       </div>
 

@@ -22,7 +22,9 @@ const DEBRID_PROVIDERS: { value: DebridProvider; label: string }[] = [
   { value: 'premiumize', label: 'Premiumize' },
   { value: 'debridlink', label: 'Debrid-Link' },
 ]
+import { Pagination } from '../components/Pagination'
 import { Select } from '../components/Select'
+import { usePagination } from '../components/usePagination'
 import './AdminUsers.css'
 
 export function AdminDebrid() {
@@ -126,6 +128,8 @@ export function AdminDebrid() {
     }
   }
 
+  const itemsPage = usePagination(items)
+
   return (
     <section className="vorn-admin-page">
       <div className="vorn-admin-page-header">
@@ -149,7 +153,7 @@ export function AdminDebrid() {
             </tr>
           </thead>
           <tbody>
-            {items.map((it) => (
+            {itemsPage.pageItems.map((it) => (
               <tr key={it.id}>
                 <td data-label="Name">{it.name || it.sourceRef}</td>
                 <td data-label="Status">{it.status === 'error' ? `error: ${it.error}` : it.status}</td>
@@ -164,6 +168,7 @@ export function AdminDebrid() {
           </tbody>
         </table>
         </div>
+        <Pagination page={itemsPage.page} totalPages={itemsPage.totalPages} onChange={itemsPage.setPage} />
       </div>
 
       <div className="vorn-panel">
