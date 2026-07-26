@@ -21,7 +21,6 @@ import { DirectoryBrowser } from '../components/DirectoryBrowser'
 import { Select } from '../components/Select'
 import { FolderIcon } from '../components/icons'
 import './AdminUsers.css'
-import './AdminLibraries.css'
 
 export function AdminLibraries() {
   const [libraries, setLibraries] = useState<Library[]>([])

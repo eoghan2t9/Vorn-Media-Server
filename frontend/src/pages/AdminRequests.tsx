@@ -94,13 +94,13 @@ export function AdminRequests() {
               <tbody>
                 {requests.map((r) => (
                   <tr key={r.id}>
-                    <td>{r.title}</td>
-                    <td>{r.mediaType}</td>
-                    <td>{r.requester}</td>
-                    <td>
+                    <td data-label="Title">{r.title}</td>
+                    <td data-label="Type">{r.mediaType}</td>
+                    <td data-label="Requested by">{r.requester}</td>
+                    <td data-label="Status">
                       <span className={`vorn-status-badge vorn-status-badge-${r.status}`}>{r.status}</span>
                     </td>
-                    <td>
+                    <td data-label="Actions">
                       <div className="vorn-button-group">
                         {r.status === 'pending' && (
                           <>

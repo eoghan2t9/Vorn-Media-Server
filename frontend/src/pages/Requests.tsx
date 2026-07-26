@@ -156,12 +156,12 @@ export function Requests() {
               <tbody>
                 {myRequests.map((r) => (
                   <tr key={r.id}>
-                    <td>{r.title}</td>
-                    <td>{r.mediaType}</td>
-                    <td>
+                    <td data-label="Title">{r.title}</td>
+                    <td data-label="Type">{r.mediaType}</td>
+                    <td data-label="Status">
                       <span className={`vorn-status-badge vorn-status-badge-${r.status}`}>{r.status}</span>
                     </td>
-                    <td>
+                    <td data-label="Acquisition">
                       {r.fulfillments.length === 0 ? (
                         <span className="vorn-panel-subtitle">Starting…</span>
                       ) : (
@@ -178,7 +178,7 @@ export function Requests() {
                         </div>
                       )}
                     </td>
-                    <td>
+                    <td data-label="Actions">
                       {r.status === 'pending' && (
                         <button type="button" className="vorn-btn-danger" onClick={() => handleWithdraw(r.id)}>
                           Withdraw

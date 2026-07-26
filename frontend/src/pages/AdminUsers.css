@@ -109,6 +109,73 @@
   background: color-mix(in srgb, var(--vorn-accent) 6%, transparent);
 }
 
+/* Every admin table has too many columns (and often a multi-button action
+   group) to reflow on a phone screen, even with .vorn-table-wrap's
+   horizontal scroll -- below this breakpoint each row becomes a labeled
+   card instead, so nothing needs sideways scrolling to read or act on.
+   Requires each <td> to carry a data-label matching its column header
+   (data-label="Actions" for a trailing header-less button-group column). */
+@media (max-width: 640px) {
+  .vorn-table thead {
+    display: none;
+  }
+
+  .vorn-table,
+  .vorn-table tbody,
+  .vorn-table tr,
+  .vorn-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .vorn-table tbody tr {
+    margin-bottom: 1rem;
+    border: 1px solid var(--vorn-border);
+    border-radius: var(--vorn-radius);
+    padding: 0.6rem 0.75rem;
+  }
+
+  .vorn-table td {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+    padding: 0.4rem 0;
+    border-bottom: 1px solid var(--vorn-border);
+  }
+
+  .vorn-table td:last-child {
+    border-bottom: none;
+  }
+
+  .vorn-table td[data-label]::before {
+    content: attr(data-label);
+    flex-shrink: 0;
+    font-size: 0.78rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--vorn-text-muted);
+  }
+
+  /* Actions has no inline text of its own (just the button group), so its
+     label and the buttons read better stacked than side-by-side. */
+  .vorn-table td[data-label='Actions'] {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+  }
+
+  /* AdminAbout's system table uses a <th>label</th><td>value</td> row
+     pattern instead of a <thead> column-header row (nothing to reflow --
+     it's a 2-column key/value list already), so it needs the row's own
+     <th> blockified too rather than a data-label pseudo-element. */
+  .vorn-table th {
+    display: block;
+    width: 100%;
+  }
+}
+
 .vorn-inline-form {
   display: flex;
   flex-wrap: wrap;

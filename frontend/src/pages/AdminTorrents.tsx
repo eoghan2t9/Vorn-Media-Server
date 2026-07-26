@@ -290,14 +290,14 @@ export function AdminTorrents() {
           <tbody>
             {torrents.map((t) => (
               <tr key={t.id}>
-                <td>{t.name || t.infoHash}</td>
-                <td>{t.status === 'error' ? `error: ${t.error}` : t.status}</td>
-                <td>
+                <td data-label="Name">{t.name || t.infoHash}</td>
+                <td data-label="Status">{t.status === 'error' ? `error: ${t.error}` : t.status}</td>
+                <td data-label="Progress">
                   {formatBytes(t.bytesDone)} / {formatBytes(t.bytesTotal)}
                   {t.bytesTotal > 0 ? ` (${Math.floor((100 * t.bytesDone) / t.bytesTotal)}%)` : ''}
                 </td>
-                <td>{t.sequential ? 'yes' : 'no'}</td>
-                <td>
+                <td data-label="Sequential">{t.sequential ? 'yes' : 'no'}</td>
+                <td data-label="Actions">
                   <div className="vorn-button-group">
                     <button type="button" className="vorn-btn-danger" onClick={() => handleRemove(t.id, false)}>
                       Remove
@@ -376,11 +376,11 @@ export function AdminTorrents() {
             <tbody>
               {results.map((r, i) => (
                 <tr key={i}>
-                  <td>{r.title}</td>
-                  <td>{r.indexerName}</td>
-                  <td>{formatBytes(r.sizeBytes)}</td>
-                  <td>{r.seeders}</td>
-                  <td>
+                  <td data-label="Title">{r.title}</td>
+                  <td data-label="Indexer">{r.indexerName}</td>
+                  <td data-label="Size">{formatBytes(r.sizeBytes)}</td>
+                  <td data-label="Seeders">{r.seeders}</td>
+                  <td data-label="Actions">
                     <button type="button" onClick={() => handleDownloadResult(r)}>
                       Download
                     </button>
@@ -410,10 +410,10 @@ export function AdminTorrents() {
           <tbody>
             {indexers.map((idx) => (
               <tr key={idx.id}>
-                <td>{idx.name}</td>
-                <td>{idx.provider === 'torbox' ? 'TorBox' : 'Torznab'}</td>
-                <td>{idx.provider === 'torbox' ? '—' : idx.baseUrl}</td>
-                <td>
+                <td data-label="Name">{idx.name}</td>
+                <td data-label="Type">{idx.provider === 'torbox' ? 'TorBox' : 'Torznab'}</td>
+                <td data-label="Base URL">{idx.provider === 'torbox' ? '—' : idx.baseUrl}</td>
+                <td data-label="Actions">
                   <div className="vorn-button-group">
                     <button type="button" onClick={() => handleEditIndexer(idx)}>
                       Edit

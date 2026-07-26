@@ -151,10 +151,10 @@ export function AdminDebrid() {
           <tbody>
             {items.map((it) => (
               <tr key={it.id}>
-                <td>{it.name || it.sourceRef}</td>
-                <td>{it.status === 'error' ? `error: ${it.error}` : it.status}</td>
-                <td>{it.promoted ? 'yes' : 'no'}</td>
-                <td>
+                <td data-label="Name">{it.name || it.sourceRef}</td>
+                <td data-label="Status">{it.status === 'error' ? `error: ${it.error}` : it.status}</td>
+                <td data-label="Promoted">{it.promoted ? 'yes' : 'no'}</td>
+                <td data-label="Actions">
                   <button type="button" className="vorn-btn-danger" onClick={() => handleRemove(it.id)}>
                     Remove
                   </button>
@@ -216,9 +216,9 @@ export function AdminDebrid() {
           <tbody>
             {accounts.map((a) => (
               <tr key={a.id}>
-                <td>{a.provider}</td>
-                <td>{a.enabled ? 'yes' : 'no'}</td>
-                <td>
+                <td data-label="Provider">{a.provider}</td>
+                <td data-label="Enabled">{a.enabled ? 'yes' : 'no'}</td>
+                <td data-label="Actions">
                   <button type="button" className="vorn-btn-danger" onClick={() => handleDeleteAccount(a.id)}>
                     Delete
                   </button>

@@ -417,14 +417,14 @@ export function AdminNzb() {
           <tbody>
             {downloads.map((n) => (
               <tr key={n.id}>
-                <td>{n.name}</td>
-                <td>{n.status === 'error' ? `error: ${n.error}` : n.status}</td>
-                <td>
+                <td data-label="Name">{n.name}</td>
+                <td data-label="Status">{n.status === 'error' ? `error: ${n.error}` : n.status}</td>
+                <td data-label="Progress">
                   {formatBytes(n.bytesDone)} / {formatBytes(n.bytesTotal)}
                   {n.bytesTotal > 0 ? ` (${Math.floor((100 * n.bytesDone) / n.bytesTotal)}%)` : ''}
                 </td>
-                <td>{n.promoted ? 'yes' : 'no'}</td>
-                <td>
+                <td data-label="Promoted">{n.promoted ? 'yes' : 'no'}</td>
+                <td data-label="Actions">
                   <div className="vorn-button-group">
                     <button type="button" className="vorn-btn-danger" onClick={() => handleRemove(n.id, false)}>
                       Remove
@@ -487,10 +487,10 @@ export function AdminNzb() {
             <tbody>
               {results.map((r, i) => (
                 <tr key={i}>
-                  <td>{r.title}</td>
-                  <td>{r.indexerName}</td>
-                  <td>{formatBytes(r.sizeBytes)}</td>
-                  <td>
+                  <td data-label="Title">{r.title}</td>
+                  <td data-label="Indexer">{r.indexerName}</td>
+                  <td data-label="Size">{formatBytes(r.sizeBytes)}</td>
+                  <td data-label="Actions">
                     <button
                       type="button"
                       onClick={() => handleDownloadResult(r)}
@@ -527,9 +527,9 @@ export function AdminNzb() {
           <tbody>
             {indexers.map((idx) => (
               <tr key={idx.id}>
-                <td>{idx.name}</td>
-                <td>{idx.baseUrl}</td>
-                <td>
+                <td data-label="Name">{idx.name}</td>
+                <td data-label="Base URL">{idx.baseUrl}</td>
+                <td data-label="Actions">
                   <div className="vorn-button-group">
                     <button type="button" onClick={() => handleEditIndexer(idx)}>
                       Edit
@@ -605,13 +605,13 @@ export function AdminNzb() {
           <tbody>
             {servers.map((s) => (
               <tr key={s.id}>
-                <td>{s.name}</td>
-                <td>{s.provider === 'torbox' ? 'TorBox' : 'NNTP'}</td>
-                <td>{s.provider === 'torbox' ? '—' : s.host}</td>
-                <td>{s.provider === 'torbox' ? '—' : s.port}</td>
-                <td>{s.provider === 'torbox' ? '—' : s.useTls ? 'yes' : 'no'}</td>
-                <td>{s.provider === 'torbox' ? '—' : s.maxConnections}</td>
-                <td>
+                <td data-label="Name">{s.name}</td>
+                <td data-label="Provider">{s.provider === 'torbox' ? 'TorBox' : 'NNTP'}</td>
+                <td data-label="Host">{s.provider === 'torbox' ? '—' : s.host}</td>
+                <td data-label="Port">{s.provider === 'torbox' ? '—' : s.port}</td>
+                <td data-label="TLS">{s.provider === 'torbox' ? '—' : s.useTls ? 'yes' : 'no'}</td>
+                <td data-label="Max conns">{s.provider === 'torbox' ? '—' : s.maxConnections}</td>
+                <td data-label="Actions">
                   <div className="vorn-button-group">
                     <button type="button" onClick={() => handleEditServer(s)}>
                       Edit
