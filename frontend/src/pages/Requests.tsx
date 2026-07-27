@@ -169,7 +169,7 @@ export function Requests() {
                       {r.fulfillments.length === 0 ? (
                         <span className="vorn-panel-subtitle">Starting…</span>
                       ) : (
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
+                        <div style={{ display: 'flex', flexWrap: 'nowrap', gap: '0.35rem' }}>
                           {r.fulfillments.map((f) => (
                             <span
                               key={f.libraryId}

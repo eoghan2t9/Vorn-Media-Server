@@ -94,6 +94,16 @@
   padding: 0.3rem 0.6rem;
   border-bottom: 1px solid var(--vorn-border);
   font-size: 0.8rem;
+  /* Long content (torrent names, base URLs, multiple action buttons)
+     wrapping onto a second line was the other thing still puffing rows
+     out beyond the tightened padding/font-size -- force one line and let
+     .vorn-table-wrap's horizontal scroll handle whatever doesn't fit,
+     same as it already does for the table being wider than the screen. */
+  white-space: nowrap;
+}
+
+.vorn-table td .vorn-button-group {
+  flex-wrap: nowrap;
 }
 
 .vorn-table th {
