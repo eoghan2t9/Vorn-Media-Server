@@ -50,11 +50,11 @@ export function AdminCurrentlyWatching() {
                 const pct = e.durationSeconds > 0 ? Math.round((e.positionSeconds / e.durationSeconds) * 100) : 0
                 return (
                   <tr key={`${e.username}-${e.item.id}`}>
-                    <td data-label="User">{e.username}</td>
-                    <td data-label="Title">
+                    <td>{e.username}</td>
+                    <td>
                       <Link to={`/items/${e.item.id}`}>{e.item.title}</Link>
                     </td>
-                    <td data-label="Progress">{pct}%</td>
+                    <td>{pct}%</td>
                   </tr>
                 )
               })}

@@ -160,12 +160,12 @@ export function Requests() {
               <tbody>
                 {myRequestsPage.pageItems.map((r) => (
                   <tr key={r.id}>
-                    <td data-label="Title">{r.title}</td>
-                    <td data-label="Type">{r.mediaType}</td>
-                    <td data-label="Status">
+                    <td>{r.title}</td>
+                    <td>{r.mediaType}</td>
+                    <td>
                       <span className={`vorn-status-badge vorn-status-badge-${r.status}`}>{r.status}</span>
                     </td>
-                    <td data-label="Acquisition">
+                    <td>
                       {r.fulfillments.length === 0 ? (
                         <span className="vorn-panel-subtitle">Starting…</span>
                       ) : (
@@ -182,7 +182,7 @@ export function Requests() {
                         </div>
                       )}
                     </td>
-                    <td data-label="Actions">
+                    <td>
                       {r.status === 'pending' && (
                         <button type="button" className="vorn-btn-danger" onClick={() => handleWithdraw(r.id)}>
                           Withdraw

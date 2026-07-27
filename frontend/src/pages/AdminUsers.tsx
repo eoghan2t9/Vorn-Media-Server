@@ -95,9 +95,9 @@ export function AdminUsers() {
           <tbody>
             {users.map((u) => (
               <tr key={u.id}>
-                <td data-label="Username">{u.username}</td>
-                <td data-label="Role">{u.isAdmin ? 'Admin (all libraries)' : 'Standard'}</td>
-                <td data-label="Library access">
+                <td>{u.username}</td>
+                <td>{u.isAdmin ? 'Admin (all libraries)' : 'Standard'}</td>
+                <td>
                   {!u.isAdmin && (
                     <MultiSelect
                       value={permissions[u.id] ?? []}
@@ -107,7 +107,7 @@ export function AdminUsers() {
                     />
                   )}
                 </td>
-                <td data-label="Actions">
+                <td>
                   <button type="button" className="vorn-btn-danger" onClick={() => handleDelete(u.id)}>
                     Delete
                   </button>

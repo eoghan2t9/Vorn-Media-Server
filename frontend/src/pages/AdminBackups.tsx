@@ -178,9 +178,9 @@ export function AdminBackups() {
               <tbody>
                 {autoBackups.map((b) => (
                   <tr key={b.filename}>
-                    <td data-label="Created">{new Date(b.createdAt).toLocaleString()}</td>
-                    <td data-label="Size">{formatBytes(b.sizeBytes)}</td>
-                    <td data-label="Actions">
+                    <td>{new Date(b.createdAt).toLocaleString()}</td>
+                    <td>{formatBytes(b.sizeBytes)}</td>
+                    <td>
                       <div className="vorn-button-group">
                         <a href={autoBackupDownloadUrl(b.filename)} className="vorn-link-button-plain" download>
                           Download

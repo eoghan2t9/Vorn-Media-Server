@@ -161,7 +161,7 @@ export function AdminLibraries() {
           <h2>All libraries</h2>
         </div>
         <div className="vorn-table-wrap">
-        <table className="vorn-table vorn-libraries-table">
+        <table className="vorn-table">
         <thead>
           <tr>
             <th>Name</th>
@@ -179,7 +179,7 @@ export function AdminLibraries() {
             return (
               <Fragment key={l.id}>
                 <tr>
-                  <td data-label="Name">
+                  <td>
                     {l.name}
                     {l.is4K && (
                       <span className="vorn-user-badge" style={{ marginLeft: '0.5rem' }} title="4K-only library">
@@ -196,19 +196,19 @@ export function AdminLibraries() {
                       </span>
                     )}
                   </td>
-                  <td data-label="Type">{l.type}</td>
-                  <td data-label="Folders">{l.folders.join(', ')}</td>
-                  <td data-label="Scan status">
+                  <td>{l.type}</td>
+                  <td>{l.folders.join(', ')}</td>
+                  <td>
                     {scanJob ? `${scanJob.status} (${scanJob.filesSynced}/${scanJob.filesFound} files)` : '—'}
                   </td>
-                  <td data-label="Metadata status">
+                  <td>
                     {metaJob
                       ? metaJob.status === 'failed'
                         ? `failed: ${metaJob.error}`
                         : `${metaJob.status} (${metaJob.itemsMatched}/${metaJob.itemsFound} matched)`
                       : '—'}
                   </td>
-                  <td data-label="Actions">
+                  <td>
                     <div className="vorn-button-group">
                       <button type="button" onClick={() => handleScan(l.id)} disabled={scanJob?.status === 'running'}>
                         {scanJob?.status === 'running' ? 'Scanning…' : 'Scan'}

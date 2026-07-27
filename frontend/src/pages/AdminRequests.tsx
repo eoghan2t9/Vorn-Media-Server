@@ -102,13 +102,13 @@ export function AdminRequests() {
               <tbody>
                 {requestsPage.pageItems.map((r) => (
                   <tr key={r.id}>
-                    <td data-label="Title">{r.title}</td>
-                    <td data-label="Type">{r.mediaType}</td>
-                    <td data-label="Requested by">{r.requester}</td>
-                    <td data-label="Status">
+                    <td>{r.title}</td>
+                    <td>{r.mediaType}</td>
+                    <td>{r.requester}</td>
+                    <td>
                       <span className={`vorn-status-badge vorn-status-badge-${r.status}`}>{r.status}</span>
                     </td>
-                    <td data-label="Actions">
+                    <td>
                       <div className="vorn-button-group">
                         {r.status === 'pending' && (
                           <>
