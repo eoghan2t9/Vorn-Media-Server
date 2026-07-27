@@ -91,9 +91,9 @@
 .vorn-table th,
 .vorn-table td {
   text-align: left;
-  padding: 0.35rem 0.65rem;
+  padding: 0.3rem 0.6rem;
   border-bottom: 1px solid var(--vorn-border);
-  font-size: 0.82rem;
+  font-size: 0.8rem;
 }
 
 .vorn-table th {
@@ -102,6 +102,16 @@
   text-transform: uppercase;
   letter-spacing: 0.04em;
   font-weight: 600;
+}
+
+/* The global button style (index.css) is sized for standalone buttons in
+   forms, not a table's action column -- at that padding/font-size a button
+   is taller than any text cell next to it, so it alone was setting the
+   floor on every row's height regardless of how tight the cell padding
+   above is. */
+.vorn-table td button {
+  padding: 0.25rem 0.55rem;
+  font-size: 0.78rem;
 }
 
 .vorn-table tbody tr {
