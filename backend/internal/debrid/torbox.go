@@ -201,8 +201,13 @@ func (c *TorBoxClient) waitForCache(ctx context.Context, apiKey string, torrentI
 				return nil, err
 			}
 		}
-		if item != nil && item.DownloadFinished {
-			return item.Files, nil
+		if item != nil {
+			if item.failed() {
+				return nil, &ClassifiedError{Kind: FailurePermanent, Err: fmt.Errorf("torbox: torrent %d: %s", torrentID, item.DownloadState)}
+			}
+			if item.DownloadFinished {
+				return item.Files, nil
+			}
 		}
 		if time.Now().After(deadline) {
 			return nil, fmt.Errorf("torbox: torrent %d: timed out waiting for caching to finish", torrentID)
@@ -256,7 +261,18 @@ type tbFile struct {
 type tbTorrentInfo struct {
 	ID               int      `json:"id"`
 	DownloadFinished bool     `json:"download_finished"`
+	// DownloadState mirrors the field on tbUsenetInfo -- carries
+	// human-readable states like "downloading", "completed", "failed",
+	// or "cached". A dead/invalid torrent shows up as "failed" here,
+	// letting waitForCache bail out immediately instead of polling until
+	// the 20-minute tbPollTimeout.
+	DownloadState    string   `json:"download_state"`
 	Files            []tbFile `json:"files"`
+}
+
+func (i *tbTorrentInfo) failed() bool {
+	s := strings.ToLower(i.DownloadState)
+	return strings.Contains(s, "failed") || strings.Contains(s, "invalid") || strings.Contains(s, "error")
 }
 
 func (c *TorBoxClient) torrentInfo(ctx context.Context, apiKey string, torrentID int) (*tbTorrentInfo, error) {

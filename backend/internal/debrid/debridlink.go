@@ -168,6 +168,14 @@ func (c *DebridLinkClient) waitUntilReady(ctx context.Context, apiKey, id string
 			return nil, fmt.Errorf("debridlink: torrent %s not found while polling status", id)
 		}
 		t := resp.Value[0]
+		// Status 0 = paused, 1 = queued, 2 = verification, 4 = downloading,
+		// 8 = seeding, 100 = finished -- any negative status is not
+		// documented and indicates a terminal error (dead torrent, removed
+		// by provider, etc). Fail fast rather than polling until the
+		// 20-minute dlPollTimeout.
+		if t.Status < 0 {
+			return nil, &ClassifiedError{Kind: FailurePermanent, Err: fmt.Errorf("debridlink: torrent %s: terminal status %d", id, t.Status)}
+		}
 		if t.DownloadPercent >= 100 {
 			out := make([]ResolvedFile, 0, len(t.Files))
 			for _, f := range t.Files {

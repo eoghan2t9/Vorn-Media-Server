@@ -26,10 +26,17 @@ const (
 	// -- independent of debrid.Service's own internal resolveTimeout
 	// (20 min), which keeps running in the background regardless until its
 	// own context is cancelled (see raceTorrentCandidates).
-	candidateTimeout = 5 * time.Minute
+	// candidateTimeout bounds how long a whole debrid resolve race is
+	// watched before giving up. 5 minutes was too generous: if a candidate
+	// hits a provider without dead-torrent detection (e.g. TorBox before
+	// it had a failed() check), the entire race sits idle for 5 minutes
+	// before falling back to NZB. 2 minutes is enough time for even a
+	// slow-caching provider to finish, while keeping the fallback delay
+	// tolerable.
+	candidateTimeout = 2 * time.Minute
 	// candidateTimeoutNZB is far more generous than candidateTimeout: a real
 	// NZB download+repair genuinely takes minutes (bounded by connection
-	// speed and file size), unlike debrid's near-instant cache-check, so 5
+	// speed and file size), unlike debrid's near-instant cache-check, so 2
 	// minutes would give up on most perfectly-good downloads before they
 	// could ever finish.
 	candidateTimeoutNZB = 20 * time.Minute
@@ -355,6 +362,9 @@ func (s *Service) runAcquire(item *store.MediaItem) {
 	s.ensureExpectedRuntime(runtimeCtx, item)
 	cancel()
 
+	start := time.Now()
+	log.Printf("acquisition: starting acquire for %s (%s %q)", item.ID, item.Kind, item.Title)
+
 	query, err := s.buildSearchQuery(item)
 	if err != nil {
 		s.fail(item.ID, err)
@@ -368,14 +378,21 @@ func (s *Service) runAcquire(item *store.MediaItem) {
 
 	torrentErr := s.acquireViaTorrent(item, query, profile)
 	if torrentErr == nil {
+		log.Printf("acquisition: torrent tier succeeded for %s in %v", item.ID, time.Since(start))
 		return
 	}
+	log.Printf("acquisition: torrent tier failed for %s after %v: %v", item.ID, time.Since(start), torrentErr)
+
+	nzbStart := time.Now()
 	nzbErr := s.acquireViaNZB(item, query, profile)
 	if nzbErr == nil {
+		log.Printf("acquisition: nzb tier succeeded for %s in %v (torrent took %v before fallback)", item.ID, time.Since(nzbStart), time.Since(start))
 		return
 	}
+	log.Printf("acquisition: nzb tier failed for %s after %v: %v", item.ID, time.Since(nzbStart), nzbErr)
 
 	s.fail(item.ID, combineAcquireErrors(torrentErr, nzbErr))
+	log.Printf("acquisition: all tiers exhausted for %s after %v", item.ID, time.Since(start))
 	s.notifySend("acquisition_failed", map[string]any{"itemId": item.ID, "title": item.Title})
 }
 
@@ -486,6 +503,9 @@ func (s *Service) acquireViaTorrent(item *store.MediaItem, query string, profile
 // HTTP round-trip instead of letting them run to their own internal
 // timeout for nothing.
 func (s *Service) raceTorrentCandidates(item *store.MediaItem, account *store.DebridAccount, ranked []ScoredRelease) bool {
+	start := time.Now()
+	log.Printf("acquisition: racing %d torrent candidates for %s", len(ranked), item.ID)
+
 	ranked = s.prioritizeCached(context.Background(), account, ranked)
 	if len(ranked) > raceSize {
 		ranked = ranked[:raceSize]
@@ -514,15 +534,18 @@ func (s *Service) raceTorrentCandidates(item *store.MediaItem, account *store.De
 			log.Printf("acquisition: sending %q to debrid for %s: %v", candidate.Title, item.ID, err)
 			continue
 		}
+		log.Printf("acquisition: launched candidate %q (debrid_item=%s) for %s", candidate.Title, newItem.ID, item.ID)
 		launched = append(launched, newItem.ID)
 	}
 	if len(launched) == 0 {
+		log.Printf("acquisition: no candidates launched for %s after %v", item.ID, time.Since(start))
 		return false
 	}
 
 	deadline := time.Now().Add(candidateTimeout)
 	for {
 		if mi, err := s.store.GetMediaItem(item.ID); err == nil && mi.AcquisitionStatus == "owned" {
+			log.Printf("acquisition: race won for %s after %v", item.ID, time.Since(start))
 			return true
 		}
 		allDone := true
@@ -533,7 +556,12 @@ func (s *Service) raceTorrentCandidates(item *store.MediaItem, account *store.De
 				break
 			}
 		}
-		if allDone || time.Now().After(deadline) {
+		if allDone {
+			log.Printf("acquisition: all %d candidates resolved for %s after %v", len(launched), item.ID, time.Since(start))
+			return false
+		}
+		if time.Now().After(deadline) {
+			log.Printf("acquisition: race timed out for %s after %v (%d candidates still resolving)", item.ID, time.Since(start), len(launched))
 			return false
 		}
 		time.Sleep(outcomePoll)
