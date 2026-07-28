@@ -3,6 +3,7 @@ package debrid
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/eoghan2t9/vorn-media-server/backend/internal/scanner"
 )
 
 const (
@@ -41,7 +44,7 @@ func NewRealDebridClient() *RealDebridClient {
 
 func (c *RealDebridClient) Name() string { return "realdebrid" }
 
-func (c *RealDebridClient) Resolve(ctx context.Context, apiKey, magnetOrHash string) ([]ResolvedFile, error) {
+func (c *RealDebridClient) Resolve(ctx context.Context, apiKey, magnetOrHash string) (*ResolveResult, error) {
 	magnet := asMagnet(magnetOrHash)
 
 	id, err := c.addMagnet(ctx, apiKey, magnet)
@@ -56,12 +59,19 @@ func (c *RealDebridClient) Resolve(ctx context.Context, apiKey, magnetOrHash str
 		return nil, err
 	}
 
+	// Only select+unrestrict video files -- promote.go throws away every
+	// other file anyway (largestVideoFile/bestPerEpisode), so selecting and
+	// unrestricting samples/NFOs/subs alongside them would just waste
+	// unrestrict-traffic quota and add latency proportional to file count
+	// for nothing.
 	fileIDs := make([]string, 0, len(info.Files))
 	for _, f := range info.Files {
-		fileIDs = append(fileIDs, strconv.Itoa(f.ID))
+		if scanner.IsVideoFile(f.Path) {
+			fileIDs = append(fileIDs, strconv.Itoa(f.ID))
+		}
 	}
 	if len(fileIDs) == 0 {
-		return nil, fmt.Errorf("realdebrid: torrent %s has no files", id)
+		return nil, fmt.Errorf("realdebrid: torrent %s has no video files", id)
 	}
 	if err := c.selectFiles(ctx, apiKey, id, strings.Join(fileIDs, ",")); err != nil {
 		return nil, fmt.Errorf("realdebrid: selecting files: %w", err)
@@ -86,7 +96,16 @@ func (c *RealDebridClient) Resolve(ctx context.Context, apiKey, magnetOrHash str
 			StreamURL: unrestricted.Download,
 		})
 	}
-	return out, nil
+	return &ResolveResult{ProviderRef: id, Files: out}, nil
+}
+
+// Delete removes a torrent from the account via DELETE /torrents/delete/{id},
+// reclaiming the active-torrent slot it held.
+func (c *RealDebridClient) Delete(ctx context.Context, apiKey, providerRef string) error {
+	if providerRef == "" {
+		return nil
+	}
+	return c.do(ctx, http.MethodDelete, "/torrents/delete/"+url.PathEscape(providerRef), apiKey, "", nil, nil)
 }
 
 // rdTerminalStatuses are Real-Debrid torrent statuses that will never
@@ -104,10 +123,22 @@ func (c *RealDebridClient) pollUntil(ctx context.Context, apiKey, id string, don
 	for {
 		info, err := c.torrentInfo(ctx, apiKey, id)
 		if err != nil {
+			var ce *ClassifiedError
+			if errors.As(err, &ce) && ce.Kind == FailureRateLimited {
+				wait := capRetry(ce.RetryAfter, deadline)
+				if wait > 0 {
+					select {
+					case <-time.After(wait):
+						continue
+					case <-ctx.Done():
+						return nil, ctx.Err()
+					}
+				}
+			}
 			return nil, err
 		}
 		if rdTerminalStatuses[info.Status] {
-			return nil, fmt.Errorf("realdebrid: torrent %s: status %q", id, info.Status)
+			return nil, &ClassifiedError{Kind: FailurePermanent, Err: fmt.Errorf("realdebrid: torrent %s: status %q", id, info.Status)}
 		}
 		if done(info) {
 			return info, nil
@@ -232,7 +263,10 @@ func (c *RealDebridClient) do(ctx context.Context, method, path, apiKey, content
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusTooManyRequests {
-		return fmt.Errorf("realdebrid: rate limited (429) on %s %s", method, path)
+		return &ClassifiedError{Kind: FailureRateLimited, RetryAfter: retryAfter(resp.Header), Err: fmt.Errorf("realdebrid: rate limited (429) on %s %s", method, path)}
+	}
+	if resp.StatusCode == http.StatusUnauthorized {
+		return &ClassifiedError{Kind: FailureAuth, Err: fmt.Errorf("realdebrid: unauthorized (401) on %s %s", method, path)}
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		data, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))

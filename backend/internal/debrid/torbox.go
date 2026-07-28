@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -51,7 +52,7 @@ func NewTorBoxClient(limiter *Limiter) *TorBoxClient {
 
 func (c *TorBoxClient) Name() string { return "torbox" }
 
-func (c *TorBoxClient) Resolve(ctx context.Context, apiKey, magnetOrHash string) ([]ResolvedFile, error) {
+func (c *TorBoxClient) Resolve(ctx context.Context, apiKey, magnetOrHash string) (*ResolveResult, error) {
 	magnet := asMagnet(magnetOrHash)
 
 	torrentID, err := c.createTorrent(ctx, apiKey, magnet)
@@ -76,7 +77,49 @@ func (c *TorBoxClient) Resolve(ctx context.Context, apiKey, magnetOrHash string)
 		}
 		out = append(out, ResolvedFile{Name: name, SizeBytes: f.Size, StreamURL: link})
 	}
-	return out, nil
+	return &ResolveResult{ProviderRef: strconv.Itoa(torrentID), Files: out}, nil
+}
+
+// Delete removes a torrent from the account via POST /torrents/controltorrent
+// (operation=delete), reclaiming the active-torrent slot it held.
+func (c *TorBoxClient) Delete(ctx context.Context, apiKey, providerRef string) error {
+	if providerRef == "" {
+		return nil
+	}
+	return c.controlDownload(ctx, apiKey, "/torrents/controltorrent", "torrent_id", providerRef)
+}
+
+// DeleteUsenetDownload mirrors Delete but against the Usenet endpoint (POST
+// /usenet/controlusenetdownload, operation=delete) -- TorBox's documented
+// equivalent for a download cached from an NZB rather than a torrent. Used
+// by nzb.Service.Remove to reclaim TorBox usenet storage/quota.
+func (c *TorBoxClient) DeleteUsenetDownload(ctx context.Context, apiKey string, usenetID int) error {
+	if usenetID == 0 {
+		return nil
+	}
+	return c.controlDownload(ctx, apiKey, "/usenet/controlusenetdownload", "usenet_id", strconv.Itoa(usenetID))
+}
+
+func (c *TorBoxClient) controlDownload(ctx context.Context, apiKey, path, idField, id string) error {
+	var body bytes.Buffer
+	w := multipart.NewWriter(&body)
+	if err := w.WriteField(idField, id); err != nil {
+		return err
+	}
+	if err := w.WriteField("operation", "delete"); err != nil {
+		return err
+	}
+	if err := w.Close(); err != nil {
+		return err
+	}
+	var resp tbEnvelope[json.RawMessage]
+	if err := c.do(ctx, http.MethodPost, path, apiKey, w.FormDataContentType(), &body, &resp); err != nil {
+		return err
+	}
+	if !resp.Success {
+		return fmt.Errorf("torbox: %s", resp.Detail)
+	}
+	return nil
 }
 
 func (c *TorBoxClient) waitForCache(ctx context.Context, apiKey string, torrentID int) ([]tbFile, error) {
@@ -85,10 +128,23 @@ func (c *TorBoxClient) waitForCache(ctx context.Context, apiKey string, torrentI
 		item, err := c.torrentInfo(ctx, apiKey, torrentID)
 		if err != nil {
 			var transient *tbTransientError
-			if !errors.As(err, &transient) {
+			var ce *ClassifiedError
+			switch {
+			case errors.As(err, &transient):
+				log.Printf("torbox: transient error polling torrent %d, retrying: %v", torrentID, err)
+			case errors.As(err, &ce) && ce.Kind == FailureRateLimited:
+				if wait := capRetry(ce.RetryAfter, deadline); wait > 0 {
+					select {
+					case <-time.After(wait):
+						continue
+					case <-ctx.Done():
+						return nil, ctx.Err()
+					}
+				}
+				return nil, err
+			default:
 				return nil, err
 			}
-			log.Printf("torbox: transient error polling torrent %d, retrying: %v", torrentID, err)
 		}
 		if item != nil && item.DownloadFinished {
 			return item.Files, nil
@@ -238,9 +294,20 @@ type tbUsenetInfo struct {
 	// up, signaled by download_present. Treating DownloadFinished alone as
 	// "ready" was observed in production returning a real, finished item
 	// with an empty Files slice.
-	DownloadPresent bool     `json:"download_present"`
-	Progress        float64  `json:"progress"`
-	Files           []tbFile `json:"files"`
+	DownloadPresent bool    `json:"download_present"`
+	Progress        float64 `json:"progress"`
+	// DownloadState carries human-readable states like "downloading",
+	// "completed", "failed", or "cached" -- checked below so a genuinely
+	// broken NZB (missing articles, etc) fails fast instead of burning the
+	// full tbPollTimeout waiting for download_finished/download_present to
+	// flip, which they never will.
+	DownloadState string   `json:"download_state"`
+	Files         []tbFile `json:"files"`
+}
+
+func (i *tbUsenetInfo) failed() bool {
+	s := strings.ToLower(i.DownloadState)
+	return strings.Contains(s, "failed") || strings.Contains(s, "invalid") || strings.Contains(s, "error")
 }
 
 // WaitForUsenetCache polls GET /usenet/mylist until TorBox finishes
@@ -253,12 +320,28 @@ func (c *TorBoxClient) WaitForUsenetCache(ctx context.Context, apiKey string, us
 		item, err := c.usenetInfo(ctx, apiKey, usenetID)
 		if err != nil {
 			var transient *tbTransientError
-			if !errors.As(err, &transient) {
+			var ce *ClassifiedError
+			switch {
+			case errors.As(err, &transient):
+				log.Printf("torbox: transient error polling usenet %d, retrying: %v", usenetID, err)
+			case errors.As(err, &ce) && ce.Kind == FailureRateLimited:
+				if wait := capRetry(ce.RetryAfter, deadline); wait > 0 {
+					select {
+					case <-time.After(wait):
+						continue
+					case <-ctx.Done():
+						return nil, ctx.Err()
+					}
+				}
+				return nil, err
+			default:
 				return nil, err
 			}
-			log.Printf("torbox: transient error polling usenet %d, retrying: %v", usenetID, err)
 		}
 		if item != nil {
+			if item.failed() {
+				return nil, &ClassifiedError{Kind: FailurePermanent, Err: fmt.Errorf("torbox: usenet download %d: %s", usenetID, item.DownloadState)}
+			}
 			if progress != nil {
 				progress(item.Progress)
 			}
@@ -386,7 +469,10 @@ func (c *TorBoxClient) do(ctx context.Context, method, path, apiKey, contentType
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusTooManyRequests {
-		return fmt.Errorf("torbox: rate limited (429) on %s %s", method, path)
+		return &ClassifiedError{Kind: FailureRateLimited, RetryAfter: retryAfter(resp.Header), Err: fmt.Errorf("torbox: rate limited (429) on %s %s", method, path)}
+	}
+	if resp.StatusCode == http.StatusUnauthorized {
+		return &ClassifiedError{Kind: FailureAuth, Err: fmt.Errorf("torbox: unauthorized (401) on %s %s", method, path)}
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		data, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))

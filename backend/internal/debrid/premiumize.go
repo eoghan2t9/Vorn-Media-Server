@@ -3,10 +3,12 @@ package debrid
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"path"
 	"strings"
 	"time"
 )
@@ -45,11 +47,13 @@ func NewPremiumizeClient() *PremiumizeClient {
 
 func (c *PremiumizeClient) Name() string { return "premiumize" }
 
-func (c *PremiumizeClient) Resolve(ctx context.Context, apiKey, magnetOrHash string) ([]ResolvedFile, error) {
+func (c *PremiumizeClient) Resolve(ctx context.Context, apiKey, magnetOrHash string) (*ResolveResult, error) {
 	magnet := asMagnet(magnetOrHash)
 
+	// directDL never creates a transfer at all -- there's nothing to Delete
+	// later, so ProviderRef is deliberately left empty in this path.
 	if files, err := c.directDL(ctx, apiKey, magnet); err == nil && len(files) > 0 {
-		return files, nil
+		return &ResolveResult{Files: files}, nil
 	}
 
 	transferID, err := c.createTransfer(ctx, apiKey, magnet)
@@ -69,7 +73,7 @@ func (c *PremiumizeClient) Resolve(ctx context.Context, apiKey, magnetOrHash str
 		}
 		files = []ResolvedFile{*f}
 	} else {
-		files, err = c.folderFiles(ctx, apiKey, folderID)
+		files, err = c.folderFiles(ctx, apiKey, folderID, "")
 		if err != nil {
 			return nil, fmt.Errorf("premiumize: listing folder: %w", err)
 		}
@@ -77,7 +81,21 @@ func (c *PremiumizeClient) Resolve(ctx context.Context, apiKey, magnetOrHash str
 	if len(files) == 0 {
 		return nil, fmt.Errorf("premiumize: transfer produced no files")
 	}
-	return files, nil
+	return &ResolveResult{ProviderRef: transferID, Files: files}, nil
+}
+
+// Delete removes a transfer (and its cloud folder) via /transfer/delete,
+// reclaiming the active-download slot it held. A no-op for the directDL
+// path, which never creates a transfer (providerRef is empty).
+func (c *PremiumizeClient) Delete(ctx context.Context, apiKey, providerRef string) error {
+	if providerRef == "" {
+		return nil
+	}
+	var resp pmStatus
+	if err := c.do(ctx, http.MethodPost, "/transfer/delete", apiKey, url.Values{"id": {providerRef}}, &resp); err != nil {
+		return err
+	}
+	return resp.check()
 }
 
 // pmStatus is embedded in every Premiumize response -- "success" or
@@ -88,14 +106,27 @@ type pmStatus struct {
 	Code    string `json:"code,omitempty"`
 }
 
+// check classifies known Premiumize failure messages onto the shared
+// taxonomy -- covers what Vorn actually needs to branch on (stop
+// immediately vs. keep going) without hand-enumerating every message
+// Premiumize can return.
 func (s pmStatus) check() error {
 	if s.Status == "success" {
 		return nil
 	}
-	if s.Message != "" {
-		return fmt.Errorf("premiumize: %s", s.Message)
+	msg := s.Message
+	if msg == "" {
+		msg = fmt.Sprintf("request failed with status %q", s.Status)
 	}
-	return fmt.Errorf("premiumize: request failed with status %q", s.Status)
+	err := fmt.Errorf("premiumize: %s", msg)
+	switch {
+	case strings.Contains(msg, "Not logged in"):
+		return &ClassifiedError{Kind: FailureAuth, Err: err}
+	case strings.Contains(msg, "not premium"), strings.Contains(msg, "Fair use limit"), strings.Contains(msg, "in progress"):
+		return &ClassifiedError{Kind: FailureQuotaExceeded, Err: err}
+	default:
+		return err
+	}
 }
 
 type pmDirectDLResponse struct {
@@ -153,28 +184,45 @@ type pmTransferListResponse struct {
 }
 
 // pmTerminalErrorStatuses are Premiumize transfer statuses that will never
-// progress further.
+// progress further -- "banned" (content flagged/removed) and "timeout"
+// (download stalled out) are just as permanent as "error"/"deleted", so
+// treating only the latter two as terminal meant Vorn burned the full
+// 20-minute pmPollTimeout on a transfer Premiumize had already given up on.
 var pmTerminalErrorStatuses = map[string]bool{
 	"error":   true,
 	"deleted": true,
+	"banned":  true,
+	"timeout": true,
 }
 
 func (c *PremiumizeClient) waitForTransfer(ctx context.Context, apiKey, transferID string) (folderID, fileID string, err error) {
 	deadline := time.Now().Add(pmPollTimeout)
 	for {
 		var resp pmTransferListResponse
-		if err := c.do(ctx, http.MethodGet, "/transfer/list", apiKey, nil, &resp); err != nil {
-			return "", "", err
+		reqErr := c.do(ctx, http.MethodGet, "/transfer/list", apiKey, nil, &resp)
+		if reqErr == nil {
+			reqErr = resp.check()
 		}
-		if err := resp.check(); err != nil {
-			return "", "", err
+		if reqErr != nil {
+			var ce *ClassifiedError
+			if errors.As(reqErr, &ce) && ce.Kind == FailureRateLimited {
+				if wait := capRetry(ce.RetryAfter, deadline); wait > 0 {
+					select {
+					case <-time.After(wait):
+						continue
+					case <-ctx.Done():
+						return "", "", ctx.Err()
+					}
+				}
+			}
+			return "", "", reqErr
 		}
 		for _, t := range resp.Transfers {
 			if t.ID != transferID {
 				continue
 			}
 			if pmTerminalErrorStatuses[t.Status] {
-				return "", "", fmt.Errorf("premiumize: transfer %s: %s", transferID, t.Message)
+				return "", "", &ClassifiedError{Kind: FailurePermanent, Err: fmt.Errorf("premiumize: transfer %s: %s", transferID, t.Message)}
 			}
 			if t.Status == "finished" || t.Status == "seeding" {
 				return t.FolderID, t.FileID, nil
@@ -195,15 +243,20 @@ func (c *PremiumizeClient) waitForTransfer(ctx context.Context, apiKey, transfer
 type pmFolderListResponse struct {
 	pmStatus
 	Content []struct {
-		ID   string `json:"id"`
-		Name string `json:"name"`
-		Type string `json:"type"`
-		Size int64  `json:"size"`
-		Link string `json:"link"`
+		ID         string `json:"id"`
+		Name       string `json:"name"`
+		Type       string `json:"type"`
+		Size       int64  `json:"size"`
+		Link       string `json:"link"`
+		StreamLink string `json:"stream_link"`
 	} `json:"content"`
 }
 
-func (c *PremiumizeClient) folderFiles(ctx context.Context, apiKey, folderID string) ([]ResolvedFile, error) {
+// folderFiles lists folderID's contents, recursing into any nested
+// subfolders (relPrefix accumulates the path so far) -- Premiumize commonly
+// organizes multi-file torrents (season packs, extras) into subfolders, and
+// a non-recursive listing would silently drop everything under them.
+func (c *PremiumizeClient) folderFiles(ctx context.Context, apiKey, folderID, relPrefix string) ([]ResolvedFile, error) {
 	q := url.Values{}
 	if folderID != "" {
 		q.Set("id", folderID)
@@ -215,21 +268,34 @@ func (c *PremiumizeClient) folderFiles(ctx context.Context, apiKey, folderID str
 	if err := resp.check(); err != nil {
 		return nil, err
 	}
-	out := make([]ResolvedFile, 0, len(resp.Content))
+	var out []ResolvedFile
 	for _, f := range resp.Content {
-		if f.Type != "file" || f.Link == "" {
+		if f.Type == "folder" {
+			nested, err := c.folderFiles(ctx, apiKey, f.ID, path.Join(relPrefix, f.Name))
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, nested...)
 			continue
 		}
-		out = append(out, ResolvedFile{Name: f.Name, SizeBytes: f.Size, StreamURL: f.Link})
+		link := f.StreamLink
+		if link == "" {
+			link = f.Link
+		}
+		if f.Type != "file" || link == "" {
+			continue
+		}
+		out = append(out, ResolvedFile{Name: path.Join(relPrefix, f.Name), SizeBytes: f.Size, StreamURL: link})
 	}
 	return out, nil
 }
 
 type pmItemDetailsResponse struct {
 	pmStatus
-	Name string `json:"name"`
-	Size int64  `json:"size"`
-	Link string `json:"link"`
+	Name       string `json:"name"`
+	Size       int64  `json:"size"`
+	Link       string `json:"link"`
+	StreamLink string `json:"stream_link"`
 }
 
 func (c *PremiumizeClient) itemDetails(ctx context.Context, apiKey, fileID string) (*ResolvedFile, error) {
@@ -240,7 +306,11 @@ func (c *PremiumizeClient) itemDetails(ctx context.Context, apiKey, fileID strin
 	if err := resp.check(); err != nil {
 		return nil, err
 	}
-	return &ResolvedFile{Name: resp.Name, SizeBytes: resp.Size, StreamURL: resp.Link}, nil
+	link := resp.StreamLink
+	if link == "" {
+		link = resp.Link
+	}
+	return &ResolvedFile{Name: resp.Name, SizeBytes: resp.Size, StreamURL: link}, nil
 }
 
 type pmAccountInfoResponse struct {
@@ -302,7 +372,7 @@ func (c *PremiumizeClient) do(ctx context.Context, method, path, apiKey string, 
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusTooManyRequests {
-		return fmt.Errorf("premiumize: rate limited (429) on %s %s", method, path)
+		return &ClassifiedError{Kind: FailureRateLimited, RetryAfter: retryAfter(resp.Header), Err: fmt.Errorf("premiumize: rate limited (429) on %s %s", method, path)}
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		data, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))

@@ -144,19 +144,108 @@ func TestTorBoxClient_Resolve(t *testing.T) {
 	c.baseURL = srv.URL
 	c.pollInterval = time.Millisecond
 
-	files, err := c.Resolve(context.Background(), "test-key", "deadbeef")
+	result, err := c.Resolve(context.Background(), "test-key", "deadbeef")
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	if len(files) != 1 {
-		t.Fatalf("expected 1 file, got %d", len(files))
+	if result.ProviderRef != "42" {
+		t.Fatalf("expected provider ref %q, got %q", "42", result.ProviderRef)
 	}
-	got := files[0]
+	if len(result.Files) != 1 {
+		t.Fatalf("expected 1 file, got %d", len(result.Files))
+	}
+	got := result.Files[0]
 	if got.Name != "Movie.2020.mkv" || got.SizeBytes != 2000 || got.StreamURL != "https://torbox-cdn.example/FAKE/Movie.2020.mkv" {
 		t.Fatalf("unexpected resolved file: %+v", got)
 	}
 	if fake.polls < 2 {
 		t.Fatalf("expected waitForCache to poll more than once, polled %d times", fake.polls)
+	}
+}
+
+func TestTorBoxClient_Delete(t *testing.T) {
+	var deletedID, deletedOp string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/torrents/controltorrent" {
+			r.ParseMultipartForm(1 << 20)
+			deletedID = r.FormValue("torrent_id")
+			deletedOp = r.FormValue("operation")
+			json.NewEncoder(w).Encode(tbEnvelope[json.RawMessage]{Success: true})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	c := NewTorBoxClient(NewLimiter(1_000_000))
+	c.baseURL = srv.URL
+
+	if err := c.Delete(context.Background(), "test-key", "42"); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if deletedID != "42" || deletedOp != "delete" {
+		t.Fatalf("expected torrent_id=42 operation=delete, got id=%q op=%q", deletedID, deletedOp)
+	}
+	if err := c.Delete(context.Background(), "test-key", ""); err != nil {
+		t.Fatalf("Delete with empty providerRef should be a no-op, got: %v", err)
+	}
+}
+
+func TestTorBoxClient_DeleteUsenetDownload(t *testing.T) {
+	var deletedID, deletedOp string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/usenet/controlusenetdownload" {
+			r.ParseMultipartForm(1 << 20)
+			deletedID = r.FormValue("usenet_id")
+			deletedOp = r.FormValue("operation")
+			json.NewEncoder(w).Encode(tbEnvelope[json.RawMessage]{Success: true})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	c := NewTorBoxClient(NewLimiter(1_000_000))
+	c.baseURL = srv.URL
+
+	if err := c.DeleteUsenetDownload(context.Background(), "test-key", 99); err != nil {
+		t.Fatalf("DeleteUsenetDownload: %v", err)
+	}
+	if deletedID != "99" || deletedOp != "delete" {
+		t.Fatalf("expected usenet_id=99 operation=delete, got id=%q op=%q", deletedID, deletedOp)
+	}
+	if err := c.DeleteUsenetDownload(context.Background(), "test-key", 0); err != nil {
+		t.Fatalf("DeleteUsenetDownload with id 0 should be a no-op, got: %v", err)
+	}
+}
+
+// TestTorBoxClient_WaitForUsenetCache_FailsFast guards against burning the
+// full poll timeout when TorBox already knows the download failed --
+// download_state carrying "failed"/"invalid" must abort immediately.
+func TestTorBoxClient_WaitForUsenetCache_FailsFast(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/usenet/mylist") {
+			json.NewEncoder(w).Encode(tbEnvelope[[]tbUsenetInfo]{
+				Success: true,
+				Data:    []tbUsenetInfo{{ID: 5, DownloadState: "failed: missing articles"}},
+			})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	c := NewTorBoxClient(NewLimiter(1_000_000))
+	c.baseURL = srv.URL
+	c.pollInterval = time.Millisecond
+
+	start := time.Now()
+	_, err := c.WaitForUsenetCache(context.Background(), "test-key", 5, nil)
+	if err == nil {
+		t.Fatal("expected an error for a failed usenet download, got nil")
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("expected fast failure, took %v", elapsed)
 	}
 }
 

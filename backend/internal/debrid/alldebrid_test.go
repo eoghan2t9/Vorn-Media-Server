@@ -86,15 +86,92 @@ func TestAllDebridClient_Resolve(t *testing.T) {
 	c.limiter = NewLimiter(1_000_000)
 	c.pollInterval = time.Millisecond
 
-	files, err := c.Resolve(context.Background(), "test-key", "deadbeef")
+	result, err := c.Resolve(context.Background(), "test-key", "deadbeef")
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	if len(files) != 2 {
-		t.Fatalf("expected 2 flattened files (including nested folder), got %d", len(files))
+	if result.ProviderRef != "99" {
+		t.Fatalf("expected provider ref %q, got %q", "99", result.ProviderRef)
+	}
+	if len(result.Files) != 2 {
+		t.Fatalf("expected 2 flattened files (including nested folder), got %d", len(result.Files))
 	}
 	if fake.polls < 2 {
 		t.Fatalf("expected waitUntilReady to poll more than once, polled %d times", fake.polls)
+	}
+}
+
+// TestAllDebridClient_Resolve_SkipsPollWhenReady guards against a needless
+// round trip when the upload response already reports the magnet as ready
+// (the common case for a popular, already-cached torrent) -- waitUntilReady
+// (and therefore /v4.1/magnet/status) must never be called in that case.
+func TestAllDebridClient_Resolve_SkipsPollWhenReady(t *testing.T) {
+	statusCalled := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v4/magnet/upload":
+			json.NewEncoder(w).Encode(adEnvelope[adMagnetUploadData]{
+				Status: "success",
+				Data: adMagnetUploadData{Magnets: []struct {
+					ID    int         `json:"id"`
+					Ready bool        `json:"ready"`
+					Error *adAPIError `json:"error,omitempty"`
+				}{{ID: 7, Ready: true}}},
+			})
+		case "/v4.1/magnet/status":
+			statusCalled = true
+			http.Error(w, "should not be called", http.StatusInternalServerError)
+		case "/v4/magnet/files":
+			json.NewEncoder(w).Encode(adEnvelope[adMagnetFilesData]{
+				Status: "success",
+				Data: adMagnetFilesData{Magnets: []struct {
+					ID    int           `json:"id"`
+					Files []adFileEntry `json:"files"`
+				}{{ID: 7, Files: []adFileEntry{{N: "Movie.2020.mkv", S: 3000, L: "https://alldebrid.com/f/FAKE1"}}}}},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	c := NewAllDebridClient()
+	c.baseURL = srv.URL
+	c.limiter = NewLimiter(1_000_000)
+
+	if _, err := c.Resolve(context.Background(), "test-key", "deadbeef"); err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if statusCalled {
+		t.Fatal("expected waitUntilReady to be skipped when the upload response already reports ready=true")
+	}
+}
+
+func TestAllDebridClient_Delete(t *testing.T) {
+	var deletedID string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v4/magnet/delete" {
+			r.ParseForm()
+			deletedID = r.FormValue("id")
+			json.NewEncoder(w).Encode(adEnvelope[json.RawMessage]{Status: "success"})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	c := NewAllDebridClient()
+	c.baseURL = srv.URL
+	c.limiter = NewLimiter(1_000_000)
+
+	if err := c.Delete(context.Background(), "test-key", "99"); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if deletedID != "99" {
+		t.Fatalf("expected delete for id 99, got %q", deletedID)
+	}
+	if err := c.Delete(context.Background(), "test-key", ""); err != nil {
+		t.Fatalf("Delete with empty providerRef should be a no-op, got: %v", err)
 	}
 }
 

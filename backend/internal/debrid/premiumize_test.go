@@ -47,11 +47,12 @@ func (f *premiumizeFake) handler() http.HandlerFunc {
 			json.NewEncoder(w).Encode(pmFolderListResponse{
 				pmStatus: pmStatus{Status: "success"},
 				Content: []struct {
-					ID   string `json:"id"`
-					Name string `json:"name"`
-					Type string `json:"type"`
-					Size int64  `json:"size"`
-					Link string `json:"link"`
+					ID         string `json:"id"`
+					Name       string `json:"name"`
+					Type       string `json:"type"`
+					Size       int64  `json:"size"`
+					Link       string `json:"link"`
+					StreamLink string `json:"stream_link"`
 				}{{ID: "1", Name: "Movie.2020.mkv", Type: "file", Size: 4000, Link: "https://premiumize.example/FAKE1"}},
 			})
 		case r.URL.Path == "/account/info":
@@ -77,15 +78,109 @@ func TestPremiumizeClient_Resolve_FallsBackToTransfer(t *testing.T) {
 	c.limiter = NewLimiter(1_000_000)
 	c.pollInterval = time.Millisecond
 
-	files, err := c.Resolve(context.Background(), "test-key", "deadbeef")
+	result, err := c.Resolve(context.Background(), "test-key", "deadbeef")
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	if len(files) != 1 || files[0].Name != "Movie.2020.mkv" || files[0].StreamURL != "https://premiumize.example/FAKE1" {
-		t.Fatalf("unexpected resolved files: %+v", files)
+	if result.ProviderRef != "t1" {
+		t.Fatalf("expected provider ref %q, got %q", "t1", result.ProviderRef)
+	}
+	if len(result.Files) != 1 || result.Files[0].Name != "Movie.2020.mkv" || result.Files[0].StreamURL != "https://premiumize.example/FAKE1" {
+		t.Fatalf("unexpected resolved files: %+v", result.Files)
 	}
 	if fake.polls < 2 {
 		t.Fatalf("expected waitForTransfer to poll more than once, polled %d times", fake.polls)
+	}
+}
+
+// TestPremiumizeClient_FolderFiles_Recurses guards against the real bug
+// where a non-recursive folder listing silently dropped every file inside a
+// nested subfolder (common for season packs / extras).
+func TestPremiumizeClient_FolderFiles_Recurses(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id := r.URL.Query().Get("id")
+		switch id {
+		case "root":
+			json.NewEncoder(w).Encode(pmFolderListResponse{
+				pmStatus: pmStatus{Status: "success"},
+				Content: []struct {
+					ID         string `json:"id"`
+					Name       string `json:"name"`
+					Type       string `json:"type"`
+					Size       int64  `json:"size"`
+					Link       string `json:"link"`
+					StreamLink string `json:"stream_link"`
+				}{
+					{ID: "sub", Name: "Season 01", Type: "folder"},
+					{ID: "f-top", Name: "Show.S01E01.mkv", Type: "file", Size: 1000, Link: "https://premiumize.example/E01", StreamLink: "https://premiumize.example/E01-stream"},
+				},
+			})
+		case "sub":
+			json.NewEncoder(w).Encode(pmFolderListResponse{
+				pmStatus: pmStatus{Status: "success"},
+				Content: []struct {
+					ID         string `json:"id"`
+					Name       string `json:"name"`
+					Type       string `json:"type"`
+					Size       int64  `json:"size"`
+					Link       string `json:"link"`
+					StreamLink string `json:"stream_link"`
+				}{{ID: "f-nested", Name: "Show.S01E02.mkv", Type: "file", Size: 2000, Link: "https://premiumize.example/E02"}},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	c := NewPremiumizeClient()
+	c.baseURL = srv.URL
+	c.limiter = NewLimiter(1_000_000)
+
+	files, err := c.folderFiles(context.Background(), "test-key", "root", "")
+	if err != nil {
+		t.Fatalf("folderFiles: %v", err)
+	}
+	if len(files) != 2 {
+		t.Fatalf("expected 2 files (1 top-level + 1 nested), got %d: %+v", len(files), files)
+	}
+	byName := map[string]ResolvedFile{}
+	for _, f := range files {
+		byName[f.Name] = f
+	}
+	if f, ok := byName["Show.S01E01.mkv"]; !ok || f.StreamURL != "https://premiumize.example/E01-stream" {
+		t.Fatalf("expected top-level file to prefer stream_link, got %+v", f)
+	}
+	if f, ok := byName["Season 01/Show.S01E02.mkv"]; !ok || f.StreamURL != "https://premiumize.example/E02" {
+		t.Fatalf("expected nested file with joined path, got files: %+v", files)
+	}
+}
+
+func TestPremiumizeClient_Delete(t *testing.T) {
+	var deletedID string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/transfer/delete" {
+			r.ParseForm()
+			deletedID = r.FormValue("id")
+			json.NewEncoder(w).Encode(pmStatus{Status: "success"})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	c := NewPremiumizeClient()
+	c.baseURL = srv.URL
+	c.limiter = NewLimiter(1_000_000)
+
+	if err := c.Delete(context.Background(), "test-key", "t1"); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if deletedID != "t1" {
+		t.Fatalf("expected delete for t1, got %q", deletedID)
+	}
+	if err := c.Delete(context.Background(), "test-key", ""); err != nil {
+		t.Fatalf("Delete with empty providerRef should be a no-op, got: %v", err)
 	}
 }
 

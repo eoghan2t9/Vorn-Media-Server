@@ -3,6 +3,7 @@ package debrid
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -44,7 +45,7 @@ func NewDebridLinkClient() *DebridLinkClient {
 
 func (c *DebridLinkClient) Name() string { return "debridlink" }
 
-func (c *DebridLinkClient) Resolve(ctx context.Context, apiKey, magnetOrHash string) ([]ResolvedFile, error) {
+func (c *DebridLinkClient) Resolve(ctx context.Context, apiKey, magnetOrHash string) (*ResolveResult, error) {
 	magnet := asMagnet(magnetOrHash)
 
 	id, err := c.addTorrent(ctx, apiKey, magnet)
@@ -58,7 +59,20 @@ func (c *DebridLinkClient) Resolve(ctx context.Context, apiKey, magnetOrHash str
 	if len(files) == 0 {
 		return nil, fmt.Errorf("debridlink: torrent %s has no files", id)
 	}
-	return files, nil
+	return &ResolveResult{ProviderRef: id, Files: files}, nil
+}
+
+// Delete removes a torrent from the seedbox via DELETE /v2/seedbox/{id}/remove,
+// reclaiming the active-torrent/data quota it held.
+func (c *DebridLinkClient) Delete(ctx context.Context, apiKey, providerRef string) error {
+	if providerRef == "" {
+		return nil
+	}
+	var resp dlEnvelope[json.RawMessage]
+	if err := c.do(ctx, http.MethodDelete, "/seedbox/"+url.PathEscape(providerRef)+"/remove", apiKey, nil, &resp); err != nil {
+		return err
+	}
+	return resp.check()
 }
 
 // dlEnvelope is Debrid-Link's response shape: {"success":bool,"value":...}
@@ -71,14 +85,28 @@ type dlEnvelope[T any] struct {
 	Error   string `json:"error,omitempty"`
 }
 
+// check classifies Debrid-Link's error-code string onto the shared taxonomy
+// -- documented codes like "badToken"/"expiredToken" mean bad credentials,
+// and "maxTorrent"/"maxData"/"maxLink" mean an account limit was hit, so a
+// substring match covers what Vorn needs to react to without hand-
+// enumerating Debrid-Link's full error-code list.
 func (e dlEnvelope[T]) check() error {
 	if e.Success {
 		return nil
 	}
-	if e.Error != "" {
-		return fmt.Errorf("debridlink: %s", e.Error)
+	code := e.Error
+	if code == "" {
+		code = "request failed"
 	}
-	return fmt.Errorf("debridlink: request failed")
+	err := fmt.Errorf("debridlink: %s", code)
+	switch {
+	case strings.Contains(strings.ToLower(code), "token"):
+		return &ClassifiedError{Kind: FailureAuth, Err: err}
+	case strings.HasPrefix(code, "max"):
+		return &ClassifiedError{Kind: FailureQuotaExceeded, Err: err}
+	default:
+		return err
+	}
 }
 
 type dlFile struct {
@@ -118,11 +146,23 @@ func (c *DebridLinkClient) waitUntilReady(ctx context.Context, apiKey, id string
 	deadline := time.Now().Add(dlPollTimeout)
 	for {
 		var resp dlEnvelope[[]dlTorrent]
-		if err := c.do(ctx, http.MethodGet, "/seedbox/list?ids="+url.QueryEscape(id), apiKey, nil, &resp); err != nil {
-			return nil, err
+		reqErr := c.do(ctx, http.MethodGet, "/seedbox/list?ids="+url.QueryEscape(id), apiKey, nil, &resp)
+		if reqErr == nil {
+			reqErr = resp.check()
 		}
-		if err := resp.check(); err != nil {
-			return nil, err
+		if reqErr != nil {
+			var ce *ClassifiedError
+			if errors.As(reqErr, &ce) && ce.Kind == FailureRateLimited {
+				if wait := capRetry(ce.RetryAfter, deadline); wait > 0 {
+					select {
+					case <-time.After(wait):
+						continue
+					case <-ctx.Done():
+						return nil, ctx.Err()
+					}
+				}
+			}
+			return nil, reqErr
 		}
 		if len(resp.Value) == 0 {
 			return nil, fmt.Errorf("debridlink: torrent %s not found while polling status", id)
@@ -204,7 +244,10 @@ func (c *DebridLinkClient) do(ctx context.Context, method, path, apiKey string, 
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusTooManyRequests {
-		return fmt.Errorf("debridlink: rate limited (429) on %s %s", method, path)
+		return &ClassifiedError{Kind: FailureRateLimited, RetryAfter: retryAfter(resp.Header), Err: fmt.Errorf("debridlink: rate limited (429) on %s %s", method, path)}
+	}
+	if resp.StatusCode == http.StatusUnauthorized {
+		return &ClassifiedError{Kind: FailureAuth, Err: fmt.Errorf("debridlink: unauthorized (401) on %s %s", method, path)}
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		data, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))

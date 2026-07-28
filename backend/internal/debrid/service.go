@@ -9,7 +9,10 @@ import (
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/store"
 )
 
-const resolveTimeout = 20 * time.Minute
+const (
+	resolveTimeout        = 20 * time.Minute
+	providerDeleteTimeout = 30 * time.Second
+)
 
 // Service resolves magnet links / info-hashes against a user's configured
 // debrid provider accounts (Real-Debrid, TorBox), persisting the resulting
@@ -111,7 +114,7 @@ func (svc *Service) run(item *store.DebridItem, account *store.DebridAccount) {
 	ctx, cancel := context.WithTimeout(context.Background(), resolveTimeout)
 	defer cancel()
 
-	files, err := provider.Resolve(ctx, account.APIKey, item.SourceRef)
+	result, err := provider.Resolve(ctx, account.APIKey, item.SourceRef)
 	if err != nil {
 		// Deliberately does NOT touch the media_item here even when
 		// MediaItemID is set: this resolve may be one of several retry
@@ -125,7 +128,13 @@ func (svc *Service) run(item *store.DebridItem, account *store.DebridAccount) {
 		return
 	}
 
-	for _, f := range files {
+	if result.ProviderRef != "" {
+		if err := svc.store.SetDebridItemProviderRef(item.ID, result.ProviderRef); err != nil {
+			log.Printf("debrid: recording provider ref for %s: %v", item.ID, err)
+		}
+	}
+
+	for _, f := range result.Files {
 		if _, err := svc.store.AddDebridFile(item.ID, f.Name, f.SizeBytes, f.StreamURL); err != nil {
 			log.Printf("debrid: saving resolved file for %s: %v", item.ID, err)
 		}
@@ -153,7 +162,27 @@ func (svc *Service) ListFiles(itemID string) ([]*store.DebridFile, error) {
 	return svc.store.ListDebridFiles(itemID)
 }
 
-func (svc *Service) Remove(id string) error { return svc.store.RemoveDebridItem(id) }
+// Remove deletes item from the provider's own account (best-effort -- logged
+// and ignored on failure, since a stale/already-gone remote item shouldn't
+// block removing Vorn's own record of it) before marking it removed locally.
+func (svc *Service) Remove(id string) error {
+	item, err := svc.store.GetDebridItem(id)
+	if err != nil {
+		return err
+	}
+	if item.ProviderRef != "" {
+		if account, aerr := svc.store.GetDebridAccount(item.AccountID); aerr != nil {
+			log.Printf("debrid: loading account to delete %s: %v", id, aerr)
+		} else if provider, ok := svc.providers[account.Provider]; ok {
+			ctx, cancel := context.WithTimeout(context.Background(), providerDeleteTimeout)
+			if derr := provider.Delete(ctx, account.APIKey, item.ProviderRef); derr != nil {
+				log.Printf("debrid: deleting %s (%s) from %s: %v", id, item.ProviderRef, account.Provider, derr)
+			}
+			cancel()
+		}
+	}
+	return svc.store.RemoveDebridItem(id)
+}
 
 func (svc *Service) AddAccount(provider, apiKey string) (*store.DebridAccount, error) {
 	if _, ok := svc.providers[provider]; !ok {

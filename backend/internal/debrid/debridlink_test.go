@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -60,15 +61,45 @@ func TestDebridLinkClient_Resolve(t *testing.T) {
 	c.limiter = NewLimiter(1_000_000)
 	c.pollInterval = time.Millisecond
 
-	files, err := c.Resolve(context.Background(), "test-key", "deadbeef")
+	result, err := c.Resolve(context.Background(), "test-key", "deadbeef")
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	if len(files) != 1 || files[0].Name != "Movie.2020.mkv" || files[0].StreamURL != "https://seed.debrid-link.example/FAKE1" {
-		t.Fatalf("unexpected resolved files: %+v", files)
+	if result.ProviderRef != "abc" {
+		t.Fatalf("expected provider ref %q, got %q", "abc", result.ProviderRef)
+	}
+	if len(result.Files) != 1 || result.Files[0].Name != "Movie.2020.mkv" || result.Files[0].StreamURL != "https://seed.debrid-link.example/FAKE1" {
+		t.Fatalf("unexpected resolved files: %+v", result.Files)
 	}
 	if fake.polls < 2 {
 		t.Fatalf("expected waitUntilReady to poll more than once, polled %d times", fake.polls)
+	}
+}
+
+func TestDebridLinkClient_Delete(t *testing.T) {
+	var deletedPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodDelete && strings.HasSuffix(r.URL.Path, "/remove") {
+			deletedPath = r.URL.Path
+			json.NewEncoder(w).Encode(dlEnvelope[json.RawMessage]{Success: true})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	c := NewDebridLinkClient()
+	c.baseURL = srv.URL
+	c.limiter = NewLimiter(1_000_000)
+
+	if err := c.Delete(context.Background(), "test-key", "abc"); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if deletedPath != "/seedbox/abc/remove" {
+		t.Fatalf("expected DELETE /seedbox/abc/remove, got %q", deletedPath)
+	}
+	if err := c.Delete(context.Background(), "test-key", ""); err != nil {
+		t.Fatalf("Delete with empty providerRef should be a no-op, got: %v", err)
 	}
 }
 

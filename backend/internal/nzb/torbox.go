@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strconv"
 	"time"
 
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/store"
@@ -34,6 +35,9 @@ func (svc *Service) runTorBox(rec *store.NZBDownload, data []byte, server *store
 	if err != nil {
 		svc.finish(rec, fmt.Errorf("torbox: %w", err))
 		return
+	}
+	if err := svc.store.SetNZBDownloadProviderRef(rec.ID, strconv.Itoa(usenetID)); err != nil {
+		log.Printf("nzb: recording provider ref for %s: %v", rec.ID, err)
 	}
 
 	files, err := client.WaitForUsenetCache(ctx, server.APIKey, usenetID, func(frac float64) {

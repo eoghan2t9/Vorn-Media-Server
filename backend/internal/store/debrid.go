@@ -70,6 +70,13 @@ type DebridItem struct {
 	Promoted    bool
 	AddedAt     time.Time
 	MediaItemID *string // set when this resolve is fulfilling a specific placeholder media_item, nil for manual/admin-added links
+	// ProviderRef is the debrid provider's own id for this resolve (torrent
+	// id, magnet id, transfer id...), set once Resolve succeeds -- empty
+	// until then, and permanently empty for providers/paths that never
+	// create a deletable server-side entity (e.g. Premiumize's directDL
+	// fast path). Used by Service.Remove to delete it from the provider's
+	// account, reclaiming storage/active-download quota.
+	ProviderRef string
 }
 
 type CreateDebridItemInput struct {
@@ -89,11 +96,14 @@ func (s *Store) CreateDebridItem(in CreateDebridItemInput) (*DebridItem, error) 
 	return item, err
 }
 
+const debridItemColumns = `id, library_id, account_id, source_ref, name, status, error, promoted, added_at, media_item_id, provider_ref`
+
+func scanDebridItem(row interface{ Scan(...any) error }, item *DebridItem) error {
+	return row.Scan(&item.ID, &item.LibraryID, &item.AccountID, &item.SourceRef, &item.Name, &item.Status, &item.Error, &item.Promoted, &item.AddedAt, &item.MediaItemID, &item.ProviderRef)
+}
+
 func (s *Store) ListDebridItems() ([]*DebridItem, error) {
-	rows, err := s.db.Query(
-		`SELECT id, library_id, account_id, source_ref, name, status, error, promoted, added_at, media_item_id
-		 FROM debrid_items WHERE status != 'removed' ORDER BY added_at DESC`,
-	)
+	rows, err := s.db.Query(`SELECT ` + debridItemColumns + ` FROM debrid_items WHERE status != 'removed' ORDER BY added_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -102,7 +112,7 @@ func (s *Store) ListDebridItems() ([]*DebridItem, error) {
 	var out []*DebridItem
 	for rows.Next() {
 		item := &DebridItem{}
-		if err := rows.Scan(&item.ID, &item.LibraryID, &item.AccountID, &item.SourceRef, &item.Name, &item.Status, &item.Error, &item.Promoted, &item.AddedAt, &item.MediaItemID); err != nil {
+		if err := scanDebridItem(rows, item); err != nil {
 			return nil, err
 		}
 		out = append(out, item)
@@ -112,9 +122,7 @@ func (s *Store) ListDebridItems() ([]*DebridItem, error) {
 
 func (s *Store) GetDebridItem(id string) (*DebridItem, error) {
 	item := &DebridItem{}
-	err := s.db.QueryRow(
-		`SELECT id, library_id, account_id, source_ref, name, status, error, promoted, added_at, media_item_id FROM debrid_items WHERE id = $1`, id,
-	).Scan(&item.ID, &item.LibraryID, &item.AccountID, &item.SourceRef, &item.Name, &item.Status, &item.Error, &item.Promoted, &item.AddedAt, &item.MediaItemID)
+	err := scanDebridItem(s.db.QueryRow(`SELECT `+debridItemColumns+` FROM debrid_items WHERE id = $1`, id), item)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -122,6 +130,14 @@ func (s *Store) GetDebridItem(id string) (*DebridItem, error) {
 		return nil, err
 	}
 	return item, nil
+}
+
+// SetDebridItemProviderRef records the provider's own id for id's resolve,
+// called once Resolve succeeds (the ref isn't known at CreateDebridItem
+// time, since that happens before the resolve goroutine even starts).
+func (s *Store) SetDebridItemProviderRef(id, providerRef string) error {
+	_, err := s.db.Exec(`UPDATE debrid_items SET provider_ref = $1 WHERE id = $2`, providerRef, id)
+	return err
 }
 
 func (s *Store) FinishDebridItem(id string, ferr error) error {

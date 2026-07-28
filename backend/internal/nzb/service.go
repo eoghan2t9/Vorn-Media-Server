@@ -5,10 +5,14 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strconv"
+	"time"
 
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/debrid"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/store"
 )
+
+const providerDeleteTimeout = 30 * time.Second
 
 // Service resolves NZB releases via a configured TorBox account: parsing
 // the index, handing it to TorBox for server-side caching/repair, then
@@ -140,9 +144,29 @@ func (svc *Service) List() ([]*store.NZBDownload, error) {
 	return svc.store.ListNZBDownloads()
 }
 
-// Remove marks a download removed. TorBox never puts files on local disk,
-// so there is nothing to clean up beyond the record itself.
+// Remove deletes id from TorBox's own account (best-effort -- logged and
+// ignored on failure, since a stale/already-gone remote item shouldn't
+// block removing Vorn's own record of it) before marking it removed
+// locally. TorBox never puts files on local disk, so there is nothing else
+// to clean up.
 func (svc *Service) Remove(id string) error {
+	rec, err := svc.store.GetNZBDownload(id)
+	if err != nil {
+		return err
+	}
+	if rec.ProviderRef != "" {
+		if usenetID, cerr := strconv.Atoi(rec.ProviderRef); cerr != nil {
+			log.Printf("nzb: parsing provider ref for %s: %v", id, cerr)
+		} else if server, serr := svc.pickServer(); serr != nil {
+			log.Printf("nzb: no enabled server to delete %s from TorBox: %v", id, serr)
+		} else {
+			ctx, cancel := context.WithTimeout(context.Background(), providerDeleteTimeout)
+			if derr := svc.torboxClient.DeleteUsenetDownload(ctx, server.APIKey, usenetID); derr != nil {
+				log.Printf("nzb: deleting %s (%s) from torbox: %v", id, rec.ProviderRef, derr)
+			}
+			cancel()
+		}
+	}
 	return svc.store.RemoveNZBDownload(id)
 }
 

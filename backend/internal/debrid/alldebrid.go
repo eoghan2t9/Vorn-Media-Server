@@ -3,6 +3,7 @@ package debrid
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,6 +12,25 @@ import (
 	"strings"
 	"time"
 )
+
+// classify maps AllDebrid's error-code string onto the shared taxonomy --
+// AllDebrid documents codes like "AUTH_BAD_APIKEY"/"AUTH_MISSING_APIKEY" for
+// bad credentials and several "*_TOO_MANY*"/"*LIMIT*" codes for quota/limit
+// conditions, so a substring match covers the cases Vorn actually needs to
+// react to without hand-enumerating AllDebrid's full error-code list.
+func (e *adAPIError) classify() error {
+	if e == nil {
+		return nil
+	}
+	switch {
+	case strings.Contains(e.Code, "AUTH"):
+		return &ClassifiedError{Kind: FailureAuth, Err: e}
+	case strings.Contains(e.Code, "TOO_MANY"), strings.Contains(e.Code, "LIMIT"):
+		return &ClassifiedError{Kind: FailureQuotaExceeded, Err: e}
+	default:
+		return e
+	}
+}
 
 const (
 	allDebridBaseURL = "https://api.alldebrid.com"
@@ -46,15 +66,20 @@ func NewAllDebridClient() *AllDebridClient {
 
 func (c *AllDebridClient) Name() string { return "alldebrid" }
 
-func (c *AllDebridClient) Resolve(ctx context.Context, apiKey, magnetOrHash string) ([]ResolvedFile, error) {
+func (c *AllDebridClient) Resolve(ctx context.Context, apiKey, magnetOrHash string) (*ResolveResult, error) {
 	magnet := asMagnet(magnetOrHash)
 
-	id, err := c.uploadMagnet(ctx, apiKey, magnet)
+	id, ready, err := c.uploadMagnet(ctx, apiKey, magnet)
 	if err != nil {
 		return nil, fmt.Errorf("alldebrid: uploading magnet: %w", err)
 	}
-	if err := c.waitUntilReady(ctx, apiKey, id); err != nil {
-		return nil, err
+	// The upload response already tells us if this magnet was instantly
+	// cached (the common case for a popular torrent) -- polling anyway would
+	// just be a needless extra round trip.
+	if !ready {
+		if err := c.waitUntilReady(ctx, apiKey, id); err != nil {
+			return nil, err
+		}
 	}
 	files, err := c.magnetFiles(ctx, apiKey, id)
 	if err != nil {
@@ -63,7 +88,20 @@ func (c *AllDebridClient) Resolve(ctx context.Context, apiKey, magnetOrHash stri
 	if len(files) == 0 {
 		return nil, fmt.Errorf("alldebrid: magnet %d has no files", id)
 	}
-	return files, nil
+	return &ResolveResult{ProviderRef: strconv.Itoa(id), Files: files}, nil
+}
+
+// Delete removes a magnet from the account via /v4/magnet/delete, reclaiming
+// the active-magnet slot it held.
+func (c *AllDebridClient) Delete(ctx context.Context, apiKey, providerRef string) error {
+	if providerRef == "" {
+		return nil
+	}
+	var resp adEnvelope[json.RawMessage]
+	if err := c.do(ctx, "/v4/magnet/delete", apiKey, url.Values{"id": {providerRef}}, &resp); err != nil {
+		return err
+	}
+	return resp.checkStatus()
 }
 
 // adAPIError is AllDebrid's error shape, both at the envelope level
@@ -92,7 +130,7 @@ func (e adEnvelope[T]) checkStatus() error {
 		return nil
 	}
 	if e.Error != nil {
-		return e.Error
+		return e.Error.classify()
 	}
 	return fmt.Errorf("alldebrid: request failed with status %q", e.Status)
 }
@@ -105,22 +143,22 @@ type adMagnetUploadData struct {
 	} `json:"magnets"`
 }
 
-func (c *AllDebridClient) uploadMagnet(ctx context.Context, apiKey, magnet string) (int, error) {
+func (c *AllDebridClient) uploadMagnet(ctx context.Context, apiKey, magnet string) (id int, ready bool, err error) {
 	var resp adEnvelope[adMagnetUploadData]
 	if err := c.do(ctx, "/v4/magnet/upload", apiKey, url.Values{"magnets[]": {magnet}}, &resp); err != nil {
-		return 0, err
+		return 0, false, err
 	}
 	if err := resp.checkStatus(); err != nil {
-		return 0, err
+		return 0, false, err
 	}
 	if len(resp.Data.Magnets) == 0 {
-		return 0, fmt.Errorf("alldebrid: no magnet returned from upload")
+		return 0, false, fmt.Errorf("alldebrid: no magnet returned from upload")
 	}
 	m := resp.Data.Magnets[0]
 	if m.Error != nil {
-		return 0, m.Error
+		return 0, false, m.Error.classify()
 	}
-	return m.ID, nil
+	return m.ID, m.Ready, nil
 }
 
 type adMagnetStatusData struct {
@@ -139,10 +177,22 @@ func (c *AllDebridClient) waitUntilReady(ctx context.Context, apiKey string, id 
 	for {
 		var resp adEnvelope[adMagnetStatusData]
 		form := url.Values{"id": {strconv.Itoa(id)}}
-		if err := c.doVersioned(ctx, "/v4.1/magnet/status", apiKey, form, &resp); err != nil {
-			return err
+		err := c.doVersioned(ctx, "/v4.1/magnet/status", apiKey, form, &resp)
+		if err == nil {
+			err = resp.checkStatus()
 		}
-		if err := resp.checkStatus(); err != nil {
+		if err != nil {
+			var ce *ClassifiedError
+			if errors.As(err, &ce) && ce.Kind == FailureRateLimited {
+				if wait := capRetry(ce.RetryAfter, deadline); wait > 0 {
+					select {
+					case <-time.After(wait):
+						continue
+					case <-ctx.Done():
+						return ctx.Err()
+					}
+				}
+			}
 			return err
 		}
 		if len(resp.Data.Magnets) == 0 {
@@ -153,7 +203,7 @@ func (c *AllDebridClient) waitUntilReady(ctx context.Context, apiKey string, id 
 			return nil
 		}
 		if m.StatusCode > 4 {
-			return fmt.Errorf("alldebrid: magnet %d: %s", id, m.Status)
+			return &ClassifiedError{Kind: FailurePermanent, Err: fmt.Errorf("alldebrid: magnet %d: %s", id, m.Status)}
 		}
 		if time.Now().After(deadline) {
 			return fmt.Errorf("alldebrid: magnet %d: timed out waiting past status %q", id, m.Status)
@@ -266,7 +316,10 @@ func (c *AllDebridClient) doVersioned(ctx context.Context, path, apiKey string, 
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusTooManyRequests {
-		return fmt.Errorf("alldebrid: rate limited (429) on %s", path)
+		return &ClassifiedError{Kind: FailureRateLimited, RetryAfter: retryAfter(resp.Header), Err: fmt.Errorf("alldebrid: rate limited (429) on %s", path)}
+	}
+	if resp.StatusCode == http.StatusUnauthorized {
+		return &ClassifiedError{Kind: FailureAuth, Err: fmt.Errorf("alldebrid: unauthorized (401) on %s", path)}
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		data, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))

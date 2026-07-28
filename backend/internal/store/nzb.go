@@ -104,12 +104,25 @@ type NZBDownload struct {
 	Promoted    bool
 	AddedAt     time.Time
 	CompletedAt *time.Time
+	// ProviderRef is TorBox's own usenetdownload_id for this download, set
+	// once CreateUsenetDownload succeeds -- used by Service.Remove to delete
+	// it from the TorBox account, reclaiming storage/active-download quota.
+	ProviderRef string
 }
 
-const nzbColumns = `id, library_id, media_item_id, name, status, bytes_total, bytes_done, error, promoted, added_at, completed_at`
+const nzbColumns = `id, library_id, media_item_id, name, status, bytes_total, bytes_done, error, promoted, added_at, completed_at, provider_ref`
 
 func scanNZBDownload(row interface{ Scan(...any) error }, n *NZBDownload) error {
-	return row.Scan(&n.ID, &n.LibraryID, &n.MediaItemID, &n.Name, &n.Status, &n.BytesTotal, &n.BytesDone, &n.Error, &n.Promoted, &n.AddedAt, &n.CompletedAt)
+	return row.Scan(&n.ID, &n.LibraryID, &n.MediaItemID, &n.Name, &n.Status, &n.BytesTotal, &n.BytesDone, &n.Error, &n.Promoted, &n.AddedAt, &n.CompletedAt, &n.ProviderRef)
+}
+
+// SetNZBDownloadProviderRef records TorBox's own id for id's usenet
+// download, called once CreateUsenetDownload succeeds (the ref isn't known
+// at CreateNZBDownload time, since that happens before the resolve
+// goroutine even starts).
+func (s *Store) SetNZBDownloadProviderRef(id, providerRef string) error {
+	_, err := s.db.Exec(`UPDATE nzb_downloads SET provider_ref = $1 WHERE id = $2`, providerRef, id)
+	return err
 }
 
 type CreateNZBDownloadInput struct {
