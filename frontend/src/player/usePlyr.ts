@@ -11,11 +11,11 @@ import { useEffect, type RefObject } from 'react'
 // (which reads video.duration natively) and the browser's own seek-bar/
 // ended-event machinery see the correct total runtime immediately, with no
 // DOM-patching race conditions against Plyr's control-bar render cycle.
-function patchVideoDuration(video: HTMLVideoElement) {
+function patchVideoDuration(video: HTMLVideoElement): boolean {
   const known = video.dataset.duration
-  if (!known) return
+  if (!known) return false
   const dur = parseFloat(known)
-  if (!dur || dur <= 0) return
+  if (!dur || dur <= 0) return false
 
   try {
     Object.defineProperty(video, 'duration', {
@@ -23,10 +23,12 @@ function patchVideoDuration(video: HTMLVideoElement) {
       configurable: true,
       enumerable: true,
     })
+    return true
   } catch {
     // Object.defineProperty on native getters may not work in all browsers.
     // If it fails, the video plays without the patched duration — the
     // browser's unreliable duration will be used instead, same as before.
+    return false
   }
 }
 
@@ -54,9 +56,29 @@ export function usePlyr(videoRef: RefObject<HTMLVideoElement | null>) {
 
     // Override native video.duration with the backend-probed value (see
     // patchVideoDuration above) so Plyr and the browser both see the
-    // correct total runtime immediately.
-    patchVideoDuration(video)
+    // correct total runtime immediately. WatchPage sets dataset.duration
+    // asynchronously (once the play response arrives), which is always
+    // after this effect has already run, so the immediate attempt here
+    // normally has nothing to patch yet. A MutationObserver picks it up
+    // the moment WatchPage sets it and dispatches durationchange so Plyr
+    // (which only recalculates its duration display on that event, and
+    // hides the progress bar entirely while duration is Infinity -- the
+    // value hls.js reports for a still-growing stream) refreshes with the
+    // real value instead of leaving the seek bar hidden for the session.
+    let observer: MutationObserver | undefined
+    if (!patchVideoDuration(video)) {
+      observer = new MutationObserver(() => {
+        if (patchVideoDuration(video)) {
+          video.dispatchEvent(new Event('durationchange'))
+          observer?.disconnect()
+        }
+      })
+      observer.observe(video, { attributes: true, attributeFilter: ['data-duration'] })
+    }
 
-    return () => player.destroy()
+    return () => {
+      observer?.disconnect()
+      player.destroy()
+    }
   }, [videoRef])
 }
