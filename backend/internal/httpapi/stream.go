@@ -311,15 +311,65 @@ func (s *Server) handleDirectStream(w http.ResponseWriter, r *http.Request) {
 	if item == nil {
 		return
 	}
-	// Debrid-backed items store a provider CDN URL as their path rather than
-	// a local file: redirect the player straight to it instead of trying to
-	// serve it off local disk (there is none -- that's the point of
-	// direct-stream-from-debrid).
+
+	// Debrid-backed items store a provider CDN URL as their path.
+	// Instead of redirecting the browser (which breaks seeking because
+	// the browser's native Range handling over redirects doesn't work
+	// with Plyr), proxy the request through our server and forward the
+	// Range/Accept-Ranges/Content-Range headers so the browser can
+	// seek freely. For local scanned files, serve from disk directly.
 	if isRemoteURL(*item.Path) {
-		http.Redirect(w, r, *item.Path, http.StatusFound)
+		proxyDebridStream(w, r, *item.Path)
 		return
 	}
 	http.ServeFile(w, r, *item.Path)
+}
+
+// proxyDebridStream proxies a GET request to the debrid provider's CDN
+// URL, forwarding Range headers so the browser can seek (scrub/timeline).
+// The entire response body is streamed through with no buffering, so memory
+// use stays flat regardless of file size.
+func proxyDebridStream(w http.ResponseWriter, r *http.Request, cdnURL string) {
+	ctx := r.Context()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, cdnURL, nil)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "creating proxy request")
+		return
+	}
+
+	// Forward the Range header if the browser sent one (e.g. when seeking).
+	if rangeHeader := r.Header.Get("Range"); rangeHeader != "" {
+		req.Header.Set("Range", rangeHeader)
+	}
+
+	// Use a shared transport so connections are pooled/reused
+	// (keep-alive to the debrid CDN).
+	client := &http.Client{Timeout: 0} // no timeout -- stream can be hours long
+	resp, err := client.Do(req)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "fetching stream from provider")
+		return
+	}
+	defer resp.Body.Close()
+
+	// Copy relevant response headers to the client.
+	// Accept-Ranges tells the browser this URL supports seeking.
+	// Content-Range tells the browser which bytes we're serving (206).
+	// Content-Type must be forwarded so the browser knows what codec to use.
+	// Content-Length lets the browser/player show total size for the seek bar.
+	for _, h := range []string{"Accept-Ranges", "Content-Range", "Content-Type", "Content-Length"} {
+		if v := resp.Header.Get(h); v != "" {
+			w.Header().Set(h, v)
+		}
+	}
+
+	// Cache-Control: no-store prevents the browser from caching the stream
+	// response locally, which is important for debrid URLs that may expire.
+	w.Header().Set("Cache-Control", "no-store")
+
+	w.WriteHeader(resp.StatusCode)
+	io.Copy(w, resp.Body)
 }
 
 func isRemoteURL(path string) bool {
