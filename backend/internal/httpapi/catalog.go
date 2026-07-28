@@ -148,8 +148,25 @@ func (s *Server) handleOpenCatalogEntry(w http.ResponseWriter, r *http.Request) 
 			log.Printf("catalog: logging browse-open as request for tmdb %d: %v", req.TmdbID, err)
 		} else if _, err := s.store.AutoApproveContentRequest(created.ID); err != nil {
 			log.Printf("catalog: auto-approving browse-open request %s: %v", created.ID, err)
-		} else if err := s.store.CreateContentRequestFulfillment(created.ID, req.LibraryID, item.ID); err != nil {
-			log.Printf("catalog: recording fulfillment for browse-open request %s: %v", created.ID, err)
+		} else {
+			// Fan out into every default-request-target library of this
+			// media type (e.g. a 4K counterpart alongside a standard
+			// library) in the background, exactly like an explicit
+			// request does -- Browse shouldn't only grab whichever single
+			// library the picker above happened to target. If req.LibraryID
+			// is itself one of those targets, FulfillRequest's own loop
+			// covers its fulfillment record; only record it here when it
+			// isn't (an explicitly picked non-default library), so it
+			// isn't silently left off the request's history.
+			go s.acquisition.Load().FulfillRequest(context.Background(), created.ID, req.MediaType, req.TmdbID)
+
+			if lib, err := s.store.GetLibrary(req.LibraryID); err != nil {
+				log.Printf("catalog: checking default-target status of %s: %v", req.LibraryID, err)
+			} else if !lib.DefaultRequestTarget {
+				if err := s.store.CreateContentRequestFulfillment(created.ID, req.LibraryID, item.ID); err != nil {
+					log.Printf("catalog: recording fulfillment for browse-open request %s: %v", created.ID, err)
+				}
+			}
 		}
 	}
 
