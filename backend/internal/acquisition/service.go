@@ -318,14 +318,114 @@ func (s *Service) Acquire(ctx context.Context, itemID string) error {
 
 // Reacquire is Acquire for an item that's already 'owned' but whose current
 // stream link has gone dead -- see httpapi.handlePlayItem, which calls this
-// when ffprobe can no longer open a debrid-backed item's URL. It runs the
-// exact same search->score->resolve pipeline as a fresh Acquire; flipping
-// status away from 'owned' to 'searching' below (before racing any
-// candidates) is what makes the atomic claim in promote.go willing to
-// overwrite an already-'owned' item's path -- the claim's own guard
-// otherwise refuses to touch anything already owned.
+// when ffprobe can no longer open a debrid-backed item's URL.
+//
+// Unlike a fresh Acquire, Reacquire first tries a fast re-resolution path:
+// if the item was previously resolved via a debrid provider, we already
+// know the info-hash (stored in the old debrid_item.source_ref). We
+// re-resolve that hash directly with the provider instead of searching
+// indexers again -- the content is already cached on the provider from the
+// first resolve, so this takes seconds instead of minutes. Only falls back
+// to the full search->score->resolve pipeline if the fast path fails (old
+// source_ref not found, provider rejects it, etc).
 func (s *Service) Reacquire(ctx context.Context, itemID string) error {
+	item, err := s.store.GetMediaItem(itemID)
+	if err != nil {
+		return err
+	}
+
+	// Try the fast re-resolution path first: reuse a known info-hash from
+	// a previous successful debrid resolve so we skip the indexer search
+	// entirely. Only set status to "searching" if the fast path doesn't
+	// apply -- the fast path runs synchronously and sets owned itself.
+	if s.fastReacquireFromDebrid(ctx, item) {
+		return nil
+	}
+
 	return s.startAcquire(itemID, false)
+}
+
+// fastReacquireFromDebrid tries to re-resolve item using the most recent
+// previously-successful debrid_item's source_ref (info-hash/magnet) instead
+// of searching indexers again. Returns true if the item was successfully
+// re-resolved (its path updated to a fresh stream URL), false if the fast
+// path doesn't apply (no previous debrid item, provider not available, etc)
+// -- the caller falls back to a full search->score->resolve.
+func (s *Service) fastReacquireFromDebrid(ctx context.Context, item *store.MediaItem) bool {
+	if s.debrid == nil {
+		return false
+	}
+
+	// Look for a previous successful debrid resolve for this media item.
+	previous, err := s.store.ListDebridItemsByMediaItemID(item.ID)
+	if err != nil || len(previous) == 0 {
+		return false
+	}
+
+	prev := previous[0]
+	if prev.SourceRef == "" || prev.AccountID == "" {
+		return false
+	}
+
+	log.Printf("acquisition: fast re-resolving %s using known hash from debrid_item %s", item.ID, prev.ID)
+
+	// Must flip the item status to 'searching' and clear the active claim
+	// before re-adding, exactly like startAcquire does -- the atomic claim
+	// in PromoteToExistingItem (called by debrid.Service's onComplete)
+	// requires acquisition_status != 'owned' AND active_debrid_item_id IS
+	// NULL, otherwise it silently refuses to claim.
+	if err := s.store.SetMediaItemAcquisitionStatus(item.ID, "searching"); err != nil {
+		log.Printf("acquisition: fast re-resolve set status for %s: %v", item.ID, err)
+		return false
+	}
+	if err := s.store.SetMediaItemActiveDebridItem(item.ID, ""); err != nil {
+		log.Printf("acquisition: fast re-resolve clear active for %s: %v", item.ID, err)
+	}
+
+	newItem, err := s.debrid.AddLink(ctx, debrid.AddLinkInput{
+		AccountID:   prev.AccountID,
+		SourceRef:   prev.SourceRef,
+		Name:        item.Title,
+		LibraryID:   &item.LibraryID,
+		MediaItemID: &item.ID,
+	})
+	if err != nil {
+		log.Printf("acquisition: fast re-resolve add link for %s: %v", item.ID, err)
+		// Don't leave the item stranded in 'searching' -- flip to error
+		// so the caller's eventual startAcquire can retry.
+		_ = s.store.SetMediaItemAcquisitionError(item.ID, fmt.Sprintf("fast re-resolve: %v", err))
+		return false
+	}
+
+	log.Printf("acquisition: fast re-resolve waiting for %s (debrid_item=%s)", item.ID, newItem.ID)
+
+	deadline := time.Now().Add(candidateTimeout)
+	for {
+		if mi, err := s.store.GetMediaItem(item.ID); err == nil && mi.AcquisitionStatus == "owned" {
+			log.Printf("acquisition: fast re-resolve succeeded for %s (from debrid_item %s)", item.ID, prev.ID)
+			return true
+		}
+
+		di, err := s.store.GetDebridItem(newItem.ID)
+		if err != nil {
+			return false
+		}
+		if di.Status == "error" {
+			log.Printf("acquisition: fast re-resolve failed for %s: %s", newItem.ID, di.Error)
+			return false
+		}
+
+		if time.Now().After(deadline) {
+			log.Printf("acquisition: fast re-resolve timed out for %s", item.ID)
+			return false
+		}
+
+		select {
+		case <-time.After(outcomePoll):
+		case <-ctx.Done():
+			return false
+		}
+	}
 }
 
 // startAcquire is Acquire and Reacquire's shared body -- blockOwned is the

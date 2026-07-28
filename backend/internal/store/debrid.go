@@ -132,6 +132,32 @@ func (s *Store) GetDebridItem(id string) (*DebridItem, error) {
 	return item, nil
 }
 
+// ListDebridItemsByMediaItemID returns the most recently promoted debrid
+// items for mediaItemID, ordered newest-first. Used by acquisition's fast
+// re-resolution path (Reacquire) to reuse a known info-hash instead of
+// searching indexers again when a previous stream URL has expired.
+func (s *Store) ListDebridItemsByMediaItemID(mediaItemID string) ([]*DebridItem, error) {
+	rows, err := s.db.Query(
+		`SELECT `+debridItemColumns+` FROM debrid_items
+		 WHERE media_item_id = $1 AND status = 'ready' AND promoted = true
+		 ORDER BY added_at DESC`, mediaItemID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []*DebridItem
+	for rows.Next() {
+		item := &DebridItem{}
+		if err := scanDebridItem(rows, item); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
 // SetDebridItemProviderRef records the provider's own id for id's resolve,
 // called once Resolve succeeds (the ref isn't known at CreateDebridItem
 // time, since that happens before the resolve goroutine even starts).
