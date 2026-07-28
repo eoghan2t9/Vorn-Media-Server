@@ -412,6 +412,8 @@ func NewRouter(deps Deps) http.Handler {
 	mux.HandleFunc("GET /api/requests", s.withAuth(s.handleListMyContentRequests))
 	mux.HandleFunc("DELETE /api/requests/{id}", s.withAuth(s.handleDeleteContentRequest))
 	mux.HandleFunc("GET /api/admin/requests", s.withAdmin(s.handleListAdminContentRequests))
+	mux.HandleFunc("GET /api/admin/requests/settings", s.withAdmin(s.handleGetRequestSettings))
+	mux.HandleFunc("PUT /api/admin/requests/settings", s.withAdmin(s.handleUpdateRequestSettings))
 	mux.HandleFunc("PUT /api/admin/requests/{id}", s.withAdmin(s.handleDecideContentRequest))
 	mux.HandleFunc("DELETE /api/admin/requests/{id}", s.withAdmin(s.handleAdminDeleteContentRequest))
 

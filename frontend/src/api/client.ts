@@ -819,6 +819,14 @@ export const listAdminContentRequests = (status?: ContentRequestStatus) =>
 export const decideContentRequest = (id: string, status: 'approved' | 'declined') =>
   request<ContentRequest>(`/api/admin/requests/${id}`, { method: 'PUT', body: JSON.stringify({ status }) })
 
+export interface RequestSettings {
+  autoApprove: boolean
+}
+
+export const fetchRequestSettings = () => request<RequestSettings>('/api/admin/requests/settings')
+export const updateRequestSettings = (input: RequestSettings) =>
+  request<RequestSettings>('/api/admin/requests/settings', { method: 'PUT', body: JSON.stringify(input) })
+
 // Unlike deleteContentRequest above (self-service withdraw, pending-only),
 // an admin can remove any request regardless of status -- e.g. cleaning up
 // one that was approved/declined but never usefully fulfilled.

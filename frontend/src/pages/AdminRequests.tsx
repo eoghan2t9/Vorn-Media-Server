@@ -4,9 +4,12 @@ import {
   ApiError,
   decideContentRequest,
   deleteAdminContentRequest,
+  fetchRequestSettings,
   listAdminContentRequests,
+  updateRequestSettings,
   type ContentRequest,
   type ContentRequestStatus,
+  type RequestSettings,
 } from '../api/client'
 import { Pagination } from '../components/Pagination'
 import { Select } from '../components/Select'
@@ -27,6 +30,8 @@ export function AdminRequests() {
   const [error, setError] = useState<string | null>(null)
   const [decidingId, setDecidingId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [settings, setSettings] = useState<RequestSettings | null>(null)
+  const [savingSettings, setSavingSettings] = useState(false)
   const requestsPage = usePagination(requests)
 
   function load() {
@@ -36,6 +41,23 @@ export function AdminRequests() {
   }
 
   useEffect(load, [statusFilter])
+
+  useEffect(() => {
+    fetchRequestSettings()
+      .then(setSettings)
+      .catch((err) => setError(err instanceof ApiError ? err.message : String(err)))
+  }, [])
+
+  async function handleToggleAutoApprove(autoApprove: boolean) {
+    setSavingSettings(true)
+    try {
+      setSettings(await updateRequestSettings({ autoApprove }))
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to save request settings')
+    } finally {
+      setSavingSettings(false)
+    }
+  }
   // Changing the status filter swaps in an entirely different set of
   // requests -- staying on, say, page 3 of "Pending" after switching to
   // "Declined" would likely just show an empty/truncated page instead of
@@ -79,6 +101,25 @@ export function AdminRequests() {
         <p className="vorn-admin-page-subtitle">Review titles users have asked for.</p>
       </div>
       {error && <p className="vorn-form-error">{error}</p>}
+
+      {settings && (
+        <div className="vorn-panel">
+          <div className="vorn-inline-form">
+            <label>
+              <input
+                type="checkbox"
+                checked={settings.autoApprove}
+                disabled={savingSettings}
+                onChange={(e) => handleToggleAutoApprove(e.target.checked)}
+              />{' '}
+              Auto-approve requests
+            </label>
+            <p className="vorn-admin-page-subtitle">
+              When on, new requests skip this queue and start fulfilling immediately instead of waiting for approval.
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className="vorn-panel">
         <div className="vorn-panel-header">

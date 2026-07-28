@@ -171,10 +171,24 @@ func (s *Server) handleCreateContentRequest(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Fulfillment (materializing metadata + starting acquisition) doesn't
-	// happen here -- it's gated behind admin approval, see
-	// handleDecideContentRequest. A pending request shouldn't already be
-	// occupying debrid/usenet provider quota before anyone's reviewed it.
+	// Fulfillment (materializing metadata + starting acquisition) is gated
+	// behind admin approval by default -- see handleDecideContentRequest --
+	// so a pending request doesn't occupy debrid/usenet provider quota
+	// before anyone's reviewed it. If auto-approve is on, skip the queue
+	// entirely: self-approve right away and fulfill immediately, same as
+	// pressing Approve ourselves.
+	settings, err := s.store.GetRequestSettings()
+	if err != nil {
+		log.Printf("content requests: loading request settings: %v", err)
+	} else if settings.AutoApprove {
+		if approved, err := s.store.AutoApproveContentRequest(created.ID); err != nil {
+			log.Printf("content requests: auto-approving %s: %v", created.ID, err)
+		} else {
+			created = approved
+			s.triggerFulfillment(created)
+		}
+	}
+
 	writeJSON(w, http.StatusCreated, toContentRequestResponse(created, nil))
 }
 
@@ -280,9 +294,55 @@ func (s *Server) handleDecideContentRequest(w http.ResponseWriter, r *http.Reque
 	// racing debrid/usenet candidates for a streamable link, in the
 	// background -- MaterializePlaceholder makes a blocking TMDb call and
 	// the admin shouldn't wait on it before seeing the decision recorded.
-	if req.Status == "approved" && s.acquisition.Load() != nil {
-		go s.acquisition.Load().FulfillRequest(context.Background(), updated.ID, updated.MediaType, updated.TmdbID)
+	if req.Status == "approved" {
+		s.triggerFulfillment(updated)
 	}
 
 	writeJSON(w, http.StatusOK, toContentRequestResponse(updated, s.loadFulfillments(updated)))
+}
+
+// triggerFulfillment kicks off metadata materialization + acquisition for an
+// approved request in the background, if acquisition is configured at all
+// (see server.go's wantAcquisition -- nil until TMDb plus at least one of
+// torrent/NZB is set up).
+func (s *Server) triggerFulfillment(req *store.ContentRequest) {
+	if s.acquisition.Load() != nil {
+		go s.acquisition.Load().FulfillRequest(context.Background(), req.ID, req.MediaType, req.TmdbID)
+	}
+}
+
+// handleGetRequestSettings returns the content-request workflow settings
+// (currently just auto-approve).
+func (s *Server) handleGetRequestSettings(w http.ResponseWriter, r *http.Request) {
+	settings, err := s.store.GetRequestSettings()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "loading request settings")
+		return
+	}
+	writeJSON(w, http.StatusOK, requestSettingsResponse{AutoApprove: settings.AutoApprove})
+}
+
+type requestSettingsResponse struct {
+	AutoApprove bool `json:"autoApprove"`
+}
+
+type updateRequestSettingsRequest struct {
+	AutoApprove bool `json:"autoApprove"`
+}
+
+// handleUpdateRequestSettings toggles auto-approve. When on, new requests
+// skip the pending queue entirely (see handleCreateContentRequest) instead
+// of waiting for an admin to approve them -- e.g. a single-admin household
+// instance where the review step is pure friction.
+func (s *Server) handleUpdateRequestSettings(w http.ResponseWriter, r *http.Request) {
+	var req updateRequestSettingsRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if err := s.store.SetRequestAutoApprove(req.AutoApprove); err != nil {
+		writeError(w, http.StatusInternalServerError, "saving request settings")
+		return
+	}
+	s.handleGetRequestSettings(w, r)
 }

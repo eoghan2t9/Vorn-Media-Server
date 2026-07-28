@@ -140,6 +140,21 @@ func (s *Store) DecideContentRequest(id, status, decidedBy string) (*ContentRequ
 	return s.GetContentRequest(id)
 }
 
+// AutoApproveContentRequest marks id approved with no human decider (unlike
+// DecideContentRequest, used when an admin explicitly approves/declines) --
+// used by handleCreateContentRequest when the auto-approve setting is on,
+// so the request skips the pending queue entirely.
+func (s *Store) AutoApproveContentRequest(id string) (*ContentRequest, error) {
+	res, err := s.db.Exec(
+		`UPDATE content_requests SET status = 'approved', decided_by = NULL, decided_at = now() WHERE id = $1`,
+		id,
+	)
+	if err := checkRowsAffected(res, err); err != nil {
+		return nil, err
+	}
+	return s.GetContentRequest(id)
+}
+
 // DeleteContentRequest lets a user withdraw their own pending request.
 func (s *Store) DeleteContentRequest(id string) error {
 	res, err := s.db.Exec(`DELETE FROM content_requests WHERE id = $1`, id)
