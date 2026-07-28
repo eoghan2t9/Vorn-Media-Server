@@ -7,6 +7,7 @@ import {
   getQualityProfile,
   getScanJob,
   listLibraries,
+  reorderLibraries,
   startLibraryScan,
   startMetadataSync,
   updateLibrary,
@@ -71,6 +72,24 @@ export function AdminLibraries() {
       await refresh()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to update default request target')
+    }
+  }
+
+  // Optimistic: swaps the two rows locally first so the reorder feels
+  // instant, then persists the full new order -- reverting to the
+  // pre-swap list on failure rather than leaving the UI out of sync with
+  // what the server actually saved.
+  async function handleMove(index: number, direction: -1 | 1) {
+    const target = index + direction
+    if (target < 0 || target >= libraries.length) return
+    const reordered = [...libraries]
+    ;[reordered[index], reordered[target]] = [reordered[target], reordered[index]]
+    setLibraries(reordered)
+    try {
+      await reorderLibraries(reordered.map((l) => l.id))
+    } catch (err) {
+      setLibraries(libraries)
+      setError(err instanceof ApiError ? err.message : 'Failed to reorder libraries')
     }
   }
 
@@ -164,6 +183,7 @@ export function AdminLibraries() {
         <table className="vorn-table">
         <thead>
           <tr>
+            <th>Order</th>
             <th>Name</th>
             <th>Type</th>
             <th>Folders</th>
@@ -173,12 +193,34 @@ export function AdminLibraries() {
           </tr>
         </thead>
         <tbody>
-          {libraries.map((l) => {
+          {libraries.map((l, index) => {
             const scanJob = scanJobs[l.id]
             const metaJob = metadataJobs[l.id]
             return (
               <Fragment key={l.id}>
                 <tr>
+                  <td>
+                    <div className="vorn-button-group">
+                      <button
+                        type="button"
+                        onClick={() => handleMove(index, -1)}
+                        disabled={index === 0}
+                        aria-label={`Move ${l.name} up`}
+                        title="Move up"
+                      >
+                        ↑
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleMove(index, 1)}
+                        disabled={index === libraries.length - 1}
+                        aria-label={`Move ${l.name} down`}
+                        title="Move down"
+                      >
+                        ↓
+                      </button>
+                    </div>
+                  </td>
                   <td>
                     {l.name}
                     {l.is4K && (

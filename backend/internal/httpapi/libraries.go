@@ -201,3 +201,36 @@ func (s *Server) handleDeleteLibrary(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+
+type reorderLibrariesRequest struct {
+	OrderedIDs []string `json:"orderedIds"`
+}
+
+// handleReorderLibraries persists the display order an admin dragged
+// libraries into on the admin Libraries page -- see Store.ReorderLibraries,
+// which ListLibraries (and so the viewer Home page) then sorts by.
+func (s *Server) handleReorderLibraries(w http.ResponseWriter, r *http.Request) {
+	var req reorderLibrariesRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if len(req.OrderedIDs) == 0 {
+		writeError(w, http.StatusBadRequest, "orderedIds is required")
+		return
+	}
+	if err := s.store.ReorderLibraries(req.OrderedIDs); err != nil {
+		writeError(w, http.StatusInternalServerError, "reordering libraries")
+		return
+	}
+	libs, err := s.store.ListLibraries()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "loading reordered libraries")
+		return
+	}
+	resp := make([]libraryResponse, 0, len(libs))
+	for _, l := range libs {
+		resp = append(resp, toLibraryResponse(l))
+	}
+	writeJSON(w, http.StatusOK, resp)
+}

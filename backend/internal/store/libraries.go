@@ -46,7 +46,7 @@ func (s *Store) CreateLibrary(name, kind string, folders []string, is4K bool) (*
 }
 
 func (s *Store) ListLibraries() ([]*Library, error) {
-	rows, err := s.db.Query(`SELECT id, name, type, is_4k, default_request_target, created_at FROM libraries ORDER BY created_at`)
+	rows, err := s.db.Query(`SELECT id, name, type, is_4k, default_request_target, created_at FROM libraries ORDER BY sort_order, created_at`)
 	if err != nil {
 		return nil, err
 	}
@@ -206,6 +206,27 @@ func (s *Store) ListDefaultRequestTargets(mediaType string) ([]*Library, error) 
 		libs = append(libs, l)
 	}
 	return libs, rows.Err()
+}
+
+// ReorderLibraries persists the display order an admin dragged/moved
+// libraries into on the admin Libraries page -- orderedIDs is every
+// library's ID in its new order, and each one's sort_order becomes its
+// index. ListLibraries (which drives the viewer Home page) sorts by this
+// column first, falling back to created_at for any not included here (e.g.
+// a library created concurrently with the reorder).
+func (s *Store) ReorderLibraries(orderedIDs []string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	for i, id := range orderedIDs {
+		if _, err := tx.Exec(`UPDATE libraries SET sort_order = $1 WHERE id = $2`, i, id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func (s *Store) DeleteLibrary(id string) error {

@@ -115,6 +115,11 @@ export const updateLibrary = (
 
 export const deleteLibrary = (id: string) => request<void>(`/api/libraries/${id}`, { method: 'DELETE' })
 
+// Persists the library display order used on the viewer Home page --
+// orderedIds is every library's id in its new order.
+export const reorderLibraries = (orderedIds: string[]) =>
+  request<Library[]>('/api/libraries/reorder', { method: 'PUT', body: JSON.stringify({ orderedIds }) })
+
 export interface BrowseEntry {
   name: string
   path: string
