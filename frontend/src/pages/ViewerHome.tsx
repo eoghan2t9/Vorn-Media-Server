@@ -47,7 +47,7 @@ function LibraryRow({ library }: { library: Library }) {
       {items.length === 0 ? (
         <p className="vorn-empty">Nothing here yet — scan this library from the admin area.</p>
       ) : (
-        <div className="vorn-card-grid">
+        <div className="vorn-card-shelf">
           {items.map((item) => (
             <Link to={`/items/${item.id}`} key={item.id} className="vorn-card">
               <Poster title={item.title} posterUrl={item.posterUrl}>
@@ -70,7 +70,7 @@ function ContinueWatchingRow({ entries }: { entries: ContinueWatchingEntry[] }) 
       <div className="vorn-library-row-header">
         <h2>Continue Watching</h2>
       </div>
-      <div className="vorn-card-grid">
+      <div className="vorn-card-shelf">
         {entries.map((e) => {
           const pct = e.durationSeconds > 0 ? (e.positionSeconds / e.durationSeconds) * 100 : 0
           return (

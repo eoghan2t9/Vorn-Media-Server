@@ -70,6 +70,22 @@
   gap: 1rem;
 }
 
+/* Home's rows (recently-added previews, Continue Watching) scroll
+   horizontally in a single line instead of wrapping into a grid -- the full
+   catalog on a library's own dedicated page (LibraryPage) is where
+   .vorn-card-grid's wrapping layout is still used. */
+.vorn-card-shelf {
+  display: flex;
+  gap: 1rem;
+  overflow-x: auto;
+  padding-bottom: 0.5rem;
+}
+
+.vorn-card-shelf .vorn-card {
+  flex: 0 0 9rem;
+  width: 9rem;
+}
+
 .vorn-card {
   text-decoration: none;
   color: var(--vorn-text);
