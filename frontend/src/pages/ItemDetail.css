@@ -149,6 +149,28 @@
   margin-top: 1.5rem;
 }
 
+/* Wraps Play/Resume, the "Xm left" note, Watch Trailer, and Monitor so
+   they flow as one row and wrap together on a narrow screen, instead of
+   relying on each button's own inline-block flow -- which broke once the
+   "Xm left" note (a block-level <p>) was added between Resume and the
+   buttons after it, forcing everything past it onto a separate line. */
+.vorn-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem 0.9rem;
+}
+
+.vorn-detail-actions .vorn-edit-toggle {
+  margin-top: 0;
+}
+
+.vorn-resume-remaining {
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
 /* .vorn-play-button/.vorn-edit-toggle above are a <Link>/<button> --
    trailers link out to YouTube, so this is an <a>, which doesn't inherit
    the global `button {}` baseline chrome (index.css) the way a real

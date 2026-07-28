@@ -173,35 +173,39 @@ export function ItemDetail() {
                 {item.source === 'debrid' ? '☁ Debrid stream' : '⌂ Local file'}
               </p>
             )}
-            {PLAYABLE_KINDS.includes(item.kind) &&
-              (progress && isResumable(progress.positionSeconds, progress.durationSeconds) ? (
-                <>
+            <div className="vorn-detail-actions">
+              {PLAYABLE_KINDS.includes(item.kind) &&
+                (progress && isResumable(progress.positionSeconds, progress.durationSeconds) ? (
+                  <>
+                    <Link to={`/watch/${item.id}`} className="vorn-play-button">
+                      ↻ Resume
+                    </Link>
+                    <span className="vorn-resume-remaining">
+                      {formatRemaining(progress.positionSeconds, progress.durationSeconds)}
+                    </span>
+                  </>
+                ) : (
                   <Link to={`/watch/${item.id}`} className="vorn-play-button">
-                    ↻ Resume
+                    ▶ Play
                   </Link>
-                  <p className="vorn-detail-year">{formatRemaining(progress.positionSeconds, progress.durationSeconds)}</p>
-                </>
-              ) : (
-                <Link to={`/watch/${item.id}`} className="vorn-play-button">
-                  ▶ Play
-                </Link>
-              ))}
-            {item.trailerUrl && (
-              <a href={item.trailerUrl} target="_blank" rel="noopener noreferrer" className="vorn-trailer-button">
-                ▶ Watch Trailer
-              </a>
-            )}
-            {(item.kind === 'movie' || item.kind === 'series') && (
-              <button
-                type="button"
-                className="vorn-edit-toggle"
-                onClick={handleToggleMonitor}
-                disabled={togglingMonitor}
-                title="Automatically grab new episodes / retry until available, and upgrade quality once owned"
-              >
-                {item.monitored ? '★ Monitored' : '☆ Monitor'}
-              </button>
-            )}
+                ))}
+              {item.trailerUrl && (
+                <a href={item.trailerUrl} target="_blank" rel="noopener noreferrer" className="vorn-trailer-button">
+                  ▶ Watch Trailer
+                </a>
+              )}
+              {(item.kind === 'movie' || item.kind === 'series') && (
+                <button
+                  type="button"
+                  className="vorn-edit-toggle"
+                  onClick={handleToggleMonitor}
+                  disabled={togglingMonitor}
+                  title="Automatically grab new episodes / retry until available, and upgrade quality once owned"
+                >
+                  {item.monitored ? '★ Monitored' : '☆ Monitor'}
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
