@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -47,6 +48,12 @@ const (
 	// trying more than a couple at once multiplies TorBox usenet-cache
 	// quota use for diminishing returns.
 	maxNZBCandidates = 2
+	// cacheCheckTimeout bounds the best-effort pre-race cache-status check
+	// (see prioritizeCached/prioritizeCachedNZB) -- short, since a slow or
+	// unresponsive provider here shouldn't meaningfully delay the race it's
+	// supposed to be speeding up; any failure just falls back to plain
+	// quality-score ordering.
+	cacheCheckTimeout = 10 * time.Second
 )
 
 // Service turns a TMDb title a user has opened or pressed play on into a
@@ -480,6 +487,7 @@ func (s *Service) acquireViaTorrent(item *store.MediaItem, query string, profile
 // timeout for nothing.
 func (s *Service) raceTorrentCandidates(item *store.MediaItem, account *store.DebridAccount, ranked []ScoredRelease) bool {
 	if len(ranked) > raceSize {
+		ranked = s.prioritizeCached(context.Background(), account, ranked)
 		ranked = ranked[:raceSize]
 	}
 	if err := s.store.SetMediaItemActiveDebridItem(item.ID, ""); err != nil {
@@ -532,6 +540,64 @@ func (s *Service) raceTorrentCandidates(item *store.MediaItem, account *store.De
 	}
 }
 
+// magnetHashPattern extracts a BitTorrent info-hash out of a magnet URI's
+// xt=urn:btih: parameter -- candidates whose DownloadURL is a .torrent file
+// URL instead of a magnet have no hash extractable this cheaply, and
+// prioritizeCached simply skips those (they fall back to today's blind
+// resolve behavior, same as before this existed).
+var magnetHashPattern = regexp.MustCompile(`(?i)btih:([a-z0-9]+)`)
+
+func magnetHash(downloadURL string) string {
+	m := magnetHashPattern.FindStringSubmatch(downloadURL)
+	if m == nil {
+		return ""
+	}
+	return strings.ToLower(m[1])
+}
+
+// prioritizeCached checks whether any of ranked's candidates are already
+// cached on account's provider (if it supports pre-checking at all -- see
+// debrid.CacheChecker) and moves cached ones to the front, so trimming down
+// to raceSize afterward keeps a near-guaranteed-fast winner in the race
+// even when it wasn't the single top-scored candidate. Best-effort: any
+// failure (network error, provider doesn't support it, no candidate has an
+// extractable hash) just returns ranked untouched.
+func (s *Service) prioritizeCached(ctx context.Context, account *store.DebridAccount, ranked []ScoredRelease) []ScoredRelease {
+	hashes := make([]string, 0, len(ranked))
+	seen := make(map[string]bool, len(ranked))
+	for _, c := range ranked {
+		if h := magnetHash(c.DownloadURL); h != "" && !seen[h] {
+			seen[h] = true
+			hashes = append(hashes, h)
+		}
+	}
+	if len(hashes) == 0 {
+		return ranked
+	}
+
+	checkCtx, cancel := context.WithTimeout(ctx, cacheCheckTimeout)
+	defer cancel()
+	cached, err := s.debrid.CheckCached(checkCtx, account.ID, hashes)
+	if err != nil {
+		log.Printf("acquisition: checking cache status: %v", err)
+		return ranked
+	}
+	if len(cached) == 0 {
+		return ranked
+	}
+
+	out := make([]ScoredRelease, 0, len(ranked))
+	var rest []ScoredRelease
+	for _, c := range ranked {
+		if cached[magnetHash(c.DownloadURL)] {
+			out = append(out, c)
+		} else {
+			rest = append(rest, c)
+		}
+	}
+	return append(out, rest...)
+}
+
 // winningDebridItem looks up whichever debrid_item actually got claimed for
 // mediaItemID, so a notification can report its real release title instead
 // of an arbitrary raced candidate's.
@@ -571,9 +637,6 @@ func (s *Service) acquireViaNZB(item *store.MediaItem, query string, profile sto
 	if len(ranked) == 0 {
 		return ErrNoAcceptableNZBRelease
 	}
-	if len(ranked) > maxNZBCandidates {
-		ranked = ranked[:maxNZBCandidates]
-	}
 
 	if s.raceNZBCandidates(item, ranked) {
 		title := item.Title
@@ -591,6 +654,10 @@ func (s *Service) acquireViaNZB(item *store.MediaItem, query string, profile sto
 // maxNZBCandidates * candidateTimeoutNZB sequentially to just
 // candidateTimeoutNZB total).
 func (s *Service) raceNZBCandidates(item *store.MediaItem, ranked []ScoredNZBRelease) bool {
+	if len(ranked) > maxNZBCandidates {
+		ranked = s.prioritizeCachedNZB(context.Background(), ranked)
+		ranked = ranked[:maxNZBCandidates]
+	}
 	if err := s.store.SetMediaItemActiveNZBDownload(item.ID, ""); err != nil {
 		log.Printf("acquisition: resetting active NZB download for %s: %v", item.ID, err)
 	}
@@ -639,6 +706,41 @@ func (s *Service) raceNZBCandidates(item *store.MediaItem, ranked []ScoredNZBRel
 		}
 		time.Sleep(outcomePoll)
 	}
+}
+
+// prioritizeCachedNZB is prioritizeCached's NZB counterpart -- moves
+// already-cached-on-TorBox candidates to the front before trimming down to
+// maxNZBCandidates. Unlike prioritizeCached, every candidate has a
+// checkable identifier (nzb.Service.CheckCachedURLs hashes the download URL
+// itself), so there's no per-candidate skip the way a .torrent-file-URL
+// candidate has no extractable info-hash on the debrid side.
+func (s *Service) prioritizeCachedNZB(ctx context.Context, ranked []ScoredNZBRelease) []ScoredNZBRelease {
+	urls := make([]string, len(ranked))
+	for i, c := range ranked {
+		urls[i] = c.DownloadURL
+	}
+
+	checkCtx, cancel := context.WithTimeout(ctx, cacheCheckTimeout)
+	defer cancel()
+	cached, err := s.nzb.CheckCachedURLs(checkCtx, urls)
+	if err != nil {
+		log.Printf("acquisition: checking NZB cache status: %v", err)
+		return ranked
+	}
+	if len(cached) == 0 {
+		return ranked
+	}
+
+	out := make([]ScoredNZBRelease, 0, len(ranked))
+	var rest []ScoredNZBRelease
+	for _, c := range ranked {
+		if cached[c.DownloadURL] {
+			out = append(out, c)
+		} else {
+			rest = append(rest, c)
+		}
+	}
+	return append(out, rest...)
 }
 
 // winningNZBDownload is winningDebridItem's NZB counterpart.
@@ -894,9 +996,6 @@ func (s *Service) trySeasonPackViaNZB(ctx context.Context, season, series *store
 		return false
 	}
 	ranked := ScoreAndRankNZB(packCandidates, profile)
-	if len(ranked) > maxNZBCandidates {
-		ranked = ranked[:maxNZBCandidates]
-	}
 	if len(ranked) == 0 {
 		return false
 	}

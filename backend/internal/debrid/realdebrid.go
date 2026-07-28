@@ -208,6 +208,32 @@ func (c *RealDebridClient) unrestrictLink(ctx context.Context, apiKey, link stri
 	return &resp, nil
 }
 
+// CheckCached implements CacheChecker via GET
+// /torrents/instantAvailability/{hash}/{hash}/..., returning a hash ->
+// cached map for whichever of hashes RD reports as already having a cached
+// variant. NOTE: this endpoint's exact response shape (and even whether RD
+// keeps it meaningfully populated at all, since it's had a history of
+// returning empty results in the wild) is inferred from a third-party
+// client rather than confirmed against a live RD account -- treat any
+// hash whose response entry is present and non-empty as cached, and expect
+// this to need adjustment once exercised for real.
+func (c *RealDebridClient) CheckCached(ctx context.Context, apiKey string, hashes []string) (map[string]bool, error) {
+	if len(hashes) == 0 {
+		return map[string]bool{}, nil
+	}
+	path := "/torrents/instantAvailability/" + strings.Join(hashes, "/")
+	var resp map[string]json.RawMessage
+	if err := c.doJSON(ctx, http.MethodGet, path, apiKey, nil, &resp); err != nil {
+		return nil, fmt.Errorf("realdebrid: checking cache status: %w", err)
+	}
+	out := make(map[string]bool, len(resp))
+	for hash, raw := range resp {
+		s := strings.TrimSpace(string(raw))
+		out[strings.ToLower(hash)] = s != "" && s != "{}" && s != "[]" && s != "null"
+	}
+	return out, nil
+}
+
 type rdUserResponse struct {
 	Username   string `json:"username"`
 	Type       string `json:"type"` // "premium" or "free"

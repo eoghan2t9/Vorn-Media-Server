@@ -3,6 +3,7 @@ package nzb
 import (
 	"bytes"
 	"context"
+	"crypto/md5"
 	"fmt"
 	"log"
 	"strconv"
@@ -125,6 +126,38 @@ func (svc *Service) run(ctx context.Context, rec *store.NZBDownload, data []byte
 func (svc *Service) TestTorBoxAccount(ctx context.Context, apiKey string) error {
 	_, err := svc.torboxClient.AccountInfo(ctx, apiKey)
 	return err
+}
+
+// CheckCachedURLs checks which of urls (each a search result's own
+// downloadUrl) are already cached on the configured TorBox usenet server,
+// for callers deciding which candidate is worth racing (see
+// acquisition.Service.prioritizeCachedNZB). Returns an empty map (never an
+// error the caller must special-case) if no usenet server is configured.
+func (svc *Service) CheckCachedURLs(ctx context.Context, urls []string) (map[string]bool, error) {
+	server, err := svc.pickServer()
+	if err != nil {
+		return map[string]bool{}, nil
+	}
+
+	hashToURL := make(map[string]string, len(urls))
+	hashes := make([]string, 0, len(urls))
+	for _, u := range urls {
+		h := fmt.Sprintf("%x", md5.Sum([]byte(u)))
+		hashToURL[h] = u
+		hashes = append(hashes, h)
+	}
+
+	cachedHashes, err := svc.torboxClient.CheckCachedUsenet(ctx, server.APIKey, hashes)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]bool, len(cachedHashes))
+	for h := range cachedHashes {
+		if u, ok := hashToURL[h]; ok {
+			out[u] = true
+		}
+	}
+	return out, nil
 }
 
 func (svc *Service) pickServer() (*store.UsenetServer, error) {

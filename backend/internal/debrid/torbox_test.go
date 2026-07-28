@@ -315,3 +315,62 @@ func TestTorBoxClient_UsenetInfo_BareObjectShape(t *testing.T) {
 		t.Fatalf("unexpected files: %+v", item.Files)
 	}
 }
+
+func TestTorBoxClient_CheckCached(t *testing.T) {
+	var gotPath, gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotQuery = r.URL.RawQuery
+		json.NewEncoder(w).Encode(tbEnvelope[[]tbCachedInfo]{
+			Success: true,
+			Data:    []tbCachedInfo{{Hash: "AABBCC"}},
+		})
+	}))
+	defer srv.Close()
+
+	c := NewTorBoxClient(NewLimiter(1_000_000))
+	c.baseURL = srv.URL
+
+	result, err := c.CheckCached(context.Background(), "test-key", []string{"aabbcc", "ddeeff"})
+	if err != nil {
+		t.Fatalf("CheckCached: %v", err)
+	}
+	if gotPath != "/torrents/checkcached" {
+		t.Fatalf("unexpected path: %s", gotPath)
+	}
+	if !strings.Contains(gotQuery, "hash=aabbcc%2Cddeeff") {
+		t.Fatalf("expected comma-joined hash query param, got %q", gotQuery)
+	}
+	if !result["aabbcc"] {
+		t.Fatalf("expected aabbcc to be reported cached (case-insensitive), got %+v", result)
+	}
+	if result["ddeeff"] {
+		t.Fatalf("expected ddeeff to be reported not-cached, got %+v", result)
+	}
+}
+
+func TestTorBoxClient_CheckCachedUsenet(t *testing.T) {
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		json.NewEncoder(w).Encode(tbEnvelope[[]tbCachedInfo]{
+			Success: true,
+			Data:    []tbCachedInfo{{Hash: "urlhash1"}},
+		})
+	}))
+	defer srv.Close()
+
+	c := NewTorBoxClient(NewLimiter(1_000_000))
+	c.baseURL = srv.URL
+
+	result, err := c.CheckCachedUsenet(context.Background(), "test-key", []string{"urlhash1", "urlhash2"})
+	if err != nil {
+		t.Fatalf("CheckCachedUsenet: %v", err)
+	}
+	if gotPath != "/usenet/checkcached" {
+		t.Fatalf("unexpected path: %s", gotPath)
+	}
+	if !result["urlhash1"] || result["urlhash2"] {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+}

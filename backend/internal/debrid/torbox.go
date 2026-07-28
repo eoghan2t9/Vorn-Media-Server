@@ -122,6 +122,51 @@ func (c *TorBoxClient) controlDownload(ctx context.Context, apiKey, path, idFiel
 	return nil
 }
 
+// CheckCached implements CacheChecker via GET /torrents/checkcached,
+// returning a hash -> cached map for whichever of hashes TorBox already has
+// cached from a prior torrent add.
+func (c *TorBoxClient) CheckCached(ctx context.Context, apiKey string, hashes []string) (map[string]bool, error) {
+	return c.checkCached(ctx, apiKey, "/torrents/checkcached", hashes)
+}
+
+// CheckCachedUsenet mirrors CheckCached but against GET /usenet/checkcached
+// -- urlHashes are NOT real content hashes (usenet releases have no
+// BitTorrent-style info-hash): TorBox identifies a not-yet-downloaded NZB
+// by an MD5 hash of its own download URL instead, since that's the only
+// stable identifier available before ever fetching/parsing the NZB itself.
+// Callers (nzb.Service.CheckCachedURLs) compute that hash; this just checks
+// it against TorBox.
+func (c *TorBoxClient) CheckCachedUsenet(ctx context.Context, apiKey string, urlHashes []string) (map[string]bool, error) {
+	return c.checkCached(ctx, apiKey, "/usenet/checkcached", urlHashes)
+}
+
+// tbCachedInfo is checkCached's response entry shape -- inferred from a
+// third-party client rather than confirmed against a live account (like
+// the rest of this file's newer additions), so the exact query parameters
+// and this shape should be watched once exercised for real.
+type tbCachedInfo struct {
+	Hash string `json:"hash"`
+}
+
+func (c *TorBoxClient) checkCached(ctx context.Context, apiKey, path string, hashes []string) (map[string]bool, error) {
+	if len(hashes) == 0 {
+		return map[string]bool{}, nil
+	}
+	q := url.Values{"hash": {strings.Join(hashes, ",")}, "format": {"list"}}
+	var resp tbEnvelope[[]tbCachedInfo]
+	if err := c.do(ctx, http.MethodGet, path+"?"+q.Encode(), apiKey, "", nil, &resp); err != nil {
+		return nil, err
+	}
+	if !resp.Success {
+		return nil, fmt.Errorf("torbox: %s", resp.Detail)
+	}
+	out := make(map[string]bool, len(resp.Data))
+	for _, item := range resp.Data {
+		out[strings.ToLower(item.Hash)] = true
+	}
+	return out, nil
+}
+
 func (c *TorBoxClient) waitForCache(ctx context.Context, apiKey string, torrentID int) ([]tbFile, error) {
 	deadline := time.Now().Add(tbPollTimeout)
 	for {

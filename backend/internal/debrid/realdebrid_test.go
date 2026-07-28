@@ -171,3 +171,45 @@ func TestRealDebridClient_Resolve_TerminalError(t *testing.T) {
 		t.Fatal("expected an error for a dead torrent, got nil")
 	}
 }
+
+func TestRealDebridClient_CheckCached(t *testing.T) {
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		json.NewEncoder(w).Encode(map[string]any{
+			"cached1": map[string]any{"rd": []any{map[string]any{}}},
+			"cached2": []any{},          // empty list -- not actually cached
+			"cached3": map[string]any{}, // empty object -- not actually cached
+		})
+	}))
+	defer srv.Close()
+
+	c := NewRealDebridClient()
+	c.baseURL = srv.URL
+	c.limiter = NewLimiter(1_000_000)
+
+	result, err := c.CheckCached(context.Background(), "test-key", []string{"cached1", "cached2", "cached3"})
+	if err != nil {
+		t.Fatalf("CheckCached: %v", err)
+	}
+	if gotPath != "/torrents/instantAvailability/cached1/cached2/cached3" {
+		t.Fatalf("unexpected request path: %s", gotPath)
+	}
+	if !result["cached1"] {
+		t.Fatalf("expected cached1 to be reported cached, got %+v", result)
+	}
+	if result["cached2"] || result["cached3"] {
+		t.Fatalf("expected cached2/cached3 to be reported not-cached (empty entries), got %+v", result)
+	}
+}
+
+func TestRealDebridClient_CheckCached_Empty(t *testing.T) {
+	c := NewRealDebridClient()
+	result, err := c.CheckCached(context.Background(), "test-key", nil)
+	if err != nil {
+		t.Fatalf("CheckCached with no hashes should be a no-op, got: %v", err)
+	}
+	if len(result) != 0 {
+		t.Fatalf("expected empty result, got %+v", result)
+	}
+}

@@ -228,6 +228,27 @@ func (svc *Service) TestAccount(ctx context.Context, provider, apiKey string) (*
 	return p.AccountInfo(ctx, apiKey)
 }
 
+// CheckCached checks which of hashes are already cached on account's
+// provider, for callers deciding which candidate is worth racing (see
+// acquisition.Service.prioritizeCached) -- not every provider supports
+// this (see CacheChecker), so an unsupported one returns an empty map and
+// no error rather than forcing every caller to special-case it.
+func (svc *Service) CheckCached(ctx context.Context, accountID string, hashes []string) (map[string]bool, error) {
+	account, err := svc.store.GetDebridAccount(accountID)
+	if err != nil {
+		return nil, err
+	}
+	provider, ok := svc.providers[account.Provider]
+	if !ok {
+		return nil, fmt.Errorf("debrid: unknown provider %q", account.Provider)
+	}
+	checker, ok := provider.(CacheChecker)
+	if !ok {
+		return map[string]bool{}, nil
+	}
+	return checker.CheckCached(ctx, account.APIKey, hashes)
+}
+
 // TorBoxLimiter exposes the one shared rate limiter every TorBox
 // interaction this process makes shares -- nzb.Service (usenet caching)
 // and torrent.Service (indexer search) both take this same instance at

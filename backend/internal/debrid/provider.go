@@ -50,6 +50,18 @@ type Provider interface {
 	AccountInfo(ctx context.Context, apiKey string) (*AccountInfo, error)
 }
 
+// CacheChecker is an optional capability some Provider implementations
+// support: checking whether a batch of info-hashes are already cached on
+// the provider's side before committing to a full add+poll resolve for any
+// of them. Not part of Provider itself since only some providers currently
+// expose a real endpoint for this (Real-Debrid, TorBox) -- AllDebrid and
+// Debrid-Link have both removed their equivalents entirely, so callers
+// type-assert for this rather than every Provider being forced to
+// implement it.
+type CacheChecker interface {
+	CheckCached(ctx context.Context, apiKey string, hashes []string) (map[string]bool, error)
+}
+
 // FailureKind categorizes a debrid provider error so a poll loop can react
 // appropriately instead of treating every failure the same way: stop
 // immediately on a permanent failure, back off and retry on a rate limit,
