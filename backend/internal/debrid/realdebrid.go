@@ -13,12 +13,13 @@ import (
 	"time"
 
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/scanner"
+	"golang.org/x/sync/errgroup"
 )
 
 const (
 	realDebridBaseURL   = "https://api.real-debrid.com/rest/1.0"
 	realDebridRateLimit = 250 // requests/minute, per Real-Debrid's API docs
-	rdPollInterval      = 3 * time.Second
+	rdPollInterval      = 1 * time.Second
 	rdPollTimeout       = 20 * time.Minute
 )
 
@@ -84,19 +85,27 @@ func (c *RealDebridClient) Resolve(ctx context.Context, apiKey, magnetOrHash str
 		return nil, err
 	}
 
-	out := make([]ResolvedFile, 0, len(info.Links))
-	for _, link := range info.Links {
-		unrestricted, err := c.unrestrictLink(ctx, apiKey, link)
-		if err != nil {
-			return nil, fmt.Errorf("realdebrid: unrestricting link: %w", err)
-		}
-		out = append(out, ResolvedFile{
-			Name:      unrestricted.Filename,
-			SizeBytes: unrestricted.Filesize,
-			StreamURL: unrestricted.Download,
+	g, gCtx := errgroup.WithContext(ctx)
+	results := make([]ResolvedFile, len(info.Links))
+	for i, link := range info.Links {
+		i, link := i, link
+		g.Go(func() error {
+			unrestricted, err := c.unrestrictLink(gCtx, apiKey, link)
+			if err != nil {
+				return fmt.Errorf("realdebrid: unrestricting link: %w", err)
+			}
+			results[i] = ResolvedFile{
+				Name:      unrestricted.Filename,
+				SizeBytes: unrestricted.Filesize,
+				StreamURL: unrestricted.Download,
+			}
+			return nil
 		})
 	}
-	return &ResolveResult{ProviderRef: id, Files: out}, nil
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+	return &ResolveResult{ProviderRef: id, Files: results}, nil
 }
 
 // Delete removes a torrent from the account via DELETE /torrents/delete/{id},

@@ -18,7 +18,7 @@ const (
 	// No documented per-key rate cap found (unlike Real-Debrid/TorBox) --
 	// conservative default, purely a defensive throttle.
 	premiumizeRateLimit = 300
-	pmPollInterval      = 3 * time.Second
+	pmPollInterval      = 1 * time.Second
 	pmPollTimeout       = 20 * time.Minute
 )
 

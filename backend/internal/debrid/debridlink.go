@@ -17,7 +17,7 @@ const (
 	// No documented per-key rate cap found -- conservative default, purely
 	// a defensive throttle.
 	debridLinkRateLimit = 300
-	dlPollInterval      = 3 * time.Second
+	dlPollInterval      = 1 * time.Second
 	dlPollTimeout       = 20 * time.Minute
 )
 

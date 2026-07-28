@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/store"
+	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -142,11 +143,17 @@ func (svc *Service) run(ctx context.Context, item *store.DebridItem, account *st
 		}
 	}
 
+	g, _ := errgroup.WithContext(context.Background())
 	for _, f := range result.Files {
-		if _, err := svc.store.AddDebridFile(item.ID, f.Name, f.SizeBytes, f.StreamURL); err != nil {
-			log.Printf("debrid: saving resolved file for %s: %v", item.ID, err)
-		}
+		f := f
+		g.Go(func() error {
+			if _, err := svc.store.AddDebridFile(item.ID, f.Name, f.SizeBytes, f.StreamURL); err != nil {
+				log.Printf("debrid: saving resolved file for %s: %v", item.ID, err)
+			}
+			return nil
+		})
 	}
+	g.Wait()
 
 	if err := svc.store.FinishDebridItem(item.ID, nil); err != nil {
 		log.Printf("debrid: finishing %s: %v", item.ID, err)

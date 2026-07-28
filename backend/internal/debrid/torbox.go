@@ -14,12 +14,14 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/sync/errgroup"
 )
 
 const (
 	torBoxBaseURL   = "https://api.torbox.app/v1/api"
 	torBoxRateLimit = 300 // requests/minute, per TorBox's API docs
-	tbPollInterval  = 3 * time.Second
+	tbPollInterval  = 1 * time.Second
 	tbPollTimeout   = 20 * time.Minute
 )
 
@@ -65,19 +67,27 @@ func (c *TorBoxClient) Resolve(ctx context.Context, apiKey, magnetOrHash string)
 		return nil, err
 	}
 
-	out := make([]ResolvedFile, 0, len(files))
-	for _, f := range files {
-		link, err := c.requestDownloadLink(ctx, apiKey, torrentID, f.ID)
-		if err != nil {
-			return nil, fmt.Errorf("torbox: requesting download link for file %d: %w", f.ID, err)
-		}
-		name := f.Name
-		if name == "" {
-			name = f.ShortName
-		}
-		out = append(out, ResolvedFile{Name: name, SizeBytes: f.Size, StreamURL: link})
+	g, gCtx := errgroup.WithContext(ctx)
+	results := make([]ResolvedFile, len(files))
+	for i, f := range files {
+		i, f := i, f
+		g.Go(func() error {
+			link, err := c.requestDownloadLink(gCtx, apiKey, torrentID, f.ID)
+			if err != nil {
+				return fmt.Errorf("torbox: requesting download link for file %d: %w", f.ID, err)
+			}
+			name := f.Name
+			if name == "" {
+				name = f.ShortName
+			}
+			results[i] = ResolvedFile{Name: name, SizeBytes: f.Size, StreamURL: link}
+			return nil
+		})
 	}
-	return &ResolveResult{ProviderRef: strconv.Itoa(torrentID), Files: out}, nil
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+	return &ResolveResult{ProviderRef: strconv.Itoa(torrentID), Files: results}, nil
 }
 
 // Delete removes a torrent from the account via POST /torrents/controltorrent

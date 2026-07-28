@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/store"
+	"golang.org/x/sync/errgroup"
 )
 
 const torBoxCacheTimeout = 20 * time.Minute
@@ -55,20 +56,27 @@ func (svc *Service) runTorBox(parentCtx context.Context, rec *store.NZBDownload,
 		total += f.Size
 	}
 
+	g, gCtx := errgroup.WithContext(ctx)
 	for _, f := range files {
-		name := f.Name
-		if name == "" {
-			name = f.ShortName
-		}
-		link, err := client.RequestUsenetDownloadLink(ctx, server.APIKey, usenetID, f.ID)
-		if err != nil {
-			svc.finish(rec, fmt.Errorf("torbox: requesting download link for %s: %w", name, err))
-			return
-		}
-		if _, err := svc.store.AddNZBFile(rec.ID, name, f.Size, link); err != nil {
-			svc.finish(rec, fmt.Errorf("torbox: recording stream url for %s: %w", name, err))
-			return
-		}
+		f := f
+		g.Go(func() error {
+			name := f.Name
+			if name == "" {
+				name = f.ShortName
+			}
+			link, err := client.RequestUsenetDownloadLink(gCtx, server.APIKey, usenetID, f.ID)
+			if err != nil {
+				return fmt.Errorf("torbox: requesting download link for %s: %w", name, err)
+			}
+			if _, err := svc.store.AddNZBFile(rec.ID, name, f.Size, link); err != nil {
+				return fmt.Errorf("torbox: recording stream url for %s: %w", name, err)
+			}
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		svc.finish(rec, err)
+		return
 	}
 	if err := svc.store.UpdateNZBProgress(rec.ID, total, total, "repairing"); err != nil {
 		log.Printf("nzb: updating progress for %s: %v", rec.ID, err)

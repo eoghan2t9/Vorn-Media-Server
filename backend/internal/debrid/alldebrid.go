@@ -39,7 +39,7 @@ const (
 	// not a documented number, purely to keep a lagging admin UI/scanner
 	// from hammering the API.
 	allDebridRateLimit = 300
-	adPollInterval     = 3 * time.Second
+	adPollInterval     = 1 * time.Second
 	adPollTimeout      = 20 * time.Minute
 )
 

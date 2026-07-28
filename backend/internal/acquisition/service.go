@@ -33,7 +33,7 @@ const (
 	// minutes would give up on most perfectly-good downloads before they
 	// could ever finish.
 	candidateTimeoutNZB = 20 * time.Minute
-	outcomePoll         = 2 * time.Second
+	outcomePoll         = 500 * time.Millisecond
 	// maxCandidates caps how many scored releases are even considered
 	// before trimming down to raceSize for the actual race.
 	maxCandidates = 5
@@ -486,8 +486,8 @@ func (s *Service) acquireViaTorrent(item *store.MediaItem, query string, profile
 // HTTP round-trip instead of letting them run to their own internal
 // timeout for nothing.
 func (s *Service) raceTorrentCandidates(item *store.MediaItem, account *store.DebridAccount, ranked []ScoredRelease) bool {
+	ranked = s.prioritizeCached(context.Background(), account, ranked)
 	if len(ranked) > raceSize {
-		ranked = s.prioritizeCached(context.Background(), account, ranked)
 		ranked = ranked[:raceSize]
 	}
 	if err := s.store.SetMediaItemActiveDebridItem(item.ID, ""); err != nil {
@@ -654,8 +654,8 @@ func (s *Service) acquireViaNZB(item *store.MediaItem, query string, profile sto
 // maxNZBCandidates * candidateTimeoutNZB sequentially to just
 // candidateTimeoutNZB total).
 func (s *Service) raceNZBCandidates(item *store.MediaItem, ranked []ScoredNZBRelease) bool {
+	ranked = s.prioritizeCachedNZB(context.Background(), ranked)
 	if len(ranked) > maxNZBCandidates {
-		ranked = s.prioritizeCachedNZB(context.Background(), ranked)
 		ranked = ranked[:maxNZBCandidates]
 	}
 	if err := s.store.SetMediaItemActiveNZBDownload(item.ID, ""); err != nil {
