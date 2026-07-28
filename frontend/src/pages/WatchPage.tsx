@@ -144,6 +144,14 @@ export function WatchPage() {
             ? `${API_BASE}${play.progressiveUrl}`
             : `${API_BASE}${play.playlistUrl}`
 
+      // Store the backend-probed duration on the video element as a
+      // data attribute so the Plyr player controls can display the total
+      // runtime even when the browser <video> cannot detect it from the
+      // stream URL alone (e.g. debrid CDN redirects or growing files).
+      if (play.durationSeconds && play.durationSeconds > 0) {
+        video.dataset.duration = String(play.durationSeconds)
+      }
+
       if (play.mode === 'transcode' && Hls.isSupported()) {
         // The API and the frontend are on different origins/ports (see
         // API_BASE) -- hls.js's default XHR loader doesn't send the

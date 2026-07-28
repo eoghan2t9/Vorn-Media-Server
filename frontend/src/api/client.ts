@@ -309,6 +309,11 @@ export interface PlayResponse {
   progressiveUrl?: string
   acquisitionStatus?: 'searching' | 'acquiring' | 'error'
   acquisitionError?: string
+  // DurationSeconds is the total runtime of the media in seconds, obtained
+  // from the backend's ffprobe probe. Used to display the seek bar and
+  // duration even when the browser cannot determine it from the stream URL
+  // alone (e.g. debrid CDN redirects, growing progressive files).
+  durationSeconds?: number
   audioTracks?: AudioTrack[]
   chapters?: Chapter[]
 }

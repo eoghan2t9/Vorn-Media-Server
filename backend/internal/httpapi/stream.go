@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -70,6 +71,7 @@ type playResponse struct {
 	ProgressiveURL    string               `json:"progressiveUrl,omitempty"`
 	AcquisitionStatus string               `json:"acquisitionStatus,omitempty"` // "searching" | "acquiring" | "error", only set when Mode == "acquiring"
 	AcquisitionError  string               `json:"acquisitionError,omitempty"`
+	DurationSeconds   float64              `json:"durationSeconds,omitempty"`
 	AudioTracks       []audioTrackResponse `json:"audioTracks,omitempty"`
 	Chapters          []chapterResponse    `json:"chapters,omitempty"`
 }
@@ -227,10 +229,11 @@ func (s *Server) handlePlayItem(w http.ResponseWriter, r *http.Request) {
 
 	if mode == transcode.ModeDirect {
 		writeJSON(w, http.StatusOK, playResponse{
-			Mode:        "direct",
-			DirectURL:   "/api/stream/direct/" + item.ID,
-			AudioTracks: audioTracks,
-			Chapters:    chapters,
+			Mode:            "direct",
+			DirectURL:       "/api/stream/direct/" + item.ID,
+			DurationSeconds: info.DurationSeconds,
+			AudioTracks:     audioTracks,
+			Chapters:        chapters,
 		})
 		return
 	}
@@ -255,20 +258,22 @@ func (s *Server) handlePlayItem(w http.ResponseWriter, r *http.Request) {
 	// hls.js) instead of attaching hls.js to a playlist.
 	if isRemux {
 		writeJSON(w, http.StatusAccepted, playResponse{
-			Mode:           "progressive",
-			SessionID:      sess.ID,
-			ProgressiveURL: "/api/stream/session/" + sess.ID + "/output.mp4",
-			AudioTracks:    audioTracks,
-			Chapters:       chapters,
+			Mode:            "progressive",
+			SessionID:       sess.ID,
+			ProgressiveURL:  "/api/stream/session/" + sess.ID + "/output.mp4",
+			DurationSeconds: info.DurationSeconds,
+			AudioTracks:     audioTracks,
+			Chapters:        chapters,
 		})
 		return
 	}
 	writeJSON(w, http.StatusAccepted, playResponse{
-		Mode:        "transcode",
-		SessionID:   sess.ID,
-		PlaylistURL: "/api/stream/session/" + sess.ID + "/playlist.m3u8",
-		AudioTracks: audioTracks,
-		Chapters:    chapters,
+		Mode:            "transcode",
+		SessionID:       sess.ID,
+		PlaylistURL:     "/api/stream/session/" + sess.ID + "/playlist.m3u8",
+		DurationSeconds: info.DurationSeconds,
+		AudioTracks:     audioTracks,
+		Chapters:        chapters,
 	})
 }
 
@@ -399,15 +404,14 @@ func (s *Server) handleSessionFile(w http.ResponseWriter, r *http.Request) {
 // streamGrowingFile serves fullPath as ffmpeg writes it, following its
 // growth in place instead of stopping at EOF -- ModeRemux's progressive MP4
 // output is deliberately played while still being produced (see
-// buildFFmpegArgs's frag_keyframe+empty_moov). No Content-Length is set --
-// the total size isn't known upfront, so the response streams as chunked
-// transfer -- and Range requests aren't honored (Accept-Ranges: none) since
-// seeking into not-yet-written content isn't meaningful; a client that sends
-// one anyway just gets the whole thing from the start, which is the
-// standard, spec-valid fallback for a server that doesn't support ranges.
-// Stops when: the session is done (Stopped/Failed) and there's nothing left
-// to read, or the request itself is cancelled (client disconnected/sought
-// away/navigated off the page).
+// buildFFmpegArgs's frag_keyframe+empty_moov). Unlike the original version,
+// Content-Range headers and 206 responses are supported for seeking into
+// already-written content: if the client sends a Range header and the
+// requested bytes exist on disk, they are served with a 206 Partial Content
+// response. If the requested range is beyond what's been written so far, the
+// response falls back to serving whatever is available (the browser retries
+// as more content arrives). No Content-Length is set since the total size
+// isn't known upfront.
 func streamGrowingFile(w http.ResponseWriter, r *http.Request, sess *transcode.Session, fullPath string) {
 	f, err := os.Open(fullPath)
 	if err != nil {
@@ -416,10 +420,40 @@ func streamGrowingFile(w http.ResponseWriter, r *http.Request, sess *transcode.S
 	}
 	defer f.Close()
 
-	w.Header().Set("Accept-Ranges", "none")
-	w.WriteHeader(http.StatusOK)
-	flusher, _ := w.(http.Flusher)
+	fi, err := f.Stat()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "stat file")
+		return
+	}
 
+	w.Header().Set("Accept-Ranges", "bytes")
+
+	// Parse Range header for seeking support -- respond with 206 Partial
+	// Content if the requested range is within already-written bytes, or
+	// serve the entire available content with 200 OK if the range extends
+	// beyond what's been written so far.
+	start := int64(0)
+	if rangeHeader := r.Header.Get("Range"); rangeHeader != "" {
+		if parsedStart, parsedEnd, ok := parseByteRange(rangeHeader, fi.Size()); ok && parsedStart < fi.Size() {
+			start = parsedStart
+			end := parsedEnd
+			if end > fi.Size() {
+				end = fi.Size()
+			}
+			if _, err := f.Seek(start, io.SeekStart); err != nil {
+				// If seeking fails, fall through to serving from the start.
+				start = 0
+			} else {
+				w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/*", start, end-1))
+				w.WriteHeader(http.StatusPartialContent)
+			}
+		}
+	}
+	if start == 0 && w.Header().Get("Content-Range") == "" {
+		w.WriteHeader(http.StatusOK)
+	}
+
+	flusher, _ := w.(http.Flusher)
 	buf := make([]byte, 256*1024)
 	for {
 		n, readErr := f.Read(buf)
@@ -447,6 +481,35 @@ func streamGrowingFile(w http.ResponseWriter, r *http.Request, sess *transcode.S
 			return
 		}
 	}
+}
+
+// parseByteRange parses an HTTP Range header value ("bytes=start-end") and
+// returns the start and end positions. If end is 0, the range is open-ended
+// ("bytes=start-"). Adapted for progressive-mode growing files where the
+// total size is not known.
+func parseByteRange(rangeVal string, fileSize int64) (start, end int64, ok bool) {
+	if !strings.HasPrefix(rangeVal, "bytes=") {
+		return 0, 0, false
+	}
+	rangeVal = strings.TrimPrefix(rangeVal, "bytes=")
+	parts := strings.SplitN(rangeVal, "-", 2)
+	if len(parts) != 2 {
+		return 0, 0, false
+	}
+	start, err := strconv.ParseInt(strings.TrimSpace(parts[0]), 10, 64)
+	if err != nil || start < 0 {
+		return 0, 0, false
+	}
+	endStr := strings.TrimSpace(parts[1])
+	if endStr == "" {
+		// Open-ended: serve from start to end of what's available.
+		return start, fileSize, true
+	}
+	end, err = strconv.ParseInt(endStr, 10, 64)
+	if err != nil || end <= start {
+		return 0, 0, false
+	}
+	return start, end + 1, true // end is inclusive in HTTP Range spec, convert to exclusive
 }
 
 // waitForSessionFile polls for fullPath to appear, bounded by
