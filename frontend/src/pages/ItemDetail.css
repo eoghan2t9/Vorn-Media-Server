@@ -263,20 +263,33 @@
   object-position: center 20%;
 }
 
+/* A single-line `white-space: nowrap` + `text-overflow: ellipsis` combined
+   with `text-align: center` (see .vorn-cast-card) truncates asymmetrically
+   -- the box clips evenly on both sides since the text is centered, but
+   the ellipsis marker only ever gets added at one edge, so whatever's left
+   visible reads as noticeably off-center under the photo above it for any
+   name/character long enough to overflow the card (e.g. "Costas Mandylor"
+   / "Interpol Regional Chief Henry"). Wrapping across up to 2 lines with
+   -webkit-line-clamp instead keeps every line genuinely centered, and
+   still caps/ellipsizes cleanly if it's long enough to need a 3rd line. */
 .vorn-cast-name {
   margin-top: 0.4rem;
   font-size: 0.8rem;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .vorn-cast-character {
   font-size: 0.75rem;
   color: var(--vorn-text-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /* Resets <button> chrome so a similar-title card matches the plain
