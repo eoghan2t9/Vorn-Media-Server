@@ -518,13 +518,36 @@ type ListItemsOptions struct {
 	Sort string // "recent" | "alpha" (default alpha)
 }
 
+// playableMediaItemFilter excludes movies/series with no actual stream yet
+// from top-level library listings. A movie materialized via on-demand
+// acquisition (see internal/acquisition) starts at
+// acquisition_status='placeholder' and may sit at 'searching'/'acquiring'/
+// 'error' for a while (or forever, if nothing was ever found) -- it isn't
+// shown until it's 'owned'. A series row itself never becomes 'owned' at
+// all (only its individual episodes do, one at a time, via debrid/nzb
+// promote), so a series is shown as soon as it has at least one playable
+// episode rather than waiting for the whole run to finish. Anything
+// scanned in from disk -- movies/series with a real file already, and
+// every music/audiobook item (which never goes through on-demand
+// acquisition at all) -- defaults to 'owned' from the moment it's
+// inserted (see migration 000013), so this is a no-op for those.
+const playableMediaItemFilter = `(
+	kind NOT IN ('movie', 'series')
+	OR (kind = 'movie' AND acquisition_status = 'owned')
+	OR (kind = 'series' AND EXISTS (
+		SELECT 1 FROM media_items ep
+		JOIN media_items se ON ep.parent_id = se.id
+		WHERE se.parent_id = media_items.id AND ep.kind = 'episode' AND ep.acquisition_status = 'owned'
+	))
+)`
+
 func (s *Store) ListMediaItems(libraryID string, opts ListItemsOptions) ([]*MediaItem, error) {
 	orderBy := "sort_title ASC"
 	if opts.Sort == "recent" {
 		orderBy = "added_at DESC"
 	}
 
-	query := `SELECT ` + mediaItemColumns + ` FROM media_items WHERE library_id = $1 AND parent_id IS NULL`
+	query := `SELECT ` + mediaItemColumns + ` FROM media_items WHERE library_id = $1 AND parent_id IS NULL AND ` + playableMediaItemFilter
 	args := []any{libraryID}
 	if opts.Kind != "" {
 		query += ` AND kind = $2`
