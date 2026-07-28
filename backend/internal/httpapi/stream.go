@@ -353,12 +353,20 @@ func proxyDebridStream(w http.ResponseWriter, r *http.Request, cdnURL string) {
 	}
 	defer resp.Body.Close()
 
-	// Copy relevant response headers to the client.
-	// Accept-Ranges tells the browser this URL supports seeking.
-	// Content-Range tells the browser which bytes we're serving (206).
-	// Content-Type must be forwarded so the browser knows what codec to use.
-	// Content-Length lets the browser/player show total size for the seek bar.
-	for _, h := range []string{"Accept-Ranges", "Content-Range", "Content-Type", "Content-Length"} {
+	// Always announce byte-range support — our proxy inherently supports
+	// seeking by making new Range requests to the CDN, regardless of whether
+	// the CDN itself announces Accept-Ranges. Without this the browser will
+	// never attempt to seek.
+	w.Header().Set("Accept-Ranges", "bytes")
+
+	// Content-Range: set from the CDN's 206 response if the browser sent a
+	// Range header; otherwise absent on the initial full-file request.
+	if v := resp.Header.Get("Content-Range"); v != "" {
+		w.Header().Set("Content-Range", v)
+	}
+	// Content-Type and Content-Length forwarded from the CDN so the browser
+	// knows the codec and total size for the seek bar.
+	for _, h := range []string{"Content-Type", "Content-Length"} {
 		if v := resp.Header.Get(h); v != "" {
 			w.Header().Set(h, v)
 		}

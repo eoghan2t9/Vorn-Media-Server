@@ -10,31 +10,29 @@ function formatDuration(seconds: number): string {
   return `${m}:${String(s).padStart(2, '0')}`
 }
 
-// Patches the duration display in the Plyr control bar when the browser's
-// native <video> element cannot determine the duration from the stream URL
-// alone (e.g., debrid CDN redirects). Falls back to the backend-probed
-// duration stored in video.dataset.duration.
+// Patches the duration display in the Plyr control bar to always show the
+// backend-probed duration (obtained via ffprobe) rather than the browser's
+// native video.duration. The native duration for a streamed/debrid-backed
+// video is unreliable — it starts as Infinity, then jumps through partial
+// values (12s → 20s → 30s …) as more data arrives. Our ffprobe probe is
+// always authoritative.
 function patchDurationDisplay(video: HTMLVideoElement) {
   const knownDuration = video.dataset.duration
   if (!knownDuration) return
   const dur = parseFloat(knownDuration)
   if (!dur || dur <= 0) return
 
-  // On each timeupdate, check if the native duration is still unknown.
-  // If so, override the Plyr duration display element with our known value.
-  const onTimeUpdate = () => {
-    if (video.duration > 0 && video.duration !== Infinity) {
-      // Native duration is now available -- remove the override.
-      video.removeEventListener('timeupdate', onTimeUpdate)
-      return
-    }
-    // Plyr renders the duration into a .plyr__time[data-plyr="duration"] element.
+  const overridePlyrDuration = () => {
+    // Plyr renders the duration into a .plyr__time[data-plyr="duration"] element
+    // on every timeupdate/loadedmetadata — re-apply our value each time.
     const durEl = document.querySelector('.plyr__time[data-plyr="duration"]')
     if (durEl && durEl.textContent !== formatDuration(dur)) {
       durEl.textContent = formatDuration(dur)
     }
   }
-  video.addEventListener('timeupdate', onTimeUpdate)
+
+  video.addEventListener('timeupdate', overridePlyrDuration)
+  video.addEventListener('loadedmetadata', overridePlyrDuration)
 }
 
 // usePlyr wraps Plyr (a mature, battle-tested player UI with years of
