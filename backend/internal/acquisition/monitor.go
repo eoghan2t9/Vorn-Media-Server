@@ -6,7 +6,15 @@ import (
 	"time"
 
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/store"
+	"github.com/eoghan2t9/vorn-media-server/backend/internal/transcode"
 )
+
+// linkProbeTimeout bounds a single liveness check in refreshDeadLinks --
+// short, since this runs against every owned remote item on every tick;
+// a provider that's slow to respond here shouldn't stall the whole sweep
+// waiting on one title (that title's link is just deemed dead this round,
+// same as any other timeout/error, and gets a fresh resolve attempted).
+const linkProbeTimeout = 10 * time.Second
 
 // monitorInterval mirrors backup.Scheduler's own reasoning for its
 // checkInterval: fine-grained enough that toggling monitoring on
@@ -51,6 +59,7 @@ func (m *MonitorScheduler) Run(ctx context.Context) {
 func (m *MonitorScheduler) tick(ctx context.Context) {
 	m.grabNewContent(ctx)
 	m.checkQualityUpgrades(ctx)
+	m.refreshDeadLinks(ctx)
 }
 
 // grabNewContent re-syncs every monitored series (picking up newly-aired
@@ -134,6 +143,44 @@ func (m *MonitorScheduler) checkQualityUpgrades(ctx context.Context) {
 	for _, item := range items {
 		if err := m.service.checkUpgrade(ctx, item); err != nil {
 			log.Printf("acquisition: monitor: checking upgrade for %s: %v", item.ID, err)
+		}
+	}
+}
+
+// refreshDeadLinks proactively re-resolves any owned movie/episode whose
+// cached stream link (media_items.path) no longer probes successfully --
+// the same ffprobe-based liveness check handlePlayItem uses reactively
+// on a play attempt (see stream.go), just run ahead of time here so a
+// viewer is much less likely to ever wait through a fresh resolve
+// themselves. Unlike grabNewContent/checkQualityUpgrades above, this
+// covers every owned remote item regardless of monitored status -- a
+// dead debrid/NZB link is worth fixing whether or not the title is being
+// watched for new episodes/upgrades. Uses ReacquireSoftFail, not
+// Reacquire: this is a background hygiene pass with no viewer waiting on
+// the result, so a failed re-resolve (a real dead end, or just every
+// indexer/provider transiently rate-limited by checking many items at
+// once) reverts the item to 'owned' instead of demoting it to 'error' --
+// never worse off than before this ran, and still self-heals reactively
+// the next time someone actually presses play.
+func (m *MonitorScheduler) refreshDeadLinks(ctx context.Context) {
+	items, err := m.store.ListOwnedRemoteItems()
+	if err != nil {
+		log.Printf("acquisition: monitor: listing owned remote items: %v", err)
+		return
+	}
+	for _, item := range items {
+		if item.Path == nil {
+			continue
+		}
+		probeCtx, cancel := context.WithTimeout(ctx, linkProbeTimeout)
+		_, err := transcode.Probe(probeCtx, *item.Path)
+		cancel()
+		if err == nil {
+			continue
+		}
+		log.Printf("acquisition: monitor: link dead for %s (%s), re-resolving", item.ID, item.Title)
+		if err := m.service.ReacquireSoftFail(ctx, item.ID); err != nil {
+			log.Printf("acquisition: monitor: refreshing dead link for %s: %v", item.ID, err)
 		}
 	}
 }

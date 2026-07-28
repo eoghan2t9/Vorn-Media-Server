@@ -73,6 +73,24 @@ func (s *Store) ListMonitoredOwned() ([]*MediaItem, error) {
 	return scanMediaItems(rows)
 }
 
+// ListOwnedRemoteItems returns every owned movie/episode whose path is a
+// provider CDN URL (debrid/NZB-backed), regardless of monitored status --
+// the proactive-link-refresh half of acquisition.MonitorScheduler's tick.
+// Excludes locally-scanned files (a plain filesystem path never expires,
+// so there's nothing to refresh) and everything not yet 'owned' (nothing
+// playable there to check the liveness of).
+func (s *Store) ListOwnedRemoteItems() ([]*MediaItem, error) {
+	rows, err := s.db.Query(
+		`SELECT ` + mediaItemColumns + ` FROM media_items
+		 WHERE acquisition_status = 'owned' AND kind IN ('movie', 'episode') AND path LIKE 'http%'`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanMediaItems(rows)
+}
+
 // CreatePlaceholderInput is the bare identity of a not-yet-owned
 // media_item -- full metadata (overview/poster/etc) is filled in
 // afterward via ApplyMetadata, reusing the same metadata-writing path the

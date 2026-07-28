@@ -313,12 +313,14 @@ func (s *Service) SyncSeriesTree(ctx context.Context, seriesItem *store.MediaIte
 // poll GetMediaItem for status, same pattern debrid.Service.AddLink already
 // uses for its own background resolve.
 func (s *Service) Acquire(ctx context.Context, itemID string) error {
-	return s.startAcquire(itemID, true)
+	return s.startAcquire(itemID, true, "error")
 }
 
 // Reacquire is Acquire for an item that's already 'owned' but whose current
 // stream link has gone dead -- see httpapi.handlePlayItem, which calls this
-// when ffprobe can no longer open a debrid-backed item's URL.
+// when ffprobe can no longer open a debrid-backed item's URL. A viewer just
+// pressed play and got nothing, so a genuine failure to find any
+// replacement is reported as a clear 'error', same as always.
 //
 // Unlike a fresh Acquire, Reacquire first tries a fast re-resolution path:
 // if the item was previously resolved via a debrid provider, we already
@@ -329,6 +331,29 @@ func (s *Service) Acquire(ctx context.Context, itemID string) error {
 // to the full search->score->resolve pipeline if the fast path fails (old
 // source_ref not found, provider rejects it, etc).
 func (s *Service) Reacquire(ctx context.Context, itemID string) error {
+	return s.reacquire(ctx, itemID, "error")
+}
+
+// ReacquireSoftFail is Reacquire for MonitorScheduler's proactive
+// background link-health sweep (refreshDeadLinks) rather than a viewer's
+// own play attempt: if no replacement can be found (a real dead link with
+// nothing better available, or just every indexer/provider transiently
+// rate-limited at once -- indistinguishable from here), the item reverts
+// to 'owned' with its old path untouched instead of being demoted to
+// 'error'. A background hygiene check should never make an item disappear
+// from the library (see ListMediaItems' playable-only filter) over what
+// might be a purely transient failure -- worst case, the old link is truly
+// dead and playback fails the next time someone actually presses play,
+// which reactively retries via Reacquire above exactly as it always has.
+func (s *Service) ReacquireSoftFail(ctx context.Context, itemID string) error {
+	return s.reacquire(ctx, itemID, "owned")
+}
+
+// reacquire is Reacquire/ReacquireSoftFail's shared body -- onFailureStatus
+// is the only thing distinguishing them, threaded down through
+// fastReacquireFromDebrid/startAcquire/runAcquire to whichever one actually
+// ends up failing.
+func (s *Service) reacquire(ctx context.Context, itemID string, onFailureStatus string) error {
 	item, err := s.store.GetMediaItem(itemID)
 	if err != nil {
 		return err
@@ -338,11 +363,11 @@ func (s *Service) Reacquire(ctx context.Context, itemID string) error {
 	// a previous successful debrid resolve so we skip the indexer search
 	// entirely. Only set status to "searching" if the fast path doesn't
 	// apply -- the fast path runs synchronously and sets owned itself.
-	if s.fastReacquireFromDebrid(ctx, item) {
+	if s.fastReacquireFromDebrid(ctx, item, onFailureStatus) {
 		return nil
 	}
 
-	return s.startAcquire(itemID, false)
+	return s.startAcquire(itemID, false, onFailureStatus)
 }
 
 // fastReacquireFromDebrid tries to re-resolve item using the most recent
@@ -351,7 +376,7 @@ func (s *Service) Reacquire(ctx context.Context, itemID string) error {
 // re-resolved (its path updated to a fresh stream URL), false if the fast
 // path doesn't apply (no previous debrid item, provider not available, etc)
 // -- the caller falls back to a full search->score->resolve.
-func (s *Service) fastReacquireFromDebrid(ctx context.Context, item *store.MediaItem) bool {
+func (s *Service) fastReacquireFromDebrid(ctx context.Context, item *store.MediaItem, onFailureStatus string) bool {
 	if s.debrid == nil {
 		return false
 	}
@@ -430,8 +455,9 @@ func (s *Service) fastReacquireFromDebrid(ctx context.Context, item *store.Media
 
 // startAcquire is Acquire and Reacquire's shared body -- blockOwned is the
 // only thing distinguishing "don't touch it, it's already fulfilled" from
-// "it's fulfilled but no longer good, replace it".
-func (s *Service) startAcquire(itemID string, blockOwned bool) error {
+// "it's fulfilled but no longer good, replace it". onFailureStatus is
+// threaded through to runAcquire (see ReacquireSoftFail).
+func (s *Service) startAcquire(itemID string, blockOwned bool, onFailureStatus string) error {
 	item, err := s.store.GetMediaItem(itemID)
 	if err != nil {
 		return err
@@ -448,7 +474,7 @@ func (s *Service) startAcquire(itemID string, blockOwned bool) error {
 	if err := s.store.SetMediaItemAcquisitionStatus(item.ID, "searching"); err != nil {
 		return err
 	}
-	go s.runAcquire(item)
+	go s.runAcquire(item, onFailureStatus)
 	return nil
 }
 
@@ -460,7 +486,7 @@ func (s *Service) startAcquire(itemID string, blockOwned bool) error {
 // until its own internal timeout, but since the winner already promoted the
 // media_item, the loser's promote call finds the item already "owned" and
 // leaves it alone (see PromoteToExistingItem's atomic claim).
-func (s *Service) runAcquire(item *store.MediaItem) {
+func (s *Service) runAcquire(item *store.MediaItem, onFailureStatus string) {
 	runtimeCtx, cancel := context.WithTimeout(context.Background(), searchTimeout)
 	s.ensureExpectedRuntime(runtimeCtx, item)
 	cancel()
@@ -470,12 +496,12 @@ func (s *Service) runAcquire(item *store.MediaItem) {
 
 	query, err := s.buildSearchQuery(item)
 	if err != nil {
-		s.fail(item.ID, err)
+		s.fail(item.ID, err, onFailureStatus)
 		return
 	}
 	profile, err := s.store.GetQualityProfile(item.LibraryID)
 	if err != nil {
-		s.fail(item.ID, err)
+		s.fail(item.ID, err, onFailureStatus)
 		return
 	}
 
@@ -509,9 +535,11 @@ func (s *Service) runAcquire(item *store.MediaItem) {
 		}
 	}
 
-	s.fail(item.ID, combineAcquireErrors(torrentErr, nzbErr))
+	s.fail(item.ID, combineAcquireErrors(torrentErr, nzbErr), onFailureStatus)
 	log.Printf("acquisition: all tiers exhausted for %s after %v", item.ID, time.Since(start))
-	s.notifySend("acquisition_failed", map[string]any{"itemId": item.ID, "title": item.Title})
+	if onFailureStatus == "error" {
+		s.notifySend("acquisition_failed", map[string]any{"itemId": item.ID, "title": item.Title})
+	}
 }
 
 // resolveImdbSearchParams returns the IMDb/TheTVDB IDs and season/episode
@@ -1168,7 +1196,19 @@ func (s *Service) pickDebridAccount() (*store.DebridAccount, error) {
 	return nil, errors.New("no enabled debrid account configured")
 }
 
-func (s *Service) fail(itemID string, err error) {
+// fail records a failed acquisition attempt. onFailureStatus == "owned"
+// (only ever passed by ReacquireSoftFail's callers) reverts the item back
+// to 'owned' instead of demoting it to 'error' -- see ReacquireSoftFail's
+// doc comment for why. err is still logged either way for diagnostics,
+// just not persisted to acquisition_error in that case.
+func (s *Service) fail(itemID string, err error, onFailureStatus string) {
+	if onFailureStatus == "owned" {
+		log.Printf("acquisition: %s couldn't be refreshed, reverting to owned: %v", itemID, err)
+		if serr := s.store.SetMediaItemAcquisitionStatus(itemID, "owned"); serr != nil {
+			log.Printf("acquisition: reverting status on %s: %v", itemID, serr)
+		}
+		return
+	}
 	if serr := s.store.SetMediaItemAcquisitionError(itemID, err.Error()); serr != nil {
 		log.Printf("acquisition: setting error on %s: %v", itemID, serr)
 	}
