@@ -171,14 +171,10 @@ func (s *Server) handleCreateContentRequest(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Fan out into whichever libraries are configured as default request
-	// targets, in the background -- MaterializePlaceholder makes a blocking
-	// TMDb call and the client shouldn't wait on it before seeing its
-	// request was recorded.
-	if s.acquisition.Load() != nil {
-		go s.acquisition.Load().FulfillRequest(context.Background(), created.ID, created.MediaType, created.TmdbID)
-	}
-
+	// Fulfillment (materializing metadata + starting acquisition) doesn't
+	// happen here -- it's gated behind admin approval, see
+	// handleDecideContentRequest. A pending request shouldn't already be
+	// occupying debrid/usenet provider quota before anyone's reviewed it.
 	writeJSON(w, http.StatusCreated, toContentRequestResponse(created, nil))
 }
 
@@ -279,5 +275,14 @@ func (s *Server) handleDecideContentRequest(w http.ResponseWriter, r *http.Reque
 		s.writeStoreErr(w, err, "deciding request")
 		return
 	}
+
+	// Approval is what actually starts work: materializing metadata and
+	// racing debrid/usenet candidates for a streamable link, in the
+	// background -- MaterializePlaceholder makes a blocking TMDb call and
+	// the admin shouldn't wait on it before seeing the decision recorded.
+	if req.Status == "approved" && s.acquisition.Load() != nil {
+		go s.acquisition.Load().FulfillRequest(context.Background(), updated.ID, updated.MediaType, updated.TmdbID)
+	}
+
 	writeJSON(w, http.StatusOK, toContentRequestResponse(updated, s.loadFulfillments(updated)))
 }
