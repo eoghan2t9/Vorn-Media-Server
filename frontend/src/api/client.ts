@@ -526,8 +526,7 @@ export const addNZBFile = async (file: File, opts?: { libraryId?: string }) => {
   return body as NZBDownload
 }
 
-export const removeNZBDownload = (id: string, deleteFiles = false) =>
-  request<void>(`/api/nzb/${id}?deleteFiles=${deleteFiles}`, { method: 'DELETE' })
+export const removeNZBDownload = (id: string) => request<void>(`/api/nzb/${id}`, { method: 'DELETE' })
 
 export interface NZBSearchResult {
   indexerName: string
@@ -561,17 +560,9 @@ export const deleteNZBIndexer = (id: string) => request<void>(`/api/nzb-indexers
 export const testNZBIndexer = (input: { baseUrl: string; apiKey?: string }) =>
   request<TestConnectionResult>('/api/nzb-indexers/test', { method: 'POST', body: JSON.stringify(input) })
 
-export type UsenetServerProvider = 'nntp' | 'torbox'
-
 export interface UsenetServer {
   id: string
   name: string
-  provider: UsenetServerProvider
-  host: string
-  port: number
-  useTls: boolean
-  username: string
-  maxConnections: number
   enabled: boolean
   createdAt: string
 }
@@ -579,28 +570,14 @@ export const listUsenetServers = () => request<UsenetServer[]>('/api/usenet-serv
 
 export interface CreateUsenetServerInput {
   name: string
-  provider?: UsenetServerProvider
-  host?: string
-  port?: number
-  useTls?: boolean
-  username?: string
-  password?: string
-  apiKey?: string
-  maxConnections?: number
+  apiKey: string
 }
 export const createUsenetServer = (input: CreateUsenetServerInput) =>
   request<UsenetServer>('/api/usenet-servers', { method: 'POST', body: JSON.stringify(input) })
 
 export interface UpdateUsenetServerInput {
   name?: string
-  provider?: UsenetServerProvider
-  host?: string
-  port?: number
-  useTls?: boolean
-  username?: string
-  password?: string
   apiKey?: string
-  maxConnections?: number
   enabled?: boolean
 }
 export const updateUsenetServer = (id: string, input: UpdateUsenetServerInput) =>
@@ -615,13 +592,7 @@ export interface TestConnectionResult {
 }
 
 export interface TestUsenetServerInput {
-  provider?: UsenetServerProvider
-  host?: string
-  port?: number
-  useTls?: boolean
-  username?: string
-  password?: string
-  apiKey?: string
+  apiKey: string
 }
 export const testUsenetServer = (input: TestUsenetServerInput) =>
   request<TestConnectionResult>('/api/usenet-servers/test', { method: 'POST', body: JSON.stringify(input) })

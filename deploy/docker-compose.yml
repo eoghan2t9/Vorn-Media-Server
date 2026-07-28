@@ -67,7 +67,6 @@ services:
       VORN_PROWLARR_API_KEY: "${VORN_PROWLARR_API_KEY:-}"
       VORN_PROWLARR_CONFIG_PATH: "/prowlarr-config/config.xml"
       VORN_NZB_ENABLED: "${VORN_NZB_ENABLED:-false}"
-      VORN_NZB_DOWNLOAD_DIR: "/nzb-downloads"
       VORN_OPENSUBTITLES_API_KEY: "${VORN_OPENSUBTITLES_API_KEY:-}"
       VORN_OPENSUBTITLES_USERNAME: "${VORN_OPENSUBTITLES_USERNAME:-}"
       VORN_OPENSUBTITLES_PASSWORD: "${VORN_OPENSUBTITLES_PASSWORD:-}"
@@ -86,7 +85,6 @@ services:
     volumes:
       - ${VORN_LIBRARY_PATH:-./data/library}:/media:ro
       - ${VORN_TORRENT_DOWNLOAD_PATH:-./data/downloads}:/downloads
-      - ${VORN_NZB_DOWNLOAD_PATH:-./data/nzb-downloads}:/nzb-downloads
       - ${VORN_SUBTITLES_CACHE_PATH:-./data/subtitles-cache}:/subtitles-cache
       - ${VORN_ARTWORK_CACHE_PATH:-./data/artwork-cache}:/artwork-cache
       - ${VORN_BACKUP_PATH:-./data/backups}:/backups

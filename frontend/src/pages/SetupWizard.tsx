@@ -15,7 +15,6 @@ import {
   type NZBIndexer,
   type TorrentIndexer,
   type UsenetServer,
-  type UsenetServerProvider,
 } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
 import { DirectoryBrowser } from '../components/DirectoryBrowser'
@@ -48,17 +47,6 @@ const NZB_INDEXER_PRESETS: { label: string; name: string; baseUrl: string }[] = 
   { label: 'DOGnzb', name: 'DOGnzb', baseUrl: 'https://api.dognzb.cr' },
   { label: 'omgwtfnzbs', name: 'omgwtfnzbs', baseUrl: 'https://omgwtfnzbs.org' },
   { label: 'Tabula Rasa', name: 'Tabula Rasa', baseUrl: 'https://tabula-rasa.pw' },
-]
-
-const USENET_SERVER_PRESETS: { label: string; name: string; host: string; port: string }[] = [
-  { label: 'Newshosting', name: 'Newshosting', host: 'news.newshosting.com', port: '563' },
-  { label: 'Eweka', name: 'Eweka', host: 'news.eweka.nl', port: '563' },
-  { label: 'UsenetServer', name: 'UsenetServer', host: 'news.usenetserver.com', port: '563' },
-  { label: 'Tweaknews', name: 'Tweaknews', host: 'news.tweaknews.eu', port: '563' },
-  { label: 'Easynews', name: 'Easynews', host: 'secure.news.easynews.com', port: '563' },
-  { label: 'Astraweb', name: 'Astraweb', host: 'news.astraweb.com', port: '563' },
-  { label: 'Giganews', name: 'Giganews', host: 'news.giganews.com', port: '563' },
-  { label: 'XS News', name: 'XS News', host: 'reader.xsnews.nl', port: '563' },
 ]
 
 const DEBRID_PROVIDERS: { value: DebridProvider; label: string }[] = [
@@ -101,13 +89,7 @@ export function SetupWizard() {
   const [addedTorrentIndexers, setAddedTorrentIndexers] = useState<TorrentIndexer[]>([])
 
   // -- Usenet: server + indexer -----------------------------------------
-  const [usenetProvider, setUsenetProvider] = useState<UsenetServerProvider>('nntp')
-  const [usenetPreset, setUsenetPreset] = useState('')
-  const [usenetName, setUsenetName] = useState('')
-  const [usenetHost, setUsenetHost] = useState('')
-  const [usenetPort, setUsenetPort] = useState('563')
-  const [usenetUsername, setUsenetUsername] = useState('')
-  const [usenetPassword, setUsenetPassword] = useState('')
+  const [usenetName, setUsenetName] = useState('TorBox')
   const [usenetServerApiKey, setUsenetServerApiKey] = useState('')
   const [addedUsenetServers, setAddedUsenetServers] = useState<UsenetServer[]>([])
 
@@ -221,38 +203,13 @@ export function SetupWizard() {
     }
   }
 
-  function handleUsenetPreset(id: string) {
-    setUsenetPreset(id)
-    const preset = USENET_SERVER_PRESETS.find((p) => p.label === id)
-    if (preset) {
-      setUsenetName(preset.name)
-      setUsenetHost(preset.host)
-      setUsenetPort(preset.port)
-    }
-  }
-
   async function handleAddUsenetServer(e: FormEvent) {
     e.preventDefault()
     setError(null)
     try {
-      const server =
-        usenetProvider === 'torbox'
-          ? await createUsenetServer({ name: usenetName, provider: 'torbox', apiKey: usenetServerApiKey })
-          : await createUsenetServer({
-              name: usenetName,
-              provider: 'nntp',
-              host: usenetHost,
-              port: Number(usenetPort),
-              useTls: true,
-              username: usenetUsername || undefined,
-              password: usenetPassword || undefined,
-            })
+      const server = await createUsenetServer({ name: usenetName, apiKey: usenetServerApiKey })
       setAddedUsenetServers((list) => [...list, server])
-      setUsenetPreset('')
-      setUsenetName('')
-      setUsenetHost('')
-      setUsenetUsername('')
-      setUsenetPassword('')
+      setUsenetName('TorBox')
       setUsenetServerApiKey('')
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to add usenet server')
@@ -462,11 +419,11 @@ export function SetupWizard() {
           <div>
             <h1>Usenet</h1>
             <p className="vorn-form-subtitle">
-              A Usenet server (your paid provider account) and an indexer (to search for releases) are separate. Add either,
-              both, or skip and configure them later in Admin → NZB / Usenet.
+              A TorBox account (for caching/streaming Usenet releases) and an indexer (to search for releases) are
+              separate. Add either, both, or skip and configure them later in Admin → NZB / Usenet.
             </p>
 
-            <h2 className="vorn-setup-subheading">Server</h2>
+            <h2 className="vorn-setup-subheading">TorBox account</h2>
             {addedUsenetServers.length > 0 && (
               <ul className="vorn-setup-added-list">
                 {addedUsenetServers.map((s) => (
@@ -475,49 +432,13 @@ export function SetupWizard() {
               </ul>
             )}
             <form className="vorn-inline-form vorn-setup-inline-form" onSubmit={handleAddUsenetServer}>
-              <Select
-                value={usenetProvider}
-                onChange={(v) => setUsenetProvider(v as UsenetServerProvider)}
-                options={[
-                  { value: 'nntp', label: 'NNTP server' },
-                  { value: 'torbox', label: 'TorBox' },
-                ]}
-              />
-              {usenetProvider === 'nntp' && (
-                <Select
-                  value={usenetPreset}
-                  onChange={handleUsenetPreset}
-                  placeholder="Preset…"
-                  options={USENET_SERVER_PRESETS.map((p) => ({ value: p.label, label: p.label }))}
-                />
-              )}
               <input placeholder="Name" value={usenetName} onChange={(e) => setUsenetName(e.target.value)} required />
-              {usenetProvider === 'nntp' ? (
-                <>
-                  <input placeholder="Host" value={usenetHost} onChange={(e) => setUsenetHost(e.target.value)} required />
-                  <input
-                    placeholder="Port"
-                    value={usenetPort}
-                    onChange={(e) => setUsenetPort(e.target.value)}
-                    style={{ width: '5rem' }}
-                    required
-                  />
-                  <input placeholder="Username" value={usenetUsername} onChange={(e) => setUsenetUsername(e.target.value)} />
-                  <input
-                    type="password"
-                    placeholder="Password"
-                    value={usenetPassword}
-                    onChange={(e) => setUsenetPassword(e.target.value)}
-                  />
-                </>
-              ) : (
-                <input
-                  placeholder="API key"
-                  value={usenetServerApiKey}
-                  onChange={(e) => setUsenetServerApiKey(e.target.value)}
-                  required
-                />
-              )}
+              <input
+                placeholder="API key"
+                value={usenetServerApiKey}
+                onChange={(e) => setUsenetServerApiKey(e.target.value)}
+                required
+              />
               <button type="submit">Add server</button>
             </form>
 

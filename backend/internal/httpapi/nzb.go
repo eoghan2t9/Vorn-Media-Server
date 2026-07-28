@@ -137,8 +137,7 @@ func (s *Server) handleRemoveNZB(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
-	deleteFiles := r.URL.Query().Get("deleteFiles") == "true"
-	if err := s.nzbSvc.Load().Remove(id, deleteFiles); err != nil {
+	if err := s.nzbSvc.Load().Remove(id); err != nil {
 		s.writeStoreErr(w, err, "removing nzb download")
 		return
 	}
@@ -146,30 +145,18 @@ func (s *Server) handleRemoveNZB(w http.ResponseWriter, r *http.Request) {
 }
 
 type usenetServerResponse struct {
-	ID             string `json:"id"`
-	Name           string `json:"name"`
-	Provider       string `json:"provider"`
-	Host           string `json:"host"`
-	Port           int    `json:"port"`
-	UseTLS         bool   `json:"useTls"`
-	Username       string `json:"username"`
-	MaxConnections int    `json:"maxConnections"`
-	Enabled        bool   `json:"enabled"`
-	CreatedAt      string `json:"createdAt"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Enabled   bool   `json:"enabled"`
+	CreatedAt string `json:"createdAt"`
 }
 
 func toUsenetServerResponse(u *store.UsenetServer) usenetServerResponse {
 	return usenetServerResponse{
-		ID:             u.ID,
-		Name:           u.Name,
-		Provider:       u.Provider,
-		Host:           u.Host,
-		Port:           u.Port,
-		UseTLS:         u.UseTLS,
-		Username:       u.Username,
-		MaxConnections: u.MaxConnections,
-		Enabled:        u.Enabled,
-		CreatedAt:      u.CreatedAt.Format(time.RFC3339),
+		ID:        u.ID,
+		Name:      u.Name,
+		Enabled:   u.Enabled,
+		CreatedAt: u.CreatedAt.Format(time.RFC3339),
 	}
 }
 
@@ -191,15 +178,8 @@ func (s *Server) handleListUsenetServers(w http.ResponseWriter, r *http.Request)
 }
 
 type createUsenetServerRequest struct {
-	Name           string `json:"name"`
-	Provider       string `json:"provider"`
-	Host           string `json:"host"`
-	Port           int    `json:"port"`
-	UseTLS         bool   `json:"useTls"`
-	Username       string `json:"username"`
-	Password       string `json:"password"`
-	APIKey         string `json:"apiKey"`
-	MaxConnections int    `json:"maxConnections"`
+	Name   string `json:"name"`
+	APIKey string `json:"apiKey"`
 }
 
 func (s *Server) handleCreateUsenetServer(w http.ResponseWriter, r *http.Request) {
@@ -212,35 +192,17 @@ func (s *Server) handleCreateUsenetServer(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if req.Provider == "" {
-		req.Provider = "nntp"
-	}
 	if req.Name == "" {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	if req.Provider == "torbox" {
-		if req.APIKey == "" {
-			writeError(w, http.StatusBadRequest, "apiKey is required")
-			return
-		}
-	} else if req.Host == "" || req.Port == 0 {
-		writeError(w, http.StatusBadRequest, "host and port are required")
+	if req.APIKey == "" {
+		writeError(w, http.StatusBadRequest, "apiKey is required")
 		return
 	}
-	if req.MaxConnections < 1 {
-		req.MaxConnections = 1
-	}
 	u, err := s.nzbSvc.Load().AddServer(store.UsenetServer{
-		Name:           req.Name,
-		Provider:       req.Provider,
-		Host:           req.Host,
-		Port:           req.Port,
-		UseTLS:         req.UseTLS,
-		Username:       req.Username,
-		Password:       req.Password,
-		APIKey:         req.APIKey,
-		MaxConnections: req.MaxConnections,
+		Name:   req.Name,
+		APIKey: req.APIKey,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "creating usenet server")
@@ -250,13 +212,7 @@ func (s *Server) handleCreateUsenetServer(w http.ResponseWriter, r *http.Request
 }
 
 type testUsenetServerRequest struct {
-	Provider string `json:"provider"`
-	Host     string `json:"host"`
-	Port     int    `json:"port"`
-	UseTLS   bool   `json:"useTls"`
-	Username string `json:"username"`
-	Password string `json:"password"`
-	APIKey   string `json:"apiKey"`
+	APIKey string `json:"apiKey"`
 }
 
 type testResultResponse struct {
@@ -264,10 +220,10 @@ type testResultResponse struct {
 	Error string `json:"error,omitempty"`
 }
 
-// handleTestUsenetServer dials and authenticates against a Usenet server
-// using whatever's currently in the add-server form, without requiring it
-// to be saved first -- a bad host/port/credential combo otherwise wouldn't
-// surface until the first real download attempt fails.
+// handleTestUsenetServer verifies a TorBox API key using whatever's
+// currently in the add-server form, without requiring it to be saved first
+// -- a bad key otherwise wouldn't surface until the first real download
+// attempt fails.
 func (s *Server) handleTestUsenetServer(w http.ResponseWriter, r *http.Request) {
 	if s.nzbSvc.Load() == nil {
 		writeError(w, http.StatusServiceUnavailable, nzbServiceUnavailable)
@@ -278,23 +234,11 @@ func (s *Server) handleTestUsenetServer(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if req.Provider == "torbox" {
-		if req.APIKey == "" {
-			writeError(w, http.StatusBadRequest, "apiKey is required")
-			return
-		}
-		if err := s.nzbSvc.Load().TestTorBoxAccount(r.Context(), req.APIKey); err != nil {
-			writeJSON(w, http.StatusOK, testResultResponse{OK: false, Error: err.Error()})
-			return
-		}
-		writeJSON(w, http.StatusOK, testResultResponse{OK: true})
+	if req.APIKey == "" {
+		writeError(w, http.StatusBadRequest, "apiKey is required")
 		return
 	}
-	if req.Host == "" || req.Port == 0 {
-		writeError(w, http.StatusBadRequest, "host and port are required")
-		return
-	}
-	if err := s.nzbSvc.Load().TestServer(req.Host, req.Port, req.UseTLS, req.Username, req.Password); err != nil {
+	if err := s.nzbSvc.Load().TestTorBoxAccount(r.Context(), req.APIKey); err != nil {
 		writeJSON(w, http.StatusOK, testResultResponse{OK: false, Error: err.Error()})
 		return
 	}
@@ -303,19 +247,12 @@ func (s *Server) handleTestUsenetServer(w http.ResponseWriter, r *http.Request) 
 
 // updateUsenetServerRequest fields are pointers so an omitted field leaves it
 // unchanged -- see updateIndexerRequest in torrents.go for the same
-// reasoning applied to password/apiKey here. An explicit empty string
-// clears the password/apiKey, distinct from omitting the field.
+// reasoning applied to apiKey here. An explicit empty string clears the
+// apiKey, distinct from omitting the field.
 type updateUsenetServerRequest struct {
-	Name           *string `json:"name"`
-	Provider       *string `json:"provider"`
-	Host           *string `json:"host"`
-	Port           *int    `json:"port"`
-	UseTLS         *bool   `json:"useTls"`
-	Username       *string `json:"username"`
-	Password       *string `json:"password"`
-	APIKey         *string `json:"apiKey"`
-	MaxConnections *int    `json:"maxConnections"`
-	Enabled        *bool   `json:"enabled"`
+	Name    *string `json:"name"`
+	APIKey  *string `json:"apiKey"`
+	Enabled *bool   `json:"enabled"`
 }
 
 func (s *Server) handleUpdateUsenetServer(w http.ResponseWriter, r *http.Request) {
@@ -330,16 +267,9 @@ func (s *Server) handleUpdateUsenetServer(w http.ResponseWriter, r *http.Request
 	}
 	id := r.PathValue("id")
 	u, err := s.nzbSvc.Load().UpdateServer(id, store.UpdateUsenetServerInput{
-		Name:           req.Name,
-		Provider:       req.Provider,
-		Host:           req.Host,
-		Port:           req.Port,
-		UseTLS:         req.UseTLS,
-		Username:       req.Username,
-		Password:       req.Password,
-		APIKey:         req.APIKey,
-		MaxConnections: req.MaxConnections,
-		Enabled:        req.Enabled,
+		Name:    req.Name,
+		APIKey:  req.APIKey,
+		Enabled: req.Enabled,
 	})
 	if err != nil {
 		s.writeStoreErr(w, err, "updating usenet server")

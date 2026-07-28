@@ -11,16 +11,15 @@ import (
 
 const torBoxCacheTimeout = 20 * time.Minute
 
-// runTorBox fulfils rec by handing the raw .nzb off to a TorBox account
-// instead of dialing a real Usenet server: TorBox downloads, yEnc decodes,
-// and par2-repairs it against its own Usenet backend. Unlike the NNTP path,
-// Vorn never fetches the resulting bytes itself -- TorBox's
-// RequestUsenetDownloadLink returns a direct HTTP stream URL per file, the
-// same kind of provider-hosted CDN link debrid resolves to, so each one is
-// just recorded as an NZBFile row (mirroring debrid_files) and promotion
-// points the media item straight at it. No local disk space is ever used
-// for a TorBox-provider server. The remote caching/repair phase is reported
-// under the existing "repairing" status (accurate -- that's genuinely what's
+// runTorBox fulfils rec by handing the raw .nzb off to a TorBox account:
+// TorBox downloads, yEnc decodes, and par2-repairs it against its own
+// Usenet backend. Vorn never fetches the resulting bytes itself --
+// TorBox's RequestUsenetDownloadLink returns a direct HTTP stream URL per
+// file, the same kind of provider-hosted CDN link debrid resolves to, so
+// each one is just recorded as an NZBFile row (mirroring debrid_files) and
+// promotion points the media item straight at it. No local disk space is
+// ever used. The remote caching/repair phase is reported under the
+// existing "repairing" status (accurate -- that's genuinely what's
 // happening, just off-box).
 func (svc *Service) runTorBox(rec *store.NZBDownload, data []byte, server *store.UsenetServer) {
 	client := svc.torboxClient

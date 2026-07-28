@@ -252,13 +252,8 @@ func (s *Server) reconfigure() error {
 
 	nzbChanged := false
 	if nzbEnabled && s.nzbSvc.Load() == nil {
-		ns, err := nzb.NewService(s.store, s.baseCfg.NZBDownloadDir, s.debridSvc.TorBoxLimiter())
-		if err != nil {
-			log.Printf("httpapi: starting nzb service: %v", err)
-		} else {
-			s.nzbSvc.Store(ns)
-			nzbChanged = true
-		}
+		s.nzbSvc.Store(nzb.NewService(s.store, s.debridSvc.TorBoxLimiter()))
+		nzbChanged = true
 	} else if !nzbEnabled {
 		if old := s.nzbSvc.Swap(nil); old != nil {
 			nzbChanged = true

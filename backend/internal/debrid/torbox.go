@@ -199,8 +199,7 @@ type tbCreateUsenetData struct {
 
 // CreateUsenetDownload submits a raw .nzb file to TorBox's own Usenet
 // backend (POST /usenet/createusenetdownload): TorBox downloads, yEnc
-// decodes, and par2-repairs it server-side, the same as Vorn's local NNTP
-// path does, just off-box.
+// decodes, and par2-repairs it server-side, entirely off-box.
 func (c *TorBoxClient) CreateUsenetDownload(ctx context.Context, apiKey string, nzbData []byte, name string) (int, error) {
 	var body bytes.Buffer
 	w := multipart.NewWriter(&body)

@@ -83,9 +83,9 @@ Tracked in phases; each phase is delivered as a runnable increment with its own 
 - [x] **Phase 7 — Torrent acquisition**: anacrolix/torrent-backed client with sequential
       (streaming-order) or rarest-first download, a Torznab indexer plugin system for search,
       and an auto-add-to-library watcher on completion.
-- [x] **Phase 8 — NZB & debrid acquisition**: hand-rolled NNTP/yEnc Usenet client with par2 repair,
-      Real-Debrid/TorBox clients behind a shared `Provider.Resolve()` interface, and
-      direct-stream-from-debrid playback with no local download step.
+- [x] **Phase 8 — NZB & debrid acquisition**: TorBox-backed Usenet caching, Real-Debrid/TorBox
+      clients behind a shared `Provider.Resolve()` interface, and direct-stream-from-provider
+      playback with no local download step.
 - [x] **Phase 9 — Client API compatibility**: Jellyfin (documented spec), Emby (near-free given
       Jellyfin's wire compatibility with its own fork origin), and Plex (reverse-engineered, no
       plex.tv integration — see the "Client API compatibility" section above for that limitation).
@@ -129,9 +129,8 @@ Features added after the original 11 phases landed, organized by area rather tha
   torrent-protocol into Vorn's Torrent Indexers, Usenet-protocol into NZB Indexers — with no
   manual URL/API-key copying. Vorn itself remains a plain Torznab/Newznab client throughout; this
   doesn't add any indexer scraping of its own.
-- **Usenet indexer search & provider presets**: Newznab-compatible indexer search on the NZB page
-  (NZBGeek and others), connection presets for popular commercial Usenet providers, and TorBox
-  support as a Usenet backend alongside its debrid role.
+- **Usenet indexer search**: Newznab-compatible indexer search on the NZB page (NZBGeek and
+  others), with TorBox as the Usenet caching/streaming backend alongside its debrid role.
 - **Admin database backup/restore**, including scheduled automated backups.
 - **About page** (Admin → About): current version/uptime, and a credits page linking every
   external API/service Vorn integrates with — metadata providers, torrent/Usenet indexers, Usenet
@@ -186,11 +185,9 @@ docker compose -f deploy/docker-compose.yml up --build
 - `VORN_TORRENT_PEER_PORT` — TCP/uTP port for incoming peer connections (default: the
   anacrolix/torrent library default, 42069).
 - `VORN_NZB_ENABLED=true` — enables NZB/Usenet acquisition (`/api/nzb`, `/api/usenet-servers`). Off
-  by default; requires at least one enabled Usenet server to be configured via the admin UI before
-  any download can start.
-- `VORN_NZB_DOWNLOAD_DIR` — where NZB downloads are saved and par2-repaired (default:
-  `./data/nzb-downloads`; the Docker Compose backend service always uses `/nzb-downloads`, backed
-  by the `VORN_NZB_DOWNLOAD_PATH` host bind mount).
+  by default; requires a TorBox account (name + API key) to be configured via the admin UI before
+  any download can start. TorBox does the caching/repair server-side and hands back a direct
+  stream URL, so nothing is downloaded to this server.
 - `VORN_OPENSUBTITLES_API_KEY` / `VORN_OPENSUBTITLES_USERNAME` / `VORN_OPENSUBTITLES_PASSWORD` —
   enables subtitle integration (`GET /api/items/{id}/subtitles`, `GET /api/admin/subtitles/quota`).
   Requires a free OpenSubtitles.com API consumer key (https://www.opensubtitles.com/en/consumers)

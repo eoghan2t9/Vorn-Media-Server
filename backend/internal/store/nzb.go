@@ -7,37 +7,25 @@ import (
 )
 
 type UsenetServer struct {
-	ID             string
-	Name           string
-	Provider       string // "nntp" (default, real Usenet server) | "torbox"
-	Host           string
-	Port           int
-	UseTLS         bool
-	Username       string
-	Password       string
-	APIKey         string // torbox only
-	MaxConnections int
-	Enabled        bool
-	CreatedAt      time.Time
+	ID        string
+	Name      string
+	APIKey    string
+	Enabled   bool
+	CreatedAt time.Time
 }
 
 func (s *Store) CreateUsenetServer(in UsenetServer) (*UsenetServer, error) {
 	out := in
-	if out.Provider == "" {
-		out.Provider = "nntp"
-	}
 	err := s.db.QueryRow(
-		`INSERT INTO usenet_servers (name, provider, host, port, use_tls, username, password, api_key, max_connections)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id, enabled, created_at`,
-		out.Name, out.Provider, out.Host, out.Port, out.UseTLS, out.Username, out.Password, out.APIKey, out.MaxConnections,
+		`INSERT INTO usenet_servers (name, api_key) VALUES ($1, $2) RETURNING id, enabled, created_at`,
+		out.Name, out.APIKey,
 	).Scan(&out.ID, &out.Enabled, &out.CreatedAt)
 	return &out, err
 }
 
 func (s *Store) ListUsenetServers() ([]*UsenetServer, error) {
 	rows, err := s.db.Query(
-		`SELECT id, name, provider, host, port, use_tls, username, password, api_key, max_connections, enabled, created_at
-		 FROM usenet_servers ORDER BY created_at`,
+		`SELECT id, name, api_key, enabled, created_at FROM usenet_servers ORDER BY created_at`,
 	)
 	if err != nil {
 		return nil, err
@@ -47,7 +35,7 @@ func (s *Store) ListUsenetServers() ([]*UsenetServer, error) {
 	var out []*UsenetServer
 	for rows.Next() {
 		u := &UsenetServer{}
-		if err := rows.Scan(&u.ID, &u.Name, &u.Provider, &u.Host, &u.Port, &u.UseTLS, &u.Username, &u.Password, &u.APIKey, &u.MaxConnections, &u.Enabled, &u.CreatedAt); err != nil {
+		if err := rows.Scan(&u.ID, &u.Name, &u.APIKey, &u.Enabled, &u.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, u)
@@ -61,29 +49,20 @@ func (s *Store) DeleteUsenetServer(id string) error {
 }
 
 // UpdateUsenetServerInput fields are pointers so nil means "leave this field
-// unchanged" -- in particular, an admin editing host/port/username shouldn't
-// have to resend the password/API key, and the API never echoes secrets
-// back for them to resend in the first place. A non-nil empty
-// Password/APIKey explicitly clears it.
+// unchanged" -- in particular, the API never echoes secrets back for an
+// admin to resend, so a nil APIKey leaves the stored key untouched. A
+// non-nil empty APIKey explicitly clears it.
 type UpdateUsenetServerInput struct {
-	Name           *string
-	Provider       *string
-	Host           *string
-	Port           *int
-	UseTLS         *bool
-	Username       *string
-	Password       *string
-	APIKey         *string
-	MaxConnections *int
-	Enabled        *bool
+	Name    *string
+	APIKey  *string
+	Enabled *bool
 }
 
 func (s *Store) UpdateUsenetServer(id string, in UpdateUsenetServerInput) (*UsenetServer, error) {
 	u := &UsenetServer{}
 	err := s.db.QueryRow(
-		`SELECT id, name, provider, host, port, use_tls, username, password, api_key, max_connections, enabled, created_at
-		 FROM usenet_servers WHERE id = $1`, id,
-	).Scan(&u.ID, &u.Name, &u.Provider, &u.Host, &u.Port, &u.UseTLS, &u.Username, &u.Password, &u.APIKey, &u.MaxConnections, &u.Enabled, &u.CreatedAt)
+		`SELECT id, name, api_key, enabled, created_at FROM usenet_servers WHERE id = $1`, id,
+	).Scan(&u.ID, &u.Name, &u.APIKey, &u.Enabled, &u.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -93,37 +72,15 @@ func (s *Store) UpdateUsenetServer(id string, in UpdateUsenetServerInput) (*Usen
 	if in.Name != nil {
 		u.Name = *in.Name
 	}
-	if in.Provider != nil {
-		u.Provider = *in.Provider
-	}
-	if in.Host != nil {
-		u.Host = *in.Host
-	}
-	if in.Port != nil {
-		u.Port = *in.Port
-	}
-	if in.UseTLS != nil {
-		u.UseTLS = *in.UseTLS
-	}
-	if in.Username != nil {
-		u.Username = *in.Username
-	}
-	if in.Password != nil {
-		u.Password = *in.Password
-	}
 	if in.APIKey != nil {
 		u.APIKey = *in.APIKey
-	}
-	if in.MaxConnections != nil {
-		u.MaxConnections = *in.MaxConnections
 	}
 	if in.Enabled != nil {
 		u.Enabled = *in.Enabled
 	}
 	if _, err := s.db.Exec(
-		`UPDATE usenet_servers SET name = $1, provider = $2, host = $3, port = $4, use_tls = $5, username = $6,
-		 password = $7, api_key = $8, max_connections = $9, enabled = $10 WHERE id = $11`,
-		u.Name, u.Provider, u.Host, u.Port, u.UseTLS, u.Username, u.Password, u.APIKey, u.MaxConnections, u.Enabled, id,
+		`UPDATE usenet_servers SET name = $1, api_key = $2, enabled = $3 WHERE id = $4`,
+		u.Name, u.APIKey, u.Enabled, id,
 	); err != nil {
 		return nil, err
 	}
@@ -140,52 +97,32 @@ type NZBDownload struct {
 	// the manual admin-driven Admin > NZB flow, same as debrid_items.
 	MediaItemID *string
 	Name        string
-	SavePath    string
 	Status      string // "downloading" | "repairing" | "completed" | "error" | "removed"
 	BytesTotal  int64
 	BytesDone   int64
 	Error       string
 	Promoted    bool
-	// Provider records which kind of Usenet server actually resolved this
-	// download ("nntp" | "torbox") -- set once run() picks a server, right
-	// before branching into runNNTP/runTorBox. promote.go relies on this
-	// (not "does nzb_files have rows") to decide whether to promote from
-	// stream URLs or a local directory, since a TorBox run can legitimately
-	// come back with zero cached files and must still be treated as a
-	// TorBox-streamed (no local directory ever created) outcome rather than
-	// falling back to NNTP's directory-walk.
-	Provider    string
 	AddedAt     time.Time
 	CompletedAt *time.Time
 }
 
-const nzbColumns = `id, library_id, media_item_id, name, save_path, status, bytes_total, bytes_done, error, promoted, provider, added_at, completed_at`
+const nzbColumns = `id, library_id, media_item_id, name, status, bytes_total, bytes_done, error, promoted, added_at, completed_at`
 
 func scanNZBDownload(row interface{ Scan(...any) error }, n *NZBDownload) error {
-	return row.Scan(&n.ID, &n.LibraryID, &n.MediaItemID, &n.Name, &n.SavePath, &n.Status, &n.BytesTotal, &n.BytesDone, &n.Error, &n.Promoted, &n.Provider, &n.AddedAt, &n.CompletedAt)
-}
-
-// SetNZBDownloadProvider records which Usenet server provider resolved id,
-// called once at the top of run() right after pickServer succeeds (the
-// provider isn't known yet at CreateNZBDownload time, since that happens
-// before a goroutine even starts).
-func (s *Store) SetNZBDownloadProvider(id, provider string) error {
-	_, err := s.db.Exec(`UPDATE nzb_downloads SET provider = $1 WHERE id = $2`, provider, id)
-	return err
+	return row.Scan(&n.ID, &n.LibraryID, &n.MediaItemID, &n.Name, &n.Status, &n.BytesTotal, &n.BytesDone, &n.Error, &n.Promoted, &n.AddedAt, &n.CompletedAt)
 }
 
 type CreateNZBDownloadInput struct {
 	LibraryID   *string
 	MediaItemID *string
 	Name        string
-	SavePath    string
 }
 
 func (s *Store) CreateNZBDownload(in CreateNZBDownloadInput) (*NZBDownload, error) {
 	n := &NZBDownload{}
 	row := s.db.QueryRow(
-		`INSERT INTO nzb_downloads (library_id, media_item_id, name, save_path) VALUES ($1, $2, $3, $4) RETURNING `+nzbColumns,
-		in.LibraryID, in.MediaItemID, in.Name, in.SavePath,
+		`INSERT INTO nzb_downloads (library_id, media_item_id, name) VALUES ($1, $2, $3) RETURNING `+nzbColumns,
+		in.LibraryID, in.MediaItemID, in.Name,
 	)
 	if err := scanNZBDownload(row, n); err != nil {
 		return nil, err
@@ -248,11 +185,9 @@ func (s *Store) RemoveNZBDownload(id string) error {
 	return err
 }
 
-// NZBFile is an nzb_downloads counterpart to DebridFile: populated only
-// when the download resolved via a TorBox-provider Usenet server, which
-// (unlike plain NNTP) returns a direct HTTP stream URL per file instead of
-// requiring Vorn to fetch and store the bytes itself. A download resolved
-// over plain NNTP has no NZBFile rows at all.
+// NZBFile is an nzb_downloads counterpart to DebridFile: one row per file
+// TorBox cached, holding a direct HTTP stream URL instead of requiring Vorn
+// to fetch and store the bytes itself.
 type NZBFile struct {
 	ID            string
 	NZBDownloadID string

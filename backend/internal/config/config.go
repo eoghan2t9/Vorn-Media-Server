@@ -21,7 +21,6 @@ type Config struct {
 	TorrentDownloadDir   string
 	TorrentPeerPort      int
 	NZBEnabled           bool
-	NZBDownloadDir       string
 	OpenSubtitlesAPIKey  string
 	OpenSubtitlesUser    string
 	OpenSubtitlesPass    string
@@ -52,7 +51,6 @@ func Load() Config {
 		TorrentDownloadDir:   getEnv("VORN_TORRENT_DOWNLOAD_DIR", "./data/downloads"),
 		TorrentPeerPort:      getIntEnv("VORN_TORRENT_PEER_PORT", 0),
 		NZBEnabled:           getBoolEnv("VORN_NZB_ENABLED", false),
-		NZBDownloadDir:       getEnv("VORN_NZB_DOWNLOAD_DIR", "./data/nzb-downloads"),
 		OpenSubtitlesAPIKey:  getEnv("VORN_OPENSUBTITLES_API_KEY", ""),
 		OpenSubtitlesUser:    getEnv("VORN_OPENSUBTITLES_USERNAME", ""),
 		OpenSubtitlesPass:    getEnv("VORN_OPENSUBTITLES_PASSWORD", ""),

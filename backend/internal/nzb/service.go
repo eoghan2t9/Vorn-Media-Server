@@ -5,33 +5,22 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
-	"path/filepath"
-	"sync"
-	"sync/atomic"
-	"time"
 
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/debrid"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/store"
 )
 
-const (
-	dialTimeout       = 30 * time.Second
-	repairTimeout     = 30 * time.Minute
-	progressMinPeriod = 500 * time.Millisecond
-)
-
-// Service downloads NZB releases: parsing the index, fetching segments
-// from a configured Usenet server (with up to MaxConnections in parallel
-// per file), reassembling them, optionally repairing with par2, and
-// promoting the result into the library on completion.
+// Service resolves NZB releases via a configured TorBox account: parsing
+// the index, handing it to TorBox for server-side caching/repair, then
+// recording the direct stream URLs TorBox returns and promoting the result
+// into the library on completion. No article data ever passes through
+// Vorn itself.
 type Service struct {
-	store       *store.Store
-	downloadDir string
-	onComplete  func(*store.NZBDownload)
-	// torboxClient is constructed once and reused for every TorBox-provider
-	// download/account-test, sharing torboxLimiter with debrid.Service's own
-	// TorBox client and torrent.Service's indexer search -- a fresh
+	store      *store.Store
+	onComplete func(*store.NZBDownload)
+	// torboxClient is constructed once and reused for every download/
+	// account-test, sharing torboxLimiter with debrid.Service's own TorBox
+	// client and torrent.Service's indexer search -- a fresh
 	// debrid.NewTorBoxClient() per call (or an unshared limiter) would give
 	// every single attempt its own independent "fresh" 300/min budget
 	// instead of one real, shared cap across every TorBox interaction this
@@ -43,11 +32,8 @@ type Service struct {
 // than constructing its own, so NZB's TorBox usenet-caching client shares
 // the exact same rate budget as debrid.Service's TorBox debrid-resolve
 // client and torrent.Service's TorBox indexer search.
-func NewService(st *store.Store, downloadDir string, torboxLimiter *debrid.Limiter) (*Service, error) {
-	if err := os.MkdirAll(downloadDir, 0o755); err != nil {
-		return nil, fmt.Errorf("nzb: creating download dir: %w", err)
-	}
-	svc := &Service{store: st, downloadDir: downloadDir, torboxClient: debrid.NewTorBoxClient(torboxLimiter)}
+func NewService(st *store.Store, torboxLimiter *debrid.Limiter) *Service {
+	svc := &Service{store: st, torboxClient: debrid.NewTorBoxClient(torboxLimiter)}
 	svc.onComplete = func(n *store.NZBDownload) {
 		if n.MediaItemID == nil {
 			PromoteCompleted(st, n)
@@ -68,7 +54,7 @@ func NewService(st *store.Store, downloadDir string, torboxLimiter *debrid.Limit
 		}
 		PromoteToExistingItem(st, mediaItem, n)
 	}
-	return svc, nil
+	return svc
 }
 
 // AddNZB parses a .nzb file's bytes and starts downloading it in the
@@ -105,236 +91,26 @@ func (svc *Service) addNZB(data []byte, libraryID, mediaItemID *string) (*store.
 		LibraryID:   libraryID,
 		MediaItemID: mediaItemID,
 		Name:        name,
-		SavePath:    svc.downloadDir,
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	go svc.run(rec, doc, data)
+	go svc.run(rec, data)
 	return rec, nil
 }
 
-func (svc *Service) run(rec *store.NZBDownload, doc *NZB, data []byte) {
+func (svc *Service) run(rec *store.NZBDownload, data []byte) {
 	server, err := svc.pickServer()
 	if err != nil {
 		svc.finish(rec, err)
 		return
 	}
-	if err := svc.store.SetNZBDownloadProvider(rec.ID, server.Provider); err != nil {
-		log.Printf("nzb: recording provider for %s: %v", rec.ID, err)
-	}
-
-	if server.Provider == "torbox" {
-		svc.runTorBox(rec, data, server)
-		return
-	}
-	svc.runNNTP(rec, doc, server)
-}
-
-func (svc *Service) runNNTP(rec *store.NZBDownload, doc *NZB, server *store.UsenetServer) {
-	var total int64
-	for _, f := range doc.Files {
-		for _, seg := range f.Segments {
-			total += seg.Bytes
-		}
-	}
-	if err := svc.store.UpdateNZBProgress(rec.ID, total, 0, "downloading"); err != nil {
-		log.Printf("nzb: setting total bytes for %s: %v", rec.ID, err)
-	}
-
-	outDir := filepath.Join(rec.SavePath, rec.Name)
-	if err := os.MkdirAll(outDir, 0o755); err != nil {
-		svc.finish(rec, err)
-		return
-	}
-
-	progress := &progressReporter{store: svc.store, recID: rec.ID, total: total}
-	var done atomic.Int64
-
-	for _, f := range doc.Files {
-		if err := svc.downloadFile(server, outDir, f, &done, progress); err != nil {
-			svc.finish(rec, err)
-			return
-		}
-	}
-	progress.forceReport(done.Load(), "repairing")
-
-	ctx, cancel := context.WithTimeout(context.Background(), repairTimeout)
-	if err := repairWithPar2(ctx, outDir); err != nil {
-		log.Printf("nzb: par2 repair for %s: %v", rec.ID, err)
-	}
-	cancel()
-
-	svc.finish(rec, nil)
-	if svc.onComplete != nil {
-		fresh, err := svc.store.GetNZBDownload(rec.ID)
-		if err != nil {
-			log.Printf("nzb: reloading %s for completion callback: %v", rec.ID, err)
-			return
-		}
-		svc.onComplete(fresh)
-	}
-}
-
-// downloadFile fetches every segment of f, decoding and writing each one
-// at its yEnc-declared offset so segments can complete out of order. The
-// real filename only becomes known once the first segment's =ybegin
-// header is decoded, so that segment is fetched up front (on the
-// connection that then gets reused as one of the pool's workers) before
-// the output file is opened.
-func (svc *Service) downloadFile(server *store.UsenetServer, outDir string, f File, done *atomic.Int64, progress *progressReporter) error {
-	if len(f.Segments) == 0 {
-		return fmt.Errorf("nzb: file %q has no segments", f.Subject)
-	}
-	group := ""
-	if len(f.Groups) > 0 {
-		group = f.Groups[0]
-	}
-
-	first, err := svc.dialServer(server, group)
-	if err != nil {
-		return err
-	}
-	firstData, firstMeta, err := fetchAndDecode(first, f.Segments[0].MessageID)
-	if err != nil {
-		first.Close()
-		return fmt.Errorf("nzb: fetching first segment of %q: %w", f.Subject, err)
-	}
-
-	name := firstMeta.Name
-	if name == "" {
-		name = SubjectFilename(f.Subject)
-	}
-	out, err := os.OpenFile(filepath.Join(outDir, name), os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		first.Close()
-		return err
-	}
-	defer out.Close()
-
-	if err := writeSegment(out, firstMeta, firstData); err != nil {
-		first.Close()
-		return err
-	}
-	done.Add(int64(len(firstData)))
-	progress.report(done.Load())
-
-	remaining := f.Segments[1:]
-	segCh := make(chan Segment, len(remaining))
-	for _, s := range remaining {
-		segCh <- s
-	}
-	close(segCh)
-
-	maxConns := server.MaxConnections
-	if maxConns < 1 {
-		maxConns = 1
-	}
-
-	var wg sync.WaitGroup
-	var firstErr atomic.Pointer[error]
-	storeErr := func(err error) { firstErr.CompareAndSwap(nil, &err) }
-
-	worker := func(reuse *Conn) {
-		defer wg.Done()
-		c := reuse
-		if c == nil {
-			var err error
-			c, err = svc.dialServer(server, group)
-			if err != nil {
-				storeErr(err)
-				return
-			}
-		}
-		defer c.Close()
-
-		for seg := range segCh {
-			if firstErr.Load() != nil {
-				return
-			}
-			data, meta, err := fetchAndDecode(c, seg.MessageID)
-			if err != nil {
-				storeErr(fmt.Errorf("nzb: segment %d of %q: %w", seg.Number, name, err))
-				return
-			}
-			if err := writeSegment(out, meta, data); err != nil {
-				storeErr(err)
-				return
-			}
-			done.Add(int64(len(data)))
-			progress.report(done.Load())
-		}
-	}
-
-	wg.Add(maxConns)
-	go worker(first)
-	for i := 1; i < maxConns; i++ {
-		go worker(nil)
-	}
-	wg.Wait()
-
-	if p := firstErr.Load(); p != nil {
-		return *p
-	}
-	return nil
-}
-
-func fetchAndDecode(c *Conn, messageID string) ([]byte, meta, error) {
-	raw, err := c.Body(messageID)
-	if err != nil {
-		return nil, meta{}, err
-	}
-	return decodeYenc(raw)
-}
-
-func writeSegment(out *os.File, m meta, data []byte) error {
-	offset := m.PartBegin - 1
-	if offset < 0 {
-		offset = 0
-	}
-	_, err := out.WriteAt(data, offset)
-	return err
-}
-
-func (svc *Service) dialServer(server *store.UsenetServer, group string) (*Conn, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), dialTimeout)
-	defer cancel()
-
-	c, err := Dial(ctx, server.Host, server.Port, server.UseTLS)
-	if err != nil {
-		return nil, err
-	}
-	if err := c.Authenticate(server.Username, server.Password); err != nil {
-		c.Close()
-		return nil, err
-	}
-	if group != "" {
-		if err := c.Group(group); err != nil {
-			c.Close()
-			return nil, err
-		}
-	}
-	return c, nil
-}
-
-// TestServer dials and authenticates against a Usenet server without
-// requiring it to be saved first, so an admin can validate host/port/TLS/
-// credentials from the add-server form before committing to them.
-func (svc *Service) TestServer(host string, port int, useTLS bool, username, password string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), dialTimeout)
-	defer cancel()
-	c, err := Dial(ctx, host, port, useTLS)
-	if err != nil {
-		return err
-	}
-	defer c.Close()
-	return c.Authenticate(username, password)
+	svc.runTorBox(rec, data, server)
 }
 
 // TestTorBoxAccount verifies a TorBox API key by fetching account info,
-// without requiring it to be saved as a usenet server first -- mirrors
-// TestServer's role for the NNTP path.
+// without requiring it to be saved as a usenet server first.
 func (svc *Service) TestTorBoxAccount(ctx context.Context, apiKey string) error {
 	_, err := svc.torboxClient.AccountInfo(ctx, apiKey)
 	return err
@@ -359,54 +135,14 @@ func (svc *Service) finish(rec *store.NZBDownload, err error) {
 	}
 }
 
-// progressReporter throttles Postgres progress writes: yEnc segments are
-// commonly a few hundred KB each, so a multi-GB download can have
-// thousands of them, and writing on every single one would just add load
-// without giving the admin UI any perceptibly finer-grained progress.
-type progressReporter struct {
-	store  *store.Store
-	recID  string
-	total  int64
-	lastNs atomic.Int64
-}
-
-func (p *progressReporter) report(done int64) {
-	now := time.Now().UnixNano()
-	last := p.lastNs.Load()
-	if now-last < int64(progressMinPeriod) {
-		return
-	}
-	if !p.lastNs.CompareAndSwap(last, now) {
-		return
-	}
-	if err := p.store.UpdateNZBProgress(p.recID, p.total, done, "downloading"); err != nil {
-		log.Printf("nzb: updating progress for %s: %v", p.recID, err)
-	}
-}
-
-func (p *progressReporter) forceReport(done int64, status string) {
-	if err := p.store.UpdateNZBProgress(p.recID, p.total, done, status); err != nil {
-		log.Printf("nzb: updating progress for %s: %v", p.recID, err)
-	}
-}
-
 // List returns every non-removed NZB download.
 func (svc *Service) List() ([]*store.NZBDownload, error) {
 	return svc.store.ListNZBDownloads()
 }
 
-// Remove marks a download removed. If deleteFiles is set, downloaded data
-// is deleted from disk too.
-func (svc *Service) Remove(id string, deleteFiles bool) error {
-	rec, err := svc.store.GetNZBDownload(id)
-	if err != nil {
-		return err
-	}
-	if deleteFiles && rec.Name != "" {
-		if err := os.RemoveAll(filepath.Join(rec.SavePath, rec.Name)); err != nil {
-			log.Printf("nzb: deleting files for %s: %v", id, err)
-		}
-	}
+// Remove marks a download removed. TorBox never puts files on local disk,
+// so there is nothing to clean up beyond the record itself.
+func (svc *Service) Remove(id string) error {
 	return svc.store.RemoveNZBDownload(id)
 }
 

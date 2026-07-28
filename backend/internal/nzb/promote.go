@@ -3,8 +3,6 @@ package nzb
 import (
 	"context"
 	"log"
-	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/scanner"
@@ -13,17 +11,17 @@ import (
 )
 
 // verifyProbeTimeout bounds how long a content-verification probe (see
-// transcode.VerifyRuntime) is allowed to take against a resolved path --
-// generous relative to the couple of seconds a real probe takes in
+// transcode.VerifyRuntime) is allowed to take against a resolved stream URL
+// -- generous relative to the couple of seconds a real probe takes in
 // practice, without risking hanging promotion indefinitely on a slow/dead
-// link or file.
+// link.
 const verifyProbeTimeout = 25 * time.Second
 
 // verifyRuntime is a small wrapper so both PromoteToExistingItem and
-// PromoteSeasonPackToExistingItems can check a resolved path (stream URL or
-// local file, transcode.Probe handles both) against a media_item's expected
-// TMDb runtime with one line, logging and returning false on any failure --
-// a nil expectedMinutes means "unknown, don't verify."
+// PromoteSeasonPackToExistingItems can check a resolved stream URL against a
+// media_item's expected TMDb runtime with one line, logging and returning
+// false on any failure -- a nil expectedMinutes means "unknown, don't
+// verify."
 func verifyRuntime(logPrefix, path string, expectedMinutes *int) bool {
 	if expectedMinutes == nil {
 		return true
@@ -39,15 +37,10 @@ func verifyRuntime(logPrefix, path string, expectedMinutes *int) bool {
 
 // PromoteCompleted turns a finished NZB download's video files into
 // browsable media_items. A download with no destination library, or one
-// already promoted, is skipped. n.Provider (recorded once run() picks a
-// server, see store.SetNZBDownloadProvider) decides how: "torbox" has no
-// local files at all -- nzb_files holds a stream URL per file instead, and
-// each one is promoted straight from that URL (mirroring
-// debrid.PromoteCompleted, no local storage), even if that list comes back
-// empty (a real TorBox edge case -- treated as "no video file", not as "try
-// scanning a directory that was never created"). Anything else (plain NNTP)
-// falls back to the existing scanner.PromoteDirectory ingestion tail end the
-// filesystem scanner and torrent watcher also use.
+// already promoted, is skipped. nzb_files holds a stream URL per file
+// (TorBox never puts anything on local disk), so each is promoted straight
+// from that URL (mirroring debrid.PromoteCompleted), even if the list comes
+// back empty (a real TorBox edge case -- treated as "no video file").
 func PromoteCompleted(st *store.Store, n *store.NZBDownload) {
 	if n.LibraryID == nil {
 		log.Printf("nzb: %s (%s) completed with no destination library; skipping auto-add", n.ID, n.Name)
@@ -57,34 +50,20 @@ func PromoteCompleted(st *store.Store, n *store.NZBDownload) {
 		return
 	}
 
-	if n.Provider == "torbox" {
-		files, err := st.ListNZBFiles(n.ID)
-		if err != nil {
-			log.Printf("nzb: listing files for %s: %v", n.ID, err)
-			return
-		}
-		promoteStreamFiles(st, *n.LibraryID, files)
-		if err := st.MarkNZBPromoted(n.ID); err != nil {
-			log.Printf("nzb: marking %s promoted: %v", n.ID, err)
-		}
+	files, err := st.ListNZBFiles(n.ID)
+	if err != nil {
+		log.Printf("nzb: listing files for %s: %v", n.ID, err)
 		return
 	}
-
-	root := filepath.Join(n.SavePath, n.Name)
-	if err := scanner.PromoteDirectory(st, *n.LibraryID, root); err != nil {
-		log.Printf("nzb: promoting files under %s: %v", root, err)
-		return
-	}
+	promoteStreamFiles(st, *n.LibraryID, files)
 	if err := st.MarkNZBPromoted(n.ID); err != nil {
 		log.Printf("nzb: marking %s promoted: %v", n.ID, err)
 	}
 }
 
-// promoteStreamFiles is PromoteCompleted's TorBox-streamed counterpart to
-// scanner.PromoteDirectory: same filename-guess promotion (parse each file's
-// title/kind via scanner.ParseFilename), just against nzb_files' stream URLs
-// instead of walking a local directory -- mirrors debrid.PromoteCompleted's
-// loop exactly.
+// promoteStreamFiles is PromoteCompleted's filename-guess promotion step
+// (parse each file's title/kind via scanner.ParseFilename) against
+// nzb_files' stream URLs -- mirrors debrid.PromoteCompleted's loop exactly.
 func promoteStreamFiles(st *store.Store, libraryID string, files []*store.NZBFile) {
 	for _, f := range files {
 		if !scanner.IsVideoFile(f.Name) {
@@ -126,78 +105,30 @@ func yearPtr(y int) *int {
 
 // PromoteToExistingItem fulfils a specific placeholder media_item from a
 // completed on-demand NZB download -- the counterpart to
-// debrid.PromoteToExistingItem. rec.Provider decides how: "torbox" means
-// nzb_files holds a stream URL per file and mediaItem.Path is pointed
-// straight at the largest one (no local storage, mirroring debrid's own
-// promotion) -- an empty file list here is a genuine "no video file"
-// outcome, not NNTP's directory case, since a TorBox run never writes a
-// local directory at all. Anything else (plain NNTP, which has no
-// equivalent direct-URL concept) falls back to walking rec.SavePath/rec.Name
-// on disk and picking the largest video file found there.
+// debrid.PromoteToExistingItem. nzb_files holds a stream URL per file, and
+// mediaItem.Path is pointed straight at the largest video one (no local
+// storage, mirroring debrid's own promotion) -- an empty file list is a
+// genuine "no video file" outcome.
 func PromoteToExistingItem(st *store.Store, mediaItem *store.MediaItem, rec *store.NZBDownload) {
-	if rec.Provider == "torbox" {
-		files, err := st.ListNZBFiles(rec.ID)
-		if err != nil {
-			log.Printf("nzb: listing files for %s: %v", rec.ID, err)
-			return
-		}
-		best := largestVideoNZBFile(files)
-		if best == nil {
-			if err := st.SetMediaItemAcquisitionError(mediaItem.ID, "resolved NZB had no video file"); err != nil {
-				log.Printf("nzb: setting acquisition error on %s: %v", mediaItem.ID, err)
-			}
-			return
-		}
-		if !verifyRuntime(mediaItem.ID, best.StreamURL, mediaItem.RuntimeMinutes) {
-			if err := st.SetMediaItemAcquisitionError(mediaItem.ID, "resolved NZB failed content verification"); err != nil {
-				log.Printf("nzb: setting acquisition error on %s: %v", mediaItem.ID, err)
-			}
-			return
-		}
-		if err := st.SetMediaItemPath(mediaItem.ID, best.StreamURL, rec.Name); err != nil {
-			log.Printf("nzb: setting path on %s: %v", mediaItem.ID, err)
-			return
-		}
-		if err := st.MarkNZBPromoted(rec.ID); err != nil {
-			log.Printf("nzb: marking %s promoted: %v", rec.ID, err)
-		}
-		return
-	}
-
-	best, bestSize := "", int64(-1)
-	outDir := filepath.Join(rec.SavePath, rec.Name)
-	entries, err := os.ReadDir(outDir)
+	files, err := st.ListNZBFiles(rec.ID)
 	if err != nil {
-		log.Printf("nzb: reading %s: %v", outDir, err)
+		log.Printf("nzb: listing files for %s: %v", rec.ID, err)
 		return
 	}
-	for _, e := range entries {
-		if e.IsDir() || !scanner.IsVideoFile(e.Name()) {
-			continue
-		}
-		info, err := e.Info()
-		if err != nil {
-			continue
-		}
-		if info.Size() > bestSize {
-			best, bestSize = filepath.Join(outDir, e.Name()), info.Size()
-		}
-	}
-
-	if best == "" {
+	best := largestVideoNZBFile(files)
+	if best == nil {
 		if err := st.SetMediaItemAcquisitionError(mediaItem.ID, "resolved NZB had no video file"); err != nil {
 			log.Printf("nzb: setting acquisition error on %s: %v", mediaItem.ID, err)
 		}
 		return
 	}
-	if !verifyRuntime(mediaItem.ID, best, mediaItem.RuntimeMinutes) {
+	if !verifyRuntime(mediaItem.ID, best.StreamURL, mediaItem.RuntimeMinutes) {
 		if err := st.SetMediaItemAcquisitionError(mediaItem.ID, "resolved NZB failed content verification"); err != nil {
 			log.Printf("nzb: setting acquisition error on %s: %v", mediaItem.ID, err)
 		}
 		return
 	}
-
-	if err := st.SetMediaItemPath(mediaItem.ID, best, rec.Name); err != nil {
+	if err := st.SetMediaItemPath(mediaItem.ID, best.StreamURL, rec.Name); err != nil {
 		log.Printf("nzb: setting path on %s: %v", mediaItem.ID, err)
 		return
 	}
@@ -220,16 +151,13 @@ func largestVideoNZBFile(files []*store.NZBFile) *store.NZBFile {
 }
 
 // PromoteSeasonPackToExistingItems mirrors
-// debrid.PromoteSeasonPackToExistingItems: rec.Provider decides how --
-// "torbox" means nzb_files holds a stream URL per file and each episode's
-// path is pointed straight at its matching one (no local storage); anything
-// else (plain NNTP) means rec's download directory holds the whole season on
-// disk instead, and this falls back to walking it. Either way,
-// each file is matched to its episode by parsing season/episode numbers out
-// of its own filename (scanner.ParseFilename, the same parser scan-promoted
-// episodes use) and looked up among seasonItem's episode children --
-// unmatched files (extras, samples) are skipped, and the larger file wins if
-// two match the same episode.
+// debrid.PromoteSeasonPackToExistingItems: nzb_files holds a stream URL per
+// file, and each episode's path is pointed straight at its matching one (no
+// local storage). Each file is matched to its episode by parsing
+// season/episode numbers out of its own filename (scanner.ParseFilename,
+// the same parser scan-promoted episodes use) and looked up among
+// seasonItem's episode children -- unmatched files (extras, samples) are
+// skipped, and the larger file wins if two match the same episode.
 func PromoteSeasonPackToExistingItems(st *store.Store, seasonItem *store.MediaItem, rec *store.NZBDownload) {
 	episodes, err := st.ListChildren(seasonItem.ID)
 	if err != nil {
@@ -249,46 +177,21 @@ func PromoteSeasonPackToExistingItems(st *store.Store, seasonItem *store.MediaIt
 	}
 	bestPerEpisode := make(map[int]sized)
 
-	if rec.Provider == "torbox" {
-		files, err := st.ListNZBFiles(rec.ID)
-		if err != nil {
-			log.Printf("nzb: listing files for %s: %v", rec.ID, err)
-			return
+	files, err := st.ListNZBFiles(rec.ID)
+	if err != nil {
+		log.Printf("nzb: listing files for %s: %v", rec.ID, err)
+		return
+	}
+	for _, f := range files {
+		if !scanner.IsVideoFile(f.Name) {
+			continue
 		}
-		for _, f := range files {
-			if !scanner.IsVideoFile(f.Name) {
-				continue
-			}
-			parsed := scanner.ParseFilename(f.Name)
-			if parsed.Kind != "episode" || parsed.EpisodeNumber == 0 {
-				continue
-			}
-			if cur, ok := bestPerEpisode[parsed.EpisodeNumber]; !ok || f.SizeBytes > cur.size {
-				bestPerEpisode[parsed.EpisodeNumber] = sized{path: f.StreamURL, size: f.SizeBytes}
-			}
+		parsed := scanner.ParseFilename(f.Name)
+		if parsed.Kind != "episode" || parsed.EpisodeNumber == 0 {
+			continue
 		}
-	} else {
-		outDir := filepath.Join(rec.SavePath, rec.Name)
-		entries, err := os.ReadDir(outDir)
-		if err != nil {
-			log.Printf("nzb: reading %s: %v", outDir, err)
-			return
-		}
-		for _, e := range entries {
-			if e.IsDir() || !scanner.IsVideoFile(e.Name()) {
-				continue
-			}
-			parsed := scanner.ParseFilename(e.Name())
-			if parsed.Kind != "episode" || parsed.EpisodeNumber == 0 {
-				continue
-			}
-			info, err := e.Info()
-			if err != nil {
-				continue
-			}
-			if cur, ok := bestPerEpisode[parsed.EpisodeNumber]; !ok || info.Size() > cur.size {
-				bestPerEpisode[parsed.EpisodeNumber] = sized{path: filepath.Join(outDir, e.Name()), size: info.Size()}
-			}
+		if cur, ok := bestPerEpisode[parsed.EpisodeNumber]; !ok || f.SizeBytes > cur.size {
+			bestPerEpisode[parsed.EpisodeNumber] = sized{path: f.StreamURL, size: f.SizeBytes}
 		}
 	}
 

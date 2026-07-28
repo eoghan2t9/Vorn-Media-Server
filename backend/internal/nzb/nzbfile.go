@@ -1,7 +1,7 @@
 // Package nzb implements Usenet (NZB) acquisition: parsing .nzb index
-// files, a minimal NNTP client for fetching articles, a yEnc decoder for
-// the encoded article bodies, and download orchestration that reassembles
-// segments into files and (optionally) repairs them with par2.
+// files, Newznab indexer search, and resolving releases via a TorBox
+// account, which caches/repairs against its own Usenet backend and hands
+// back a direct stream URL per file.
 package nzb
 
 import (
