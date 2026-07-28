@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   ApiError,
   getItem,
+  getProgress,
   openCatalogEntry,
   resolveMediaUrl,
   setItemMonitored,
@@ -15,6 +16,24 @@ import { CastRow } from '../components/CastRow'
 import { Poster } from '../components/Poster'
 import { RatingBadge } from '../components/RatingBadge'
 import './ItemDetail.css'
+
+const PLAYABLE_KINDS = ['movie', 'episode', 'track', 'audiobook', 'chapter']
+
+// Matches the backend's own "worth resuming" window (see
+// Store.ListContinueWatching): more than 5% in so it isn't just a stray
+// couple of seconds, less than 95% so a nearly-finished watch doesn't
+// offer to "resume" 10 seconds from the end.
+function isResumable(positionSeconds: number, durationSeconds: number) {
+  return durationSeconds > 0 && positionSeconds > durationSeconds * 0.05 && positionSeconds < durationSeconds * 0.95
+}
+
+function formatRemaining(positionSeconds: number, durationSeconds: number) {
+  const remaining = Math.max(0, durationSeconds - positionSeconds)
+  const totalMinutes = Math.round(remaining / 60)
+  const hours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+  return hours > 0 ? `${hours}h ${minutes}m left` : `${minutes}m left`
+}
 
 function EditMetadataForm({ item, onSaved }: { item: MediaItemDetail; onSaved: (updated: MediaItemDetail) => void }) {
   const [title, setTitle] = useState(item.title)
@@ -72,6 +91,7 @@ export function ItemDetail() {
   const [error, setError] = useState<string | null>(null)
   const [togglingMonitor, setTogglingMonitor] = useState(false)
   const [openingSimilarId, setOpeningSimilarId] = useState<number | null>(null)
+  const [progress, setProgress] = useState<{ positionSeconds: number; durationSeconds: number } | null>(null)
 
   useEffect(() => {
     if (!id) return
@@ -79,6 +99,13 @@ export function ItemDetail() {
       .then(setItem)
       .catch((err) => setError(err instanceof ApiError ? err.message : String(err)))
   }, [id])
+
+  useEffect(() => {
+    if (!id || !item || !PLAYABLE_KINDS.includes(item.kind)) return
+    getProgress(id)
+      .then(setProgress)
+      .catch(() => {})
+  }, [id, item?.kind])
 
   async function handleToggleMonitor() {
     if (!item) return
@@ -146,15 +173,19 @@ export function ItemDetail() {
                 {item.source === 'debrid' ? '☁ Debrid stream' : '⌂ Local file'}
               </p>
             )}
-            {(item.kind === 'movie' ||
-              item.kind === 'episode' ||
-              item.kind === 'track' ||
-              item.kind === 'audiobook' ||
-              item.kind === 'chapter') && (
-              <Link to={`/watch/${item.id}`} className="vorn-play-button">
-                ▶ Play
-              </Link>
-            )}
+            {PLAYABLE_KINDS.includes(item.kind) &&
+              (progress && isResumable(progress.positionSeconds, progress.durationSeconds) ? (
+                <>
+                  <Link to={`/watch/${item.id}`} className="vorn-play-button">
+                    ↻ Resume
+                  </Link>
+                  <p className="vorn-detail-year">{formatRemaining(progress.positionSeconds, progress.durationSeconds)}</p>
+                </>
+              ) : (
+                <Link to={`/watch/${item.id}`} className="vorn-play-button">
+                  ▶ Play
+                </Link>
+              ))}
             {item.trailerUrl && (
               <a href={item.trailerUrl} target="_blank" rel="noopener noreferrer" className="vorn-trailer-button">
                 ▶ Watch Trailer
