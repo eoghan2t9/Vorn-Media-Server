@@ -13,34 +13,35 @@ import { Poster } from '../components/Poster'
 import { RatingBadge } from '../components/RatingBadge'
 import './ViewerHome.css'
 
-type SortMode = 'recent' | 'alpha'
+// Home only ever shows a "recently added" taste of each library -- the
+// dedicated per-library page (LibraryPage, /libraries/:id) is where the
+// full catalog with sorting/paging actually lives.
+const PREVIEW_COUNT = 12
 
 function LibraryRow({ library }: { library: Library }) {
   const [items, setItems] = useState<MediaItem[]>([])
-  const [sort, setSort] = useState<SortMode>('recent')
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    listLibraryItems(library.id, { sort })
-      .then(setItems)
+    listLibraryItems(library.id, { sort: 'recent' })
+      .then((all) => setItems(all.slice(0, PREVIEW_COUNT)))
       .catch((err) => setError(err instanceof ApiError ? err.message : String(err)))
-  }, [library.id, sort])
+  }, [library.id])
 
   return (
     <section className="vorn-library-row">
       <div className="vorn-library-row-header">
         <h2>
-          {library.name}
+          <Link to={`/libraries/${library.id}`}>{library.name}</Link>
           {library.is4K && (
             <span className="vorn-user-badge" style={{ marginLeft: '0.5rem' }} title="4K-only library">
               4K
             </span>
           )}
         </h2>
-        <select value={sort} onChange={(e) => setSort(e.target.value as SortMode)}>
-          <option value="recent">Recently added</option>
-          <option value="alpha">A–Z</option>
-        </select>
+        <Link to={`/libraries/${library.id}`} className="vorn-library-row-viewall">
+          View all →
+        </Link>
       </div>
       {error && <p className="vorn-form-error">{error}</p>}
       {items.length === 0 ? (

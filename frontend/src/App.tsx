@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './auth/AuthContext'
 import { AppShell } from './layout/AppShell'
 import { AdminShell } from './layout/AdminShell'
 import { ViewerHome } from './pages/ViewerHome'
+import { LibraryPage } from './pages/LibraryPage'
 import { BrowsePage } from './pages/BrowsePage'
 import { Requests } from './pages/Requests'
 import { AdminRequests } from './pages/AdminRequests'
@@ -73,6 +74,7 @@ function AppRoutes() {
 
       <Route element={<ProtectedLayout />}>
         <Route path="/" element={<ViewerHome />} />
+        <Route path="/libraries/:id" element={<LibraryPage />} />
         <Route path="/items/:id" element={<ItemDetail />} />
         <Route path="/watch/:id" element={<WatchPage />} />
         <Route path="/browse" element={<BrowsePage />} />
