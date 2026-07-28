@@ -352,11 +352,14 @@ func (s *Service) startAcquire(itemID string, blockOwned bool) error {
 	return nil
 }
 
-// runAcquire tries torrent+debrid first (near-instant when it works), and
-// only falls back to NZB/Usenet (a real download, genuinely minutes) if
-// torrent fails to produce a working release -- see acquireViaTorrent/
-// acquireViaNZB. Either tier is silently skipped (not a failure on its
-// own) if that source isn't configured at all.
+// runAcquire tries both torrent+debrid and NZB/Usenet tiers in PARALLEL
+// (instead of the old sequential path where NZB only started after torrent
+// exhausted its candidateTimeout), taking whichever one succeeds first.
+// Either tier is silently skipped (not a failure on its own) if that
+// source isn't configured at all. The losing tier's goroutine keeps running
+// until its own internal timeout, but since the winner already promoted the
+// media_item, the loser's promote call finds the item already "owned" and
+// leaves it alone (see PromoteToExistingItem's atomic claim).
 func (s *Service) runAcquire(item *store.MediaItem) {
 	runtimeCtx, cancel := context.WithTimeout(context.Background(), searchTimeout)
 	s.ensureExpectedRuntime(runtimeCtx, item)
@@ -376,20 +379,35 @@ func (s *Service) runAcquire(item *store.MediaItem) {
 		return
 	}
 
-	torrentErr := s.acquireViaTorrent(item, query, profile)
-	if torrentErr == nil {
-		log.Printf("acquisition: torrent tier succeeded for %s in %v", item.ID, time.Since(start))
-		return
+	type tierResult struct {
+		err  error
+		tier string
 	}
-	log.Printf("acquisition: torrent tier failed for %s after %v: %v", item.ID, time.Since(start), torrentErr)
+	ch := make(chan tierResult, 2)
 
-	nzbStart := time.Now()
-	nzbErr := s.acquireViaNZB(item, query, profile)
-	if nzbErr == nil {
-		log.Printf("acquisition: nzb tier succeeded for %s in %v (torrent took %v before fallback)", item.ID, time.Since(nzbStart), time.Since(start))
-		return
+	go func() {
+		ch <- tierResult{err: s.acquireViaTorrent(item, query, profile), tier: "torrent"}
+	}()
+	go func() {
+		ch <- tierResult{err: s.acquireViaNZB(item, query, profile), tier: "nzb"}
+	}()
+
+	var torrentErr, nzbErr error
+	for i := 0; i < 2; i++ {
+		r := <-ch
+		if r.err == nil {
+			log.Printf("acquisition: %s tier succeeded for %s in %v", r.tier, item.ID, time.Since(start))
+			return
+		}
+		switch r.tier {
+		case "torrent":
+			torrentErr = r.err
+			log.Printf("acquisition: torrent tier failed for %s after %v: %v", item.ID, time.Since(start), r.err)
+		case "nzb":
+			nzbErr = r.err
+			log.Printf("acquisition: nzb tier failed for %s after %v: %v", item.ID, time.Since(start), r.err)
+		}
 	}
-	log.Printf("acquisition: nzb tier failed for %s after %v: %v", item.ID, time.Since(nzbStart), nzbErr)
 
 	s.fail(item.ID, combineAcquireErrors(torrentErr, nzbErr))
 	log.Printf("acquisition: all tiers exhausted for %s after %v", item.ID, time.Since(start))

@@ -6,6 +6,8 @@
 package httpapi
 
 import (
+	"context"
+	"log"
 	"net/http"
 	"strconv"
 
@@ -119,5 +121,23 @@ func (s *Server) handleOpenCatalogEntry(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadGateway, "fetching details from TMDb")
 		return
 	}
+
+	// Start acquisition pre-emptively in the background while the user
+	// browses the detail page, so by the time they press play the search
+	// and resolve are already well underway or complete. This is safe:
+	// Acquire is a no-op if the item is already owned or already being
+	// acquired, and it runs in a goroutine so the catalog-opener response
+	// is not delayed. Only movies get this treatment here -- series
+	// acquisition happens on a per-episode basis via MonitorScheduler
+	// (the monitored-series flow) or when the user presses play on a
+	// specific episode.
+	if req.MediaType == "movie" && item.AcquisitionStatus == "placeholder" {
+		go func() {
+			if err := s.acquisition.Load().Acquire(context.Background(), item.ID); err != nil {
+				log.Printf("catalog: pre-emptive acquire for %s: %v", item.ID, err)
+			}
+		}()
+	}
+
 	writeJSON(w, http.StatusOK, toMediaItemResponse(item))
 }
