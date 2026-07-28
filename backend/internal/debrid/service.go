@@ -21,9 +21,13 @@ const (
 // resolve either produces stream URLs or fails, so no on-disk state needs
 // managing on removal.
 type Service struct {
-	store      *store.Store
-	providers  map[string]Provider
-	onComplete func(*store.DebridItem)
+	store     *store.Store
+	providers map[string]Provider
+	// onComplete returns whether item's files actually ended up being used
+	// (promoted into a media item, or a manual admin add) -- run() deletes
+	// item from the provider when it returns false, since that means
+	// nothing will ever use the quota/storage it's holding.
+	onComplete func(*store.DebridItem) bool
 	// torboxLimiter is the one shared rate limiter for every TorBox
 	// interaction Vorn makes, across all three services that talk to it
 	// (this one's debrid-resolve client, nzb.Service's usenet caching,
@@ -44,25 +48,23 @@ func NewService(st *store.Store) *Service {
 		},
 		torboxLimiter: torboxLimiter,
 	}
-	svc.onComplete = func(item *store.DebridItem) {
+	svc.onComplete = func(item *store.DebridItem) bool {
 		if item.MediaItemID == nil {
+			// Manual/admin-added link -- never auto-delete from the
+			// provider even if filename-guess promotion finds nothing to
+			// promote, since the admin explicitly asked for this one.
 			PromoteCompleted(st, item)
-			return
+			return true
 		}
-		mediaItem, err := AuthorizedMediaItem(st, item)
+		mediaItem, err := st.GetMediaItem(*item.MediaItemID)
 		if err != nil {
-			log.Printf("debrid: checking whether %s is still authoritative for %s: %v", item.ID, *item.MediaItemID, err)
-			return
-		}
-		if mediaItem == nil {
-			log.Printf("debrid: %s is a stale/abandoned resolve, a later attempt already took over -- skipping promotion", item.ID)
-			return
+			log.Printf("debrid: loading media item for %s: %v", item.ID, err)
+			return false
 		}
 		if mediaItem.Kind == "season" {
-			PromoteSeasonPackToExistingItems(st, mediaItem, item)
-			return
+			return PromoteSeasonPackToExistingItems(st, mediaItem, item)
 		}
-		PromoteToExistingItem(st, mediaItem, item)
+		return PromoteToExistingItem(st, mediaItem, item)
 	}
 	return svc
 }
@@ -80,8 +82,14 @@ type AddLinkInput struct {
 }
 
 // AddLink registers a magnet link or info-hash against an account and
-// starts resolving it in the background.
-func (svc *Service) AddLink(in AddLinkInput) (*store.DebridItem, error) {
+// starts resolving it in the background. ctx bounds the resolve itself (on
+// top of the internal resolveTimeout) -- acquisition.Service passes a
+// context it cancels once it stops caring about this attempt (a rival
+// candidate already won, or it's giving up), so a losing racer stops within
+// one HTTP round-trip instead of running to completion pointlessly. Callers
+// with no such notion of "giving up" (manual/admin adds) pass
+// context.Background().
+func (svc *Service) AddLink(ctx context.Context, in AddLinkInput) (*store.DebridItem, error) {
 	account, err := svc.store.GetDebridAccount(in.AccountID)
 	if err != nil {
 		return nil, err
@@ -104,24 +112,24 @@ func (svc *Service) AddLink(in AddLinkInput) (*store.DebridItem, error) {
 		return nil, err
 	}
 
-	go svc.run(item, account)
+	go svc.run(ctx, item, account)
 	return item, nil
 }
 
-func (svc *Service) run(item *store.DebridItem, account *store.DebridAccount) {
+func (svc *Service) run(ctx context.Context, item *store.DebridItem, account *store.DebridAccount) {
 	provider := svc.providers[account.Provider]
 
-	ctx, cancel := context.WithTimeout(context.Background(), resolveTimeout)
+	ctx, cancel := context.WithTimeout(ctx, resolveTimeout)
 	defer cancel()
 
 	result, err := provider.Resolve(ctx, account.APIKey, item.SourceRef)
 	if err != nil {
 		// Deliberately does NOT touch the media_item here even when
-		// MediaItemID is set: this resolve may be one of several retry
-		// candidates the acquisition package is trying in sequence, and
-		// only it knows whether this was the last one -- it detects this
+		// MediaItemID is set: this resolve may be one of several candidates
+		// acquisition.Service is racing concurrently, and only it knows
+		// whether every one of them has now failed -- it detects this
 		// failure itself by polling this debrid_item's own Status (set by
-		// FinishDebridItem below) via acquisition.Service.waitForOutcome.
+		// FinishDebridItem below).
 		if ferr := svc.store.FinishDebridItem(item.ID, err); ferr != nil {
 			log.Printf("debrid: finishing %s: %v", item.ID, ferr)
 		}
@@ -153,7 +161,24 @@ func (svc *Service) run(item *store.DebridItem, account *store.DebridAccount) {
 		log.Printf("debrid: reloading %s for completion callback: %v", item.ID, err)
 		return
 	}
-	svc.onComplete(fresh)
+	if used := svc.onComplete(fresh); !used {
+		svc.deleteFromProvider(fresh.ID, fresh.ProviderRef, provider, account)
+	}
+}
+
+// deleteFromProvider is Remove's cleanup step, factored out so run() can
+// reuse it the moment a resolve turns out not to have been used (lost a
+// race, failed content verification, no video file) instead of leaking that
+// quota/storage until someone happens to remove the item manually later.
+func (svc *Service) deleteFromProvider(debridItemID, providerRef string, provider Provider, account *store.DebridAccount) {
+	if providerRef == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), providerDeleteTimeout)
+	defer cancel()
+	if err := provider.Delete(ctx, account.APIKey, providerRef); err != nil {
+		log.Printf("debrid: deleting %s (%s) from %s: %v", debridItemID, providerRef, account.Provider, err)
+	}
 }
 
 func (svc *Service) List() ([]*store.DebridItem, error) { return svc.store.ListDebridItems() }
@@ -174,11 +199,7 @@ func (svc *Service) Remove(id string) error {
 		if account, aerr := svc.store.GetDebridAccount(item.AccountID); aerr != nil {
 			log.Printf("debrid: loading account to delete %s: %v", id, aerr)
 		} else if provider, ok := svc.providers[account.Provider]; ok {
-			ctx, cancel := context.WithTimeout(context.Background(), providerDeleteTimeout)
-			if derr := provider.Delete(ctx, account.APIKey, item.ProviderRef); derr != nil {
-				log.Printf("debrid: deleting %s (%s) from %s: %v", id, item.ProviderRef, account.Provider, derr)
-			}
-			cancel()
+			svc.deleteFromProvider(item.ID, item.ProviderRef, provider, account)
 		}
 	}
 	return svc.store.RemoveDebridItem(id)

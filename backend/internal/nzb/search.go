@@ -110,5 +110,5 @@ func (svc *Service) AddNZBFromURL(ctx context.Context, downloadURL string, libra
 	if err != nil {
 		return nil, err
 	}
-	return svc.AddNZB(data, libraryID)
+	return svc.AddNZB(context.Background(), data, libraryID)
 }

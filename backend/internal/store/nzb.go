@@ -91,7 +91,7 @@ type NZBDownload struct {
 	ID        string
 	LibraryID *string
 	// MediaItemID is set only for the on-demand acquisition path (see
-	// acquisition.Service.tryNZBCandidate) -- it's what lets nzb.Service's
+	// acquisition.Service.raceNZBCandidates) -- it's what lets nzb.Service's
 	// onComplete callback promote into this exact placeholder instead of
 	// filename-guessing into LibraryID at large (PromoteCompleted). nil for
 	// the manual admin-driven Admin > NZB flow, same as debrid_items.

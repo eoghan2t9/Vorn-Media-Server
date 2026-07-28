@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"time"
@@ -194,7 +195,7 @@ func (s *Server) handleAddDebridLink(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	item, err := s.debridSvc.AddLink(debrid.AddLinkInput{
+	item, err := s.debridSvc.AddLink(context.Background(), debrid.AddLinkInput{
 		AccountID: req.AccountID,
 		SourceRef: req.SourceRef,
 		Name:      req.Name,

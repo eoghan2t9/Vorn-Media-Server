@@ -22,9 +22,9 @@ const torBoxCacheTimeout = 20 * time.Minute
 // ever used. The remote caching/repair phase is reported under the
 // existing "repairing" status (accurate -- that's genuinely what's
 // happening, just off-box).
-func (svc *Service) runTorBox(rec *store.NZBDownload, data []byte, server *store.UsenetServer) {
+func (svc *Service) runTorBox(parentCtx context.Context, rec *store.NZBDownload, data []byte, server *store.UsenetServer) {
 	client := svc.torboxClient
-	ctx, cancel := context.WithTimeout(context.Background(), torBoxCacheTimeout)
+	ctx, cancel := context.WithTimeout(parentCtx, torBoxCacheTimeout)
 	defer cancel()
 
 	if err := svc.store.UpdateNZBProgress(rec.ID, 10000, 0, "repairing"); err != nil {
@@ -75,12 +75,15 @@ func (svc *Service) runTorBox(rec *store.NZBDownload, data []byte, server *store
 	}
 
 	svc.finish(rec, nil)
-	if svc.onComplete != nil {
-		fresh, err := svc.store.GetNZBDownload(rec.ID)
-		if err != nil {
-			log.Printf("nzb: reloading %s for completion callback: %v", rec.ID, err)
-			return
-		}
-		svc.onComplete(fresh)
+	if svc.onComplete == nil {
+		return
+	}
+	fresh, err := svc.store.GetNZBDownload(rec.ID)
+	if err != nil {
+		log.Printf("nzb: reloading %s for completion callback: %v", rec.ID, err)
+		return
+	}
+	if used := svc.onComplete(fresh); !used {
+		svc.deleteFromTorBox(fresh.ID, fresh.ProviderRef)
 	}
 }

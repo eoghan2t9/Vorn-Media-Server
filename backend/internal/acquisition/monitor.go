@@ -140,11 +140,11 @@ func (m *MonitorScheduler) checkQualityUpgrades(ctx context.Context) {
 
 // checkUpgrade compares the current best available release for item
 // against what it's already playing (parsed from CurrentReleaseTitle) and,
-// if strictly better by resolution, resolves it through the same fenced
-// attempt Acquire's candidates use -- reusing tryCandidate/tryNZBCandidate
-// means a failed upgrade attempt can never touch item's existing path
-// (promotion only ever writes success when this attempt is still the
-// authoritative one when it finishes). Torrent is tried first (checked
+// if strictly better by resolution, resolves it through the same
+// atomic-claim promotion path Acquire's candidates use (racing a
+// single-element slice) -- a failed upgrade attempt can never touch item's
+// existing path, since promotion only ever writes on a successful claim.
+// Torrent is tried first (checked
 // only if s.torrent is configured); NZB is checked independently after,
 // even if torrent already found something, in case the NZB tier's best
 // candidate happens to itself be an upgrade over the (possibly still
@@ -178,7 +178,7 @@ func (s *Service) checkUpgrade(ctx context.Context, item *store.MediaItem) error
 				if err != nil {
 					return err
 				}
-				if s.tryCandidate(item, account, best) {
+				if s.raceTorrentCandidates(item, account, []ScoredRelease{best}) {
 					s.notifySend("upgraded", map[string]any{"itemId": item.ID, "title": item.Title, "release": best.Title})
 					return nil
 				}
@@ -197,10 +197,7 @@ func (s *Service) checkUpgrade(ctx context.Context, item *store.MediaItem) error
 		if len(ranked) > 0 {
 			best := ranked[0]
 			if newTier, known := resolutionTier(best.Resolution); known && newTier > currentTier {
-				fetchCtx, cancel := context.WithTimeout(ctx, searchTimeout)
-				ok := s.tryNZBCandidate(fetchCtx, item, best)
-				cancel()
-				if ok {
+				if s.raceNZBCandidates(item, []ScoredNZBRelease{best}) {
 					s.notifySend("upgraded", map[string]any{"itemId": item.ID, "title": item.Title, "release": best.Title})
 				}
 			}

@@ -78,28 +78,25 @@ func PromoteCompleted(st *store.Store, item *store.DebridItem) {
 // does for manual/admin-added links -- mediaItem is already known, so this
 // just needs to pick a file and point that exact row at it.
 //
-// item may be one of several resolve attempts the acquisition package
-// tried against mediaItem (retry candidates, a quality-upgrade re-check) --
-// some of those attempts can still be running in the background well after
-// their caller gave up on them (see acquisition.Service.waitForOutcome).
-// The caller (debrid.Service's onComplete, via AuthorizedMediaItem) has
-// already confirmed item is still mediaItem's active_debrid_item_id before
-// calling this, so a late-finishing abandoned attempt never reaches here at
-// all -- it can't silently overwrite a newer result or resurrect an item
-// already marked failed by a subsequent attempt.
-func PromoteToExistingItem(st *store.Store, mediaItem *store.MediaItem, item *store.DebridItem) {
+// item may be one of several candidates acquisition.Service raced
+// concurrently against mediaItem -- returns whether item specifically ended
+// up being the one used, so the caller (debrid.Service's onComplete) knows
+// whether to delete item from the provider instead of leaking it. On any
+// rejection (no video file, failed verification, lost the claim to a
+// sibling candidate that got there first) this deliberately does NOT touch
+// mediaItem at all -- a sibling might still be resolving, and only
+// acquisition.Service, which knows how many candidates it launched, is in a
+// position to decide the whole attempt has failed.
+func PromoteToExistingItem(st *store.Store, mediaItem *store.MediaItem, item *store.DebridItem) bool {
 	files, err := st.ListDebridFiles(item.ID)
 	if err != nil {
 		log.Printf("debrid: listing files for %s: %v", item.ID, err)
-		return
+		return false
 	}
 
 	best := largestVideoFile(files)
 	if best == nil {
-		if err := st.SetMediaItemAcquisitionError(mediaItem.ID, "resolved release had no video file"); err != nil {
-			log.Printf("debrid: setting acquisition error on %s: %v", mediaItem.ID, err)
-		}
-		return
+		return false
 	}
 
 	if mediaItem.RuntimeMinutes != nil {
@@ -108,20 +105,27 @@ func PromoteToExistingItem(st *store.Store, mediaItem *store.MediaItem, item *st
 		cancel()
 		if verifyErr != nil {
 			log.Printf("debrid: content verification failed for %s: %v", mediaItem.ID, verifyErr)
-			if err := st.SetMediaItemAcquisitionError(mediaItem.ID, "resolved release failed content verification: "+verifyErr.Error()); err != nil {
-				log.Printf("debrid: setting acquisition error on %s: %v", mediaItem.ID, err)
-			}
-			return
+			return false
 		}
+	}
+
+	claimed, err := st.ClaimMediaItemForDebridItem(mediaItem.ID, item.ID)
+	if err != nil {
+		log.Printf("debrid: claiming %s for %s: %v", mediaItem.ID, item.ID, err)
+		return false
+	}
+	if !claimed {
+		return false
 	}
 
 	if err := st.SetMediaItemPath(mediaItem.ID, best.StreamURL, item.Name); err != nil {
 		log.Printf("debrid: setting path on %s: %v", mediaItem.ID, err)
-		return
+		return true // claimed and the stream is real -- don't delete it just because this write failed
 	}
 	if err := st.MarkDebridItemPromoted(item.ID); err != nil {
 		log.Printf("debrid: marking %s promoted: %v", item.ID, err)
 	}
+	return true
 }
 
 // PromoteSeasonPackToExistingItems fulfils a whole season in one go: unlike
@@ -134,12 +138,14 @@ func PromoteToExistingItem(st *store.Store, mediaItem *store.MediaItem, item *st
 // seasonItem's episode children; unmatched files (extras, samples,
 // non-standard names) are skipped, and if two files match the same episode
 // (a theatrical + extended cut, say) the larger one wins, mirroring
-// PromoteToExistingItem's own single-file tie-break.
-func PromoteSeasonPackToExistingItems(st *store.Store, seasonItem *store.MediaItem, item *store.DebridItem) {
+// PromoteToExistingItem's own single-file tie-break. Returns whether item
+// ended up promoting at least one episode -- see PromoteToExistingItem for
+// why the caller needs this and why a rejection never touches seasonItem.
+func PromoteSeasonPackToExistingItems(st *store.Store, seasonItem *store.MediaItem, item *store.DebridItem) bool {
 	episodes, err := st.ListChildren(seasonItem.ID)
 	if err != nil {
 		log.Printf("debrid: listing episodes for season %s: %v", seasonItem.ID, err)
-		return
+		return false
 	}
 	byEpisodeNumber := make(map[int]*store.MediaItem, len(episodes))
 	for _, ep := range episodes {
@@ -151,7 +157,7 @@ func PromoteSeasonPackToExistingItems(st *store.Store, seasonItem *store.MediaIt
 	files, err := st.ListDebridFiles(item.ID)
 	if err != nil {
 		log.Printf("debrid: listing files for %s: %v", item.ID, err)
-		return
+		return false
 	}
 
 	bestPerEpisode := make(map[int]*store.DebridFile)
@@ -168,17 +174,10 @@ func PromoteSeasonPackToExistingItems(st *store.Store, seasonItem *store.MediaIt
 		}
 	}
 
-	if len(bestPerEpisode) == 0 {
-		// Nothing in the release could be attributed to any episode --
-		// treated exactly like PromoteToExistingItem's own no-video-file
-		// case, so AcquireSeasonPack's fencing-aware fallback to per-episode
-		// acquisition sees this season attempt as failed.
-		if err := st.SetMediaItemAcquisitionError(seasonItem.ID, "resolved season pack had no recognizable episode files"); err != nil {
-			log.Printf("debrid: setting acquisition error on %s: %v", seasonItem.ID, err)
-		}
-		return
-	}
-
+	// Claimed (and therefore verified/matched) per episode independently --
+	// racing season-pack candidates can legitimately split a season, each
+	// winning whichever episodes it resolves first, rather than all-or-
+	// nothing against the season as a whole.
 	promoted := 0
 	for epNum, f := range bestPerEpisode {
 		ep, ok := byEpisodeNumber[epNum]
@@ -193,6 +192,14 @@ func PromoteSeasonPackToExistingItems(st *store.Store, seasonItem *store.MediaIt
 				log.Printf("debrid: content verification failed for episode %s: %v", ep.ID, verifyErr)
 				continue // treated like an unmatched file -- skip this episode, not the whole pack
 			}
+		}
+		claimed, err := st.ClaimMediaItemForDebridItem(ep.ID, item.ID)
+		if err != nil {
+			log.Printf("debrid: claiming episode %s for %s: %v", ep.ID, item.ID, err)
+			continue
+		}
+		if !claimed {
+			continue // a sibling racing candidate already won this episode
 		}
 		if err := st.SetMediaItemPath(ep.ID, f.StreamURL, item.Name); err != nil {
 			log.Printf("debrid: setting path on episode %s: %v", ep.ID, err)
@@ -209,10 +216,11 @@ func PromoteSeasonPackToExistingItems(st *store.Store, seasonItem *store.MediaIt
 		if err := st.SetMediaItemAcquisitionStatus(seasonItem.ID, "owned"); err != nil {
 			log.Printf("debrid: marking season %s owned: %v", seasonItem.ID, err)
 		}
+		if err := st.MarkDebridItemPromoted(item.ID); err != nil {
+			log.Printf("debrid: marking %s promoted: %v", item.ID, err)
+		}
 	}
-	if err := st.MarkDebridItemPromoted(item.ID); err != nil {
-		log.Printf("debrid: marking %s promoted: %v", item.ID, err)
-	}
+	return promoted > 0
 }
 
 func largestVideoFile(files []*store.DebridFile) *store.DebridFile {
@@ -226,21 +234,6 @@ func largestVideoFile(files []*store.DebridFile) *store.DebridFile {
 		}
 	}
 	return best
-}
-
-// AuthorizedMediaItem loads item.MediaItemID and returns it only if item is
-// still that media_item's recorded active_debrid_item_id -- nil (with no
-// error) means a later resolve attempt has since taken over and item's
-// outcome must be discarded without promoting anything.
-func AuthorizedMediaItem(st *store.Store, item *store.DebridItem) (*store.MediaItem, error) {
-	mediaItem, err := st.GetMediaItem(*item.MediaItemID)
-	if err != nil {
-		return nil, err
-	}
-	if mediaItem.ActiveDebridItemID == nil || *mediaItem.ActiveDebridItemID != item.ID {
-		return nil, nil
-	}
-	return mediaItem, nil
 }
 
 func yearPtr(y int) *int {

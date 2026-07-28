@@ -20,11 +20,11 @@ import (
 
 const (
 	searchTimeout = 30 * time.Second
-	// candidateTimeout bounds how long runAcquire waits on a single
-	// candidate's resolve before giving up and trying the next one --
-	// independent of debrid.Service's own internal resolveTimeout (20 min),
-	// which keeps running in the background regardless (see
-	// waitForOutcome's doc comment for why that's safe).
+	// candidateTimeout bounds how long a whole torrent/debrid race (up to
+	// raceSize candidates running concurrently) is watched before giving up
+	// -- independent of debrid.Service's own internal resolveTimeout
+	// (20 min), which keeps running in the background regardless until its
+	// own context is cancelled (see raceTorrentCandidates).
 	candidateTimeout = 5 * time.Minute
 	// candidateTimeoutNZB is far more generous than candidateTimeout: a real
 	// NZB download+repair genuinely takes minutes (bounded by connection
@@ -33,13 +33,19 @@ const (
 	// could ever finish.
 	candidateTimeoutNZB = 20 * time.Minute
 	outcomePoll         = 2 * time.Second
-	// maxCandidates caps a single Acquire's worst-case background runtime
-	// to roughly maxCandidates * candidateTimeout.
+	// maxCandidates caps how many scored releases are even considered
+	// before trimming down to raceSize for the actual race.
 	maxCandidates = 5
-	// maxNZBCandidates is far lower than maxCandidates: trying 5 sequential
-	// candidateTimeoutNZB-bounded downloads is impractical (worst case
-	// hours) -- the first couple either work or the Usenet provider has a
-	// real problem no amount of retrying fixes.
+	// raceSize is how many of the top-scored candidates are resolved
+	// concurrently instead of one at a time -- trading more provider
+	// API/quota use per attempt for not sitting idle behind a merely-slow
+	// (not broken) top pick for the full candidateTimeout before even
+	// starting the next one.
+	raceSize = 3
+	// maxNZBCandidates is lower than maxCandidates/raceSize: usenet
+	// candidates already race concurrently (see raceNZBCandidates), so
+	// trying more than a couple at once multiplies TorBox usenet-cache
+	// quota use for diminishing returns.
 	maxNZBCandidates = 2
 )
 
@@ -299,9 +305,11 @@ func (s *Service) Acquire(ctx context.Context, itemID string) error {
 // Reacquire is Acquire for an item that's already 'owned' but whose current
 // stream link has gone dead -- see httpapi.handlePlayItem, which calls this
 // when ffprobe can no longer open a debrid-backed item's URL. It runs the
-// exact same search->score->resolve pipeline as a fresh Acquire; the
-// existing active_debrid_item_id fencing (see tryCandidate/waitForOutcome)
-// is what makes it safe to overwrite an already-'owned' item's path.
+// exact same search->score->resolve pipeline as a fresh Acquire; flipping
+// status away from 'owned' to 'searching' below (before racing any
+// candidates) is what makes the atomic claim in promote.go willing to
+// overwrite an already-'owned' item's path -- the claim's own guard
+// otherwise refuses to touch anything already owned.
 func (s *Service) Reacquire(ctx context.Context, itemID string) error {
 	return s.startAcquire(itemID, false)
 }
@@ -451,22 +459,88 @@ func (s *Service) acquireViaTorrent(item *store.MediaItem, query string, profile
 		return err
 	}
 
-	for _, candidate := range ranked {
-		if s.tryCandidate(item, account, candidate) {
-			s.notifySend("acquired", map[string]any{"itemId": item.ID, "title": item.Title, "release": candidate.Title})
-			return nil
+	if s.raceTorrentCandidates(item, account, ranked) {
+		title := item.Title
+		if di, err := s.winningDebridItem(item.ID); err == nil && di != nil {
+			title = di.Name
 		}
-	}
-
-	// Every candidate either failed to resolve or timed out. A timed-out
-	// candidate's debrid.Service.run goroutine may still be running in the
-	// background and could succeed later -- clearing active_debrid_item_id
-	// fences that off too, same as between candidates, so a late finish
-	// can't silently resurrect an item already handed off to the NZB tier.
-	if err := s.store.SetMediaItemActiveDebridItem(item.ID, ""); err != nil {
-		log.Printf("acquisition: clearing active resolve for %s: %v", item.ID, err)
+		s.notifySend("acquired", map[string]any{"itemId": item.ID, "title": item.Title, "release": title})
+		return nil
 	}
 	return errors.New("no torrent candidate could be resolved")
+}
+
+// raceTorrentCandidates launches resolve attempts for up to raceSize of the
+// best-scored candidates concurrently (instead of one at a time), so a
+// merely-slow candidate doesn't block trying the others. It returns as soon
+// as item is claimed by whichever one actually resolves first (see
+// debrid.PromoteToExistingItem's atomic claim), and cancelling raceCtx on
+// every return path stops every other still-racing candidate within one
+// HTTP round-trip instead of letting them run to their own internal
+// timeout for nothing.
+func (s *Service) raceTorrentCandidates(item *store.MediaItem, account *store.DebridAccount, ranked []ScoredRelease) bool {
+	if len(ranked) > raceSize {
+		ranked = ranked[:raceSize]
+	}
+	if err := s.store.SetMediaItemActiveDebridItem(item.ID, ""); err != nil {
+		log.Printf("acquisition: resetting active resolve for %s: %v", item.ID, err)
+	}
+	if err := s.store.SetMediaItemAcquisitionStatus(item.ID, "acquiring"); err != nil {
+		log.Printf("acquisition: setting status on %s: %v", item.ID, err)
+	}
+
+	raceCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	libraryID, itemID := item.LibraryID, item.ID
+	var launched []string
+	for _, candidate := range ranked {
+		newItem, err := s.debrid.AddLink(raceCtx, debrid.AddLinkInput{
+			AccountID:   account.ID,
+			SourceRef:   candidate.DownloadURL,
+			Name:        candidate.Title,
+			LibraryID:   &libraryID,
+			MediaItemID: &itemID,
+		})
+		if err != nil {
+			log.Printf("acquisition: sending %q to debrid for %s: %v", candidate.Title, item.ID, err)
+			continue
+		}
+		launched = append(launched, newItem.ID)
+	}
+	if len(launched) == 0 {
+		return false
+	}
+
+	deadline := time.Now().Add(candidateTimeout)
+	for {
+		if mi, err := s.store.GetMediaItem(item.ID); err == nil && mi.AcquisitionStatus == "owned" {
+			return true
+		}
+		allDone := true
+		for _, id := range launched {
+			di, err := s.store.GetDebridItem(id)
+			if err != nil || (di.Status != "ready" && di.Status != "error") {
+				allDone = false
+				break
+			}
+		}
+		if allDone || time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(outcomePoll)
+	}
+}
+
+// winningDebridItem looks up whichever debrid_item actually got claimed for
+// mediaItemID, so a notification can report its real release title instead
+// of an arbitrary raced candidate's.
+func (s *Service) winningDebridItem(mediaItemID string) (*store.DebridItem, error) {
+	mi, err := s.store.GetMediaItem(mediaItemID)
+	if err != nil || mi.ActiveDebridItemID == nil {
+		return nil, err
+	}
+	return s.store.GetDebridItem(*mi.ActiveDebridItemID)
 }
 
 // acquireViaNZB is acquireViaTorrent's NZB counterpart, tried only after it
@@ -501,20 +575,79 @@ func (s *Service) acquireViaNZB(item *store.MediaItem, query string, profile sto
 		ranked = ranked[:maxNZBCandidates]
 	}
 
-	for _, candidate := range ranked {
-		fetchCtx, cancel := context.WithTimeout(context.Background(), searchTimeout)
-		ok := s.tryNZBCandidate(fetchCtx, item, candidate)
-		cancel()
-		if ok {
-			s.notifySend("acquired", map[string]any{"itemId": item.ID, "title": item.Title, "release": candidate.Title})
-			return nil
+	if s.raceNZBCandidates(item, ranked) {
+		title := item.Title
+		if rec, err := s.winningNZBDownload(item.ID); err == nil && rec != nil {
+			title = rec.Name
 		}
-	}
-
-	if err := s.store.SetMediaItemActiveNZBDownload(item.ID, ""); err != nil {
-		log.Printf("acquisition: clearing active NZB download for %s: %v", item.ID, err)
+		s.notifySend("acquired", map[string]any{"itemId": item.ID, "title": item.Title, "release": title})
+		return nil
 	}
 	return errors.New("no NZB candidate could be resolved")
+}
+
+// raceNZBCandidates is raceTorrentCandidates' NZB counterpart -- races up to
+// maxNZBCandidates concurrently (down from a worst case of
+// maxNZBCandidates * candidateTimeoutNZB sequentially to just
+// candidateTimeoutNZB total).
+func (s *Service) raceNZBCandidates(item *store.MediaItem, ranked []ScoredNZBRelease) bool {
+	if err := s.store.SetMediaItemActiveNZBDownload(item.ID, ""); err != nil {
+		log.Printf("acquisition: resetting active NZB download for %s: %v", item.ID, err)
+	}
+	if err := s.store.SetMediaItemAcquisitionStatus(item.ID, "acquiring"); err != nil {
+		log.Printf("acquisition: setting status on %s: %v", item.ID, err)
+	}
+
+	raceCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var launched []string
+	for _, candidate := range ranked {
+		fetchCtx, fetchCancel := context.WithTimeout(raceCtx, searchTimeout)
+		data, err := nzb.FetchNZB(fetchCtx, candidate.DownloadURL)
+		fetchCancel()
+		if err != nil {
+			log.Printf("acquisition: fetching NZB %q for %s: %v", candidate.Title, item.ID, err)
+			continue
+		}
+		rec, err := s.nzb.AddNZBForItem(raceCtx, data, item.LibraryID, item.ID)
+		if err != nil {
+			log.Printf("acquisition: starting NZB download %q for %s: %v", candidate.Title, item.ID, err)
+			continue
+		}
+		launched = append(launched, rec.ID)
+	}
+	if len(launched) == 0 {
+		return false
+	}
+
+	deadline := time.Now().Add(candidateTimeoutNZB)
+	for {
+		if mi, err := s.store.GetMediaItem(item.ID); err == nil && mi.AcquisitionStatus == "owned" {
+			return true
+		}
+		allDone := true
+		for _, id := range launched {
+			r, err := s.store.GetNZBDownload(id)
+			if err != nil || (r.Status != "completed" && r.Status != "error") {
+				allDone = false
+				break
+			}
+		}
+		if allDone || time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(outcomePoll)
+	}
+}
+
+// winningNZBDownload is winningDebridItem's NZB counterpart.
+func (s *Service) winningNZBDownload(mediaItemID string) (*store.NZBDownload, error) {
+	mi, err := s.store.GetMediaItem(mediaItemID)
+	if err != nil || mi.ActiveNZBDownloadID == nil {
+		return nil, err
+	}
+	return s.store.GetNZBDownload(*mi.ActiveNZBDownloadID)
 }
 
 // combineAcquireErrors reports just the one tier's error when the other
@@ -706,13 +839,11 @@ func (s *Service) trySeasonPackViaTorrent(ctx context.Context, season, series *s
 		return false
 	}
 
-	for _, candidate := range ranked {
-		if s.tryCandidate(season, account, candidate) {
-			s.notifySend("acquired", map[string]any{
-				"itemId": season.ID, "title": fmt.Sprintf("%s Season %d", series.Title, seasonNumber), "release": candidate.Title,
-			})
-			return true
-		}
+	if s.raceTorrentCandidates(season, account, ranked) {
+		s.notifySend("acquired", map[string]any{
+			"itemId": season.ID, "title": fmt.Sprintf("%s Season %d", series.Title, seasonNumber),
+		})
+		return true
 	}
 	return false
 }
@@ -770,116 +901,13 @@ func (s *Service) trySeasonPackViaNZB(ctx context.Context, season, series *store
 		return false
 	}
 
-	for _, candidate := range ranked {
-		fetchCtx, cancel := context.WithTimeout(ctx, searchTimeout)
-		ok := s.tryNZBCandidate(fetchCtx, season, candidate)
-		cancel()
-		if ok {
-			s.notifySend("acquired", map[string]any{
-				"itemId": season.ID, "title": fmt.Sprintf("%s Season %d", series.Title, seasonNumber), "release": candidate.Title,
-			})
-			return true
-		}
+	if s.raceNZBCandidates(season, ranked) {
+		s.notifySend("acquired", map[string]any{
+			"itemId": season.ID, "title": fmt.Sprintf("%s Season %d", series.Title, seasonNumber),
+		})
+		return true
 	}
 	return false
-}
-
-// tryCandidate sends one scored release to debrid and waits to see whether
-// it specifically is the one that ends up fulfilling item.
-func (s *Service) tryCandidate(item *store.MediaItem, account *store.DebridAccount, candidate ScoredRelease) bool {
-	// Reset to 'acquiring' at the start of every candidate, not just once
-	// before the loop: a previous candidate's failed promotion (e.g. no
-	// video file in the release) can have already flipped the item to
-	// 'error', which would otherwise make this candidate's own
-	// waitForOutcome see that stale status and give up immediately.
-	if err := s.store.SetMediaItemAcquisitionStatus(item.ID, "acquiring"); err != nil {
-		log.Printf("acquisition: setting status on %s: %v", item.ID, err)
-	}
-
-	libraryID, itemID := item.LibraryID, item.ID
-	newItem, err := s.debrid.AddLink(debrid.AddLinkInput{
-		AccountID:   account.ID,
-		SourceRef:   candidate.DownloadURL,
-		Name:        candidate.Title,
-		LibraryID:   &libraryID,
-		MediaItemID: &itemID,
-	})
-	if err != nil {
-		log.Printf("acquisition: sending %q to debrid for %s: %v", candidate.Title, item.ID, err)
-		return false
-	}
-	if err := s.store.SetMediaItemActiveDebridItem(item.ID, newItem.ID); err != nil {
-		log.Printf("acquisition: recording active resolve for %s: %v", item.ID, err)
-	}
-	return s.waitForOutcome(item.ID, candidateTimeout, func() bool {
-		di, err := s.store.GetDebridItem(newItem.ID)
-		return err == nil && di.Status == "error"
-	})
-}
-
-// tryNZBCandidate is tryCandidate's NZB counterpart: sends one scored NZB
-// release to nzb.Service and waits to see whether it specifically is the
-// one that ends up fulfilling item. item may be a movie/episode (single
-// file) or a season row (nzb.Service's onComplete branches on
-// item.Kind == "season" the same way debrid's does).
-func (s *Service) tryNZBCandidate(ctx context.Context, item *store.MediaItem, candidate ScoredNZBRelease) bool {
-	if err := s.store.SetMediaItemAcquisitionStatus(item.ID, "acquiring"); err != nil {
-		log.Printf("acquisition: setting status on %s: %v", item.ID, err)
-	}
-
-	data, err := nzb.FetchNZB(ctx, candidate.DownloadURL)
-	if err != nil {
-		log.Printf("acquisition: fetching NZB %q for %s: %v", candidate.Title, item.ID, err)
-		return false
-	}
-	rec, err := s.nzb.AddNZBForItem(data, item.LibraryID, item.ID)
-	if err != nil {
-		log.Printf("acquisition: starting NZB download %q for %s: %v", candidate.Title, item.ID, err)
-		return false
-	}
-	if err := s.store.SetMediaItemActiveNZBDownload(item.ID, rec.ID); err != nil {
-		log.Printf("acquisition: recording active NZB download for %s: %v", item.ID, err)
-	}
-	return s.waitForOutcome(item.ID, candidateTimeoutNZB, func() bool {
-		r, err := s.store.GetNZBDownload(rec.ID)
-		return err == nil && r.Status == "error"
-	})
-}
-
-// waitForOutcome polls until either isFailed reports the current resolve
-// attempt as terminally failed, or the media_item itself reaches a terminal
-// state: 'owned' (this attempt won -- confirmed by the promotion path's own
-// active-resolve fencing check, not just "the resolve says ready", since
-// promotion can still fail after that, e.g. no video file in the release)
-// or 'error' (this attempt's own failed promotion set it). isFailed is the
-// one thing that differs between sources: tryCandidate checks
-// GetDebridItem(...).Status, tryNZBCandidate checks GetNZBDownload(...).Status.
-//
-// A candidate that times out here keeps resolving in the background (both
-// debrid.Service and nzb.Service have their own longer-running internal
-// processes and nothing cancels them from here) -- that's fine: the
-// active-resolve fencing (active_debrid_item_id / active_nzb_download_id)
-// means a late success or failure from an abandoned attempt is simply
-// ignored by promotion once a later candidate (or "give up") has taken over.
-func (s *Service) waitForOutcome(mediaItemID string, timeout time.Duration, isFailed func() bool) bool {
-	deadline := time.Now().Add(timeout)
-	for {
-		if isFailed() {
-			return false
-		}
-		if mi, err := s.store.GetMediaItem(mediaItemID); err == nil {
-			switch mi.AcquisitionStatus {
-			case "owned":
-				return true
-			case "error":
-				return false
-			}
-		}
-		if time.Now().After(deadline) {
-			return false
-		}
-		time.Sleep(outcomePoll)
-	}
 }
 
 func (s *Service) pickDebridAccount() (*store.DebridAccount, error) {

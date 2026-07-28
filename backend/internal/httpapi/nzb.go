@@ -123,7 +123,7 @@ func (s *Server) handleAddNZB(w http.ResponseWriter, r *http.Request) {
 		libraryID = &id
 	}
 
-	n, err := s.nzbSvc.Load().AddNZB(data, libraryID)
+	n, err := s.nzbSvc.Load().AddNZB(context.Background(), data, libraryID)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return

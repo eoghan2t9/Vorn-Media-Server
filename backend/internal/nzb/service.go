@@ -20,8 +20,12 @@ const providerDeleteTimeout = 30 * time.Second
 // into the library on completion. No article data ever passes through
 // Vorn itself.
 type Service struct {
-	store      *store.Store
-	onComplete func(*store.NZBDownload)
+	store *store.Store
+	// onComplete returns whether rec's files actually ended up being used
+	// (promoted into a media item, or a manual admin add) -- run() deletes
+	// rec from TorBox when it returns false, since that means nothing will
+	// ever use the quota/storage it's holding.
+	onComplete func(*store.NZBDownload) bool
 	// torboxClient is constructed once and reused for every download/
 	// account-test, sharing torboxLimiter with debrid.Service's own TorBox
 	// client and torrent.Service's indexer search -- a fresh
@@ -38,25 +42,23 @@ type Service struct {
 // client and torrent.Service's TorBox indexer search.
 func NewService(st *store.Store, torboxLimiter *debrid.Limiter) *Service {
 	svc := &Service{store: st, torboxClient: debrid.NewTorBoxClient(torboxLimiter)}
-	svc.onComplete = func(n *store.NZBDownload) {
+	svc.onComplete = func(n *store.NZBDownload) bool {
 		if n.MediaItemID == nil {
+			// Manual/admin-added download -- never auto-delete from TorBox
+			// even if filename-guess promotion finds nothing to promote,
+			// since the admin explicitly asked for this one.
 			PromoteCompleted(st, n)
-			return
+			return true
 		}
-		mediaItem, err := AuthorizedMediaItem(st, n)
+		mediaItem, err := st.GetMediaItem(*n.MediaItemID)
 		if err != nil {
-			log.Printf("nzb: checking whether %s is still authoritative for %s: %v", n.ID, *n.MediaItemID, err)
-			return
-		}
-		if mediaItem == nil {
-			log.Printf("nzb: %s is a stale/abandoned download, a later attempt already took over -- skipping promotion", n.ID)
-			return
+			log.Printf("nzb: loading media item for %s: %v", n.ID, err)
+			return false
 		}
 		if mediaItem.Kind == "season" {
-			PromoteSeasonPackToExistingItems(st, mediaItem, n)
-			return
+			return PromoteSeasonPackToExistingItems(st, mediaItem, n)
 		}
-		PromoteToExistingItem(st, mediaItem, n)
+		return PromoteToExistingItem(st, mediaItem, n)
 	}
 	return svc
 }
@@ -65,19 +67,24 @@ func NewService(st *store.Store, torboxLimiter *debrid.Limiter) *Service {
 // background against whichever configured Usenet server is enabled --
 // the manual, admin-driven flow (Admin > NZB), which always
 // filename-guess-promotes into libraryID at large (see PromoteCompleted).
-func (svc *Service) AddNZB(data []byte, libraryID *string) (*store.NZBDownload, error) {
-	return svc.addNZB(data, libraryID, nil)
+// ctx bounds the resolve itself, same as debrid.Service.AddLink -- manual/
+// admin callers pass context.Background().
+func (svc *Service) AddNZB(ctx context.Context, data []byte, libraryID *string) (*store.NZBDownload, error) {
+	return svc.addNZB(ctx, data, libraryID, nil)
 }
 
 // AddNZBForItem is AddNZB's on-demand-acquisition counterpart (the NZB
 // analog of debrid.Service.AddLink): it targets a specific existing
-// placeholder media_item rather than filename-guessing into a library,
-// via mediaItemID/AuthorizedMediaItem fencing (see promote.go).
-func (svc *Service) AddNZBForItem(data []byte, libraryID, mediaItemID string) (*store.NZBDownload, error) {
-	return svc.addNZB(data, &libraryID, &mediaItemID)
+// placeholder media_item rather than filename-guessing into a library.
+// acquisition.Service passes a context it cancels once it stops caring
+// about this attempt (a rival candidate already won, or it's giving up),
+// so a losing racer stops within one HTTP round-trip instead of running to
+// completion pointlessly.
+func (svc *Service) AddNZBForItem(ctx context.Context, data []byte, libraryID, mediaItemID string) (*store.NZBDownload, error) {
+	return svc.addNZB(ctx, data, &libraryID, &mediaItemID)
 }
 
-func (svc *Service) addNZB(data []byte, libraryID, mediaItemID *string) (*store.NZBDownload, error) {
+func (svc *Service) addNZB(ctx context.Context, data []byte, libraryID, mediaItemID *string) (*store.NZBDownload, error) {
 	doc, err := Parse(bytes.NewReader(data))
 	if err != nil {
 		return nil, fmt.Errorf("nzb: parsing nzb file: %w", err)
@@ -100,17 +107,17 @@ func (svc *Service) addNZB(data []byte, libraryID, mediaItemID *string) (*store.
 		return nil, err
 	}
 
-	go svc.run(rec, data)
+	go svc.run(ctx, rec, data)
 	return rec, nil
 }
 
-func (svc *Service) run(rec *store.NZBDownload, data []byte) {
+func (svc *Service) run(ctx context.Context, rec *store.NZBDownload, data []byte) {
 	server, err := svc.pickServer()
 	if err != nil {
 		svc.finish(rec, err)
 		return
 	}
-	svc.runTorBox(rec, data, server)
+	svc.runTorBox(ctx, rec, data, server)
 }
 
 // TestTorBoxAccount verifies a TorBox API key by fetching account info,
@@ -154,20 +161,33 @@ func (svc *Service) Remove(id string) error {
 	if err != nil {
 		return err
 	}
-	if rec.ProviderRef != "" {
-		if usenetID, cerr := strconv.Atoi(rec.ProviderRef); cerr != nil {
-			log.Printf("nzb: parsing provider ref for %s: %v", id, cerr)
-		} else if server, serr := svc.pickServer(); serr != nil {
-			log.Printf("nzb: no enabled server to delete %s from TorBox: %v", id, serr)
-		} else {
-			ctx, cancel := context.WithTimeout(context.Background(), providerDeleteTimeout)
-			if derr := svc.torboxClient.DeleteUsenetDownload(ctx, server.APIKey, usenetID); derr != nil {
-				log.Printf("nzb: deleting %s (%s) from torbox: %v", id, rec.ProviderRef, derr)
-			}
-			cancel()
-		}
-	}
+	svc.deleteFromTorBox(id, rec.ProviderRef)
 	return svc.store.RemoveNZBDownload(id)
+}
+
+// deleteFromTorBox is Remove's cleanup step, factored out so run() can reuse
+// it the moment a resolve turns out not to have been used (lost a race,
+// failed content verification, no video file) instead of leaking that
+// quota/storage until someone happens to remove the item manually later.
+func (svc *Service) deleteFromTorBox(id, providerRef string) {
+	if providerRef == "" {
+		return
+	}
+	usenetID, cerr := strconv.Atoi(providerRef)
+	if cerr != nil {
+		log.Printf("nzb: parsing provider ref for %s: %v", id, cerr)
+		return
+	}
+	server, serr := svc.pickServer()
+	if serr != nil {
+		log.Printf("nzb: no enabled server to delete %s from TorBox: %v", id, serr)
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), providerDeleteTimeout)
+	defer cancel()
+	if derr := svc.torboxClient.DeleteUsenetDownload(ctx, server.APIKey, usenetID); derr != nil {
+		log.Printf("nzb: deleting %s (%s) from torbox: %v", id, providerRef, derr)
+	}
 }
 
 func (svc *Service) AddServer(in store.UsenetServer) (*store.UsenetServer, error) {

@@ -108,33 +108,43 @@ func yearPtr(y int) *int {
 // debrid.PromoteToExistingItem. nzb_files holds a stream URL per file, and
 // mediaItem.Path is pointed straight at the largest video one (no local
 // storage, mirroring debrid's own promotion) -- an empty file list is a
-// genuine "no video file" outcome.
-func PromoteToExistingItem(st *store.Store, mediaItem *store.MediaItem, rec *store.NZBDownload) {
+// genuine "no video file" outcome. Returns whether rec specifically ended up
+// being the one used, so the caller (nzb.Service's onComplete) knows
+// whether to delete rec from TorBox instead of leaking it. On any rejection
+// (no video file, failed verification, lost the claim to a sibling
+// candidate that got there first) this deliberately does NOT touch
+// mediaItem at all -- a sibling might still be resolving, and only
+// acquisition.Service, which knows how many candidates it launched, is in a
+// position to decide the whole attempt has failed.
+func PromoteToExistingItem(st *store.Store, mediaItem *store.MediaItem, rec *store.NZBDownload) bool {
 	files, err := st.ListNZBFiles(rec.ID)
 	if err != nil {
 		log.Printf("nzb: listing files for %s: %v", rec.ID, err)
-		return
+		return false
 	}
 	best := largestVideoNZBFile(files)
 	if best == nil {
-		if err := st.SetMediaItemAcquisitionError(mediaItem.ID, "resolved NZB had no video file"); err != nil {
-			log.Printf("nzb: setting acquisition error on %s: %v", mediaItem.ID, err)
-		}
-		return
+		return false
 	}
 	if !verifyRuntime(mediaItem.ID, best.StreamURL, mediaItem.RuntimeMinutes) {
-		if err := st.SetMediaItemAcquisitionError(mediaItem.ID, "resolved NZB failed content verification"); err != nil {
-			log.Printf("nzb: setting acquisition error on %s: %v", mediaItem.ID, err)
-		}
-		return
+		return false
+	}
+	claimed, err := st.ClaimMediaItemForNZBDownload(mediaItem.ID, rec.ID)
+	if err != nil {
+		log.Printf("nzb: claiming %s for %s: %v", mediaItem.ID, rec.ID, err)
+		return false
+	}
+	if !claimed {
+		return false
 	}
 	if err := st.SetMediaItemPath(mediaItem.ID, best.StreamURL, rec.Name); err != nil {
 		log.Printf("nzb: setting path on %s: %v", mediaItem.ID, err)
-		return
+		return true // claimed and the stream is real -- don't delete it just because this write failed
 	}
 	if err := st.MarkNZBPromoted(rec.ID); err != nil {
 		log.Printf("nzb: marking %s promoted: %v", rec.ID, err)
 	}
+	return true
 }
 
 func largestVideoNZBFile(files []*store.NZBFile) *store.NZBFile {
@@ -157,12 +167,15 @@ func largestVideoNZBFile(files []*store.NZBFile) *store.NZBFile {
 // season/episode numbers out of its own filename (scanner.ParseFilename,
 // the same parser scan-promoted episodes use) and looked up among
 // seasonItem's episode children -- unmatched files (extras, samples) are
-// skipped, and the larger file wins if two match the same episode.
-func PromoteSeasonPackToExistingItems(st *store.Store, seasonItem *store.MediaItem, rec *store.NZBDownload) {
+// skipped, and the larger file wins if two match the same episode. Returns
+// whether rec ended up promoting at least one episode -- see
+// PromoteToExistingItem for why the caller needs this and why a rejection
+// never touches seasonItem.
+func PromoteSeasonPackToExistingItems(st *store.Store, seasonItem *store.MediaItem, rec *store.NZBDownload) bool {
 	episodes, err := st.ListChildren(seasonItem.ID)
 	if err != nil {
 		log.Printf("nzb: listing episodes for season %s: %v", seasonItem.ID, err)
-		return
+		return false
 	}
 	byEpisodeNumber := make(map[int]*store.MediaItem, len(episodes))
 	for _, ep := range episodes {
@@ -180,7 +193,7 @@ func PromoteSeasonPackToExistingItems(st *store.Store, seasonItem *store.MediaIt
 	files, err := st.ListNZBFiles(rec.ID)
 	if err != nil {
 		log.Printf("nzb: listing files for %s: %v", rec.ID, err)
-		return
+		return false
 	}
 	for _, f := range files {
 		if !scanner.IsVideoFile(f.Name) {
@@ -195,17 +208,10 @@ func PromoteSeasonPackToExistingItems(st *store.Store, seasonItem *store.MediaIt
 		}
 	}
 
-	if len(bestPerEpisode) == 0 {
-		// Nothing in the release could be attributed to any episode --
-		// treated exactly like PromoteToExistingItem's own no-video-file
-		// case, so AcquireSeasonPack's fencing-aware fallback to per-episode
-		// acquisition sees this season attempt as failed.
-		if err := st.SetMediaItemAcquisitionError(seasonItem.ID, "resolved season pack had no recognizable episode files"); err != nil {
-			log.Printf("nzb: setting acquisition error on %s: %v", seasonItem.ID, err)
-		}
-		return
-	}
-
+	// Claimed per episode independently -- racing season-pack candidates
+	// can legitimately split a season, each winning whichever episodes it
+	// resolves first, rather than all-or-nothing against the season as a
+	// whole.
 	promoted := 0
 	for epNum, f := range bestPerEpisode {
 		ep, ok := byEpisodeNumber[epNum]
@@ -214,6 +220,14 @@ func PromoteSeasonPackToExistingItems(st *store.Store, seasonItem *store.MediaIt
 		}
 		if !verifyRuntime(ep.ID, f.path, ep.RuntimeMinutes) {
 			continue // treated like an unmatched file -- skip this episode, not the whole pack
+		}
+		claimed, err := st.ClaimMediaItemForNZBDownload(ep.ID, rec.ID)
+		if err != nil {
+			log.Printf("nzb: claiming episode %s for %s: %v", ep.ID, rec.ID, err)
+			continue
+		}
+		if !claimed {
+			continue // a sibling racing candidate already won this episode
 		}
 		if err := st.SetMediaItemPath(ep.ID, f.path, rec.Name); err != nil {
 			log.Printf("nzb: setting path on episode %s: %v", ep.ID, err)
@@ -230,24 +244,9 @@ func PromoteSeasonPackToExistingItems(st *store.Store, seasonItem *store.MediaIt
 		if err := st.SetMediaItemAcquisitionStatus(seasonItem.ID, "owned"); err != nil {
 			log.Printf("nzb: marking season %s owned: %v", seasonItem.ID, err)
 		}
+		if err := st.MarkNZBPromoted(rec.ID); err != nil {
+			log.Printf("nzb: marking %s promoted: %v", rec.ID, err)
+		}
 	}
-	if err := st.MarkNZBPromoted(rec.ID); err != nil {
-		log.Printf("nzb: marking %s promoted: %v", rec.ID, err)
-	}
-}
-
-// AuthorizedMediaItem loads rec.MediaItemID and returns it only if rec is
-// still that media_item's recorded active_nzb_download_id -- nil (with no
-// error) means a later resolve attempt has since taken over and rec's
-// outcome must be discarded without promoting anything. Mirrors
-// debrid.AuthorizedMediaItem exactly.
-func AuthorizedMediaItem(st *store.Store, rec *store.NZBDownload) (*store.MediaItem, error) {
-	mediaItem, err := st.GetMediaItem(*rec.MediaItemID)
-	if err != nil {
-		return nil, err
-	}
-	if mediaItem.ActiveNZBDownloadID == nil || *mediaItem.ActiveNZBDownloadID != rec.ID {
-		return nil, nil
-	}
-	return mediaItem, nil
+	return promoted > 0
 }

@@ -127,13 +127,11 @@ func (s *Store) ResetStuckAcquisitions() (int, error) {
 	return int(n), err
 }
 
-// SetMediaItemActiveDebridItem records debridItemID as the sole resolve
-// attempt currently authorized to write id's path -- called before polling
-// for that attempt's outcome. A promotion whose own debrid_item no longer
-// matches what's recorded here (a later attempt has since taken over, or
-// nothing is active anymore) must not write anything, since it means this
-// promotion is a stale/abandoned resolve finishing late. Pass "" to clear
-// (fence off every future promotion until a new attempt is authorized).
+// SetMediaItemActiveDebridItem resets id's debrid claim slot -- called once,
+// right before acquisition launches a fresh batch of racing candidates
+// against id, so a stale value left over from an earlier round (or a
+// crashed process) can't block this round's claim. Pass "" (the only
+// caller-facing use today) to clear to NULL.
 func (s *Store) SetMediaItemActiveDebridItem(id, debridItemID string) error {
 	var arg any
 	if debridItemID != "" {
@@ -144,8 +142,7 @@ func (s *Store) SetMediaItemActiveDebridItem(id, debridItemID string) error {
 }
 
 // SetMediaItemActiveNZBDownload is SetMediaItemActiveDebridItem's NZB
-// counterpart -- the fencing token nzb.AuthorizedMediaItem checks before
-// promoting an on-demand NZB download into id.
+// counterpart.
 func (s *Store) SetMediaItemActiveNZBDownload(id, nzbDownloadID string) error {
 	var arg any
 	if nzbDownloadID != "" {
@@ -153,6 +150,42 @@ func (s *Store) SetMediaItemActiveNZBDownload(id, nzbDownloadID string) error {
 	}
 	_, err := s.db.Exec(`UPDATE media_items SET active_nzb_download_id = $1, updated_at = now() WHERE id = $2`, arg, id)
 	return err
+}
+
+// ClaimMediaItemForDebridItem atomically claims id for debridItemID -- the
+// mechanism that decides a winner when acquisition races several candidates
+// concurrently for the same media item. Succeeds (true) only if nothing has
+// claimed id yet (active_debrid_item_id IS NULL) and it isn't already
+// owned; Postgres row-level locking makes concurrent claims against the same
+// row serialize, so exactly one caller ever wins even if several resolves
+// finish at almost the same instant. A losing caller must not touch the
+// media item at all -- see debrid/promote.go.
+func (s *Store) ClaimMediaItemForDebridItem(id, debridItemID string) (bool, error) {
+	res, err := s.db.Exec(
+		`UPDATE media_items SET active_debrid_item_id = $1, updated_at = now()
+		 WHERE id = $2 AND acquisition_status != 'owned' AND active_debrid_item_id IS NULL`,
+		debridItemID, id,
+	)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}
+
+// ClaimMediaItemForNZBDownload is ClaimMediaItemForDebridItem's NZB
+// counterpart.
+func (s *Store) ClaimMediaItemForNZBDownload(id, nzbDownloadID string) (bool, error) {
+	res, err := s.db.Exec(
+		`UPDATE media_items SET active_nzb_download_id = $1, updated_at = now()
+		 WHERE id = $2 AND acquisition_status != 'owned' AND active_nzb_download_id IS NULL`,
+		nzbDownloadID, id,
+	)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
 }
 
 // SetMediaItemMonitored subscribes/unsubscribes id (a movie or series) to
