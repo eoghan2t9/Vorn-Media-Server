@@ -12,6 +12,7 @@ import (
 	"strconv"
 
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/metadata"
+	"github.com/eoghan2t9/vorn-media-server/backend/internal/store"
 )
 
 const acquisitionNotConfigured = "on-demand acquisition is not configured (needs a TMDb API key and a torrent indexer)"
@@ -122,21 +123,56 @@ func (s *Server) handleOpenCatalogEntry(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Log this as an auto-approved request, at most once per title, so
+	// browsing shows up in the Requests history/audit trail the same as an
+	// explicit request -- without turning Browse into a queued action (it
+	// stays instant regardless of the admin-approval/auto-approve setting,
+	// see handleCreateContentRequest for the actual queued-request flow).
+	if exists, err := s.store.ContentRequestExistsForTmdbID(req.MediaType, req.TmdbID); err != nil {
+		log.Printf("catalog: checking existing request for tmdb %d: %v", req.TmdbID, err)
+	} else if !exists {
+		releaseDate := ""
+		if item.ReleaseDate != nil {
+			releaseDate = item.ReleaseDate.Format("2006-01-02")
+		}
+		created, err := s.store.CreateContentRequest(store.CreateContentRequestInput{
+			RequestedBy: user.ID,
+			MediaType:   req.MediaType,
+			TmdbID:      req.TmdbID,
+			Title:       item.Title,
+			Overview:    item.Overview,
+			ReleaseDate: releaseDate,
+			PosterURL:   item.PosterURL,
+		})
+		if err != nil {
+			log.Printf("catalog: logging browse-open as request for tmdb %d: %v", req.TmdbID, err)
+		} else if _, err := s.store.AutoApproveContentRequest(created.ID); err != nil {
+			log.Printf("catalog: auto-approving browse-open request %s: %v", created.ID, err)
+		} else if err := s.store.CreateContentRequestFulfillment(created.ID, req.LibraryID, item.ID); err != nil {
+			log.Printf("catalog: recording fulfillment for browse-open request %s: %v", created.ID, err)
+		}
+	}
+
 	// Start acquisition pre-emptively in the background while the user
 	// browses the detail page, so by the time they press play the search
 	// and resolve are already well underway or complete. This is safe:
 	// Acquire is a no-op if the item is already owned or already being
 	// acquired, and it runs in a goroutine so the catalog-opener response
-	// is not delayed. Only movies get this treatment here -- series
-	// acquisition happens on a per-episode basis via MonitorScheduler
-	// (the monitored-series flow) or when the user presses play on a
+	// is not delayed. Series don't get Acquire here -- acquisition happens
+	// on a per-episode basis via MonitorScheduler (which SetMediaItemMonitored
+	// below opts the series into) or when the user presses play on a
 	// specific episode.
-	if req.MediaType == "movie" && item.AcquisitionStatus == "placeholder" {
+	switch {
+	case req.MediaType == "movie" && item.AcquisitionStatus == "placeholder":
 		go func() {
 			if err := s.acquisition.Load().Acquire(context.Background(), item.ID); err != nil {
 				log.Printf("catalog: pre-emptive acquire for %s: %v", item.ID, err)
 			}
 		}()
+	case req.MediaType == "series" && !item.Monitored:
+		if err := s.store.SetMediaItemMonitored(item.ID, true); err != nil {
+			log.Printf("catalog: monitoring series %s: %v", item.ID, err)
+		}
 	}
 
 	writeJSON(w, http.StatusOK, toMediaItemResponse(item))

@@ -67,6 +67,19 @@ func (s *Store) CreateContentRequest(in CreateContentRequestInput) (*ContentRequ
 	return s.GetContentRequest(id)
 }
 
+// ContentRequestExistsForTmdbID reports whether any request (regardless of
+// status) already exists for this title -- used by handleOpenCatalogEntry
+// to log a Browse-open as a request at most once per title, not on every
+// re-open of an already-materialized item.
+func (s *Store) ContentRequestExistsForTmdbID(mediaType string, tmdbID int) (bool, error) {
+	var exists bool
+	err := s.db.QueryRow(
+		`SELECT EXISTS(SELECT 1 FROM content_requests WHERE media_type = $1 AND tmdb_id = $2)`,
+		mediaType, tmdbID,
+	).Scan(&exists)
+	return exists, err
+}
+
 func (s *Store) GetContentRequest(id string) (*ContentRequest, error) {
 	r := &ContentRequest{}
 	row := s.db.QueryRow(`SELECT `+contentRequestColumns+` FROM `+contentRequestFrom+` WHERE cr.id = $1`, id)
