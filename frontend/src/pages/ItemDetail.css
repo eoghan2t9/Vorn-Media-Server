@@ -254,6 +254,13 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
+  /* TMDb's cast photos aren't all proper headshots -- minor/voice roles
+     often only have a promotional still or an unusually cropped image, so
+     a plain center-crop can land well below the actual face. Biasing
+     toward the top (roughly where a head sits in a normal headshot) keeps
+     the crop looking reasonably centered on the face across a wider range
+     of source photos than a dead-center crop does. */
+  object-position: center 20%;
 }
 
 .vorn-cast-name {
