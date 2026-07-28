@@ -1,38 +1,33 @@
 import Plyr from 'plyr'
 import { useEffect, type RefObject } from 'react'
 
-// Formats seconds into h:mm:ss for display.
-function formatDuration(seconds: number): string {
-  const h = Math.floor(seconds / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
-  const s = Math.floor(seconds % 60)
-  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
-  return `${m}:${String(s).padStart(2, '0')}`
-}
-
-// Patches the duration display in the Plyr control bar to always show the
-// backend-probed duration (obtained via ffprobe) rather than the browser's
-// native video.duration. The native duration for a streamed/debrid-backed
-// video is unreliable — it starts as Infinity, then jumps through partial
-// values (12s → 20s → 30s …) as more data arrives. Our ffprobe probe is
-// always authoritative.
-function patchDurationDisplay(video: HTMLVideoElement) {
-  const knownDuration = video.dataset.duration
-  if (!knownDuration) return
-  const dur = parseFloat(knownDuration)
+// Overrides the native video.duration getter on the <video> element with the
+// backend-probed duration (from ffprobe) stored in video.dataset.duration.
+//
+// The browser's native duration for a streamed/debrid-backed video is
+// unreliable — it starts as Infinity, then jumps through partial values
+// (12s → 20s → 30s …) as more data arrives. Our ffprobe probe is always
+// authoritative. By overriding at the element property level, both Plyr
+// (which reads video.duration natively) and the browser's own seek-bar/
+// ended-event machinery see the correct total runtime immediately, with no
+// DOM-patching race conditions against Plyr's control-bar render cycle.
+function patchVideoDuration(video: HTMLVideoElement) {
+  const known = video.dataset.duration
+  if (!known) return
+  const dur = parseFloat(known)
   if (!dur || dur <= 0) return
 
-  const overridePlyrDuration = () => {
-    // Plyr renders the duration into a .plyr__time[data-plyr="duration"] element
-    // on every timeupdate/loadedmetadata — re-apply our value each time.
-    const durEl = document.querySelector('.plyr__time[data-plyr="duration"]')
-    if (durEl && durEl.textContent !== formatDuration(dur)) {
-      durEl.textContent = formatDuration(dur)
-    }
+  try {
+    Object.defineProperty(video, 'duration', {
+      get() { return dur },
+      configurable: true,
+      enumerable: true,
+    })
+  } catch {
+    // Object.defineProperty on native getters may not work in all browsers.
+    // If it fails, the video plays without the patched duration — the
+    // browser's unreliable duration will be used instead, same as before.
   }
-
-  video.addEventListener('timeupdate', overridePlyrDuration)
-  video.addEventListener('loadedmetadata', overridePlyrDuration)
 }
 
 // usePlyr wraps Plyr (a mature, battle-tested player UI with years of
@@ -57,9 +52,10 @@ export function usePlyr(videoRef: RefObject<HTMLVideoElement | null>) {
       keyboard: { focused: true, global: false },
     })
 
-    // Patch the duration display using backend-probed duration if the
-    // browser cannot determine it from the stream alone.
-    patchDurationDisplay(video)
+    // Override native video.duration with the backend-probed value (see
+    // patchVideoDuration above) so Plyr and the browser both see the
+    // correct total runtime immediately.
+    patchVideoDuration(video)
 
     return () => player.destroy()
   }, [videoRef])
