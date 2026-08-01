@@ -127,6 +127,14 @@ func (s *Store) SetNZBDownloadProviderRef(id, providerRef string) error {
 	return err
 }
 
+// SetNZBDownloadLibrary assigns an NZB download to a library, used by
+// reconciliation to retroactively assign a library to orphaned downloads
+// that were discovered without one.
+func (s *Store) SetNZBDownloadLibrary(id, libraryID string) error {
+	res, err := s.db.Exec(`UPDATE nzb_downloads SET library_id = $1 WHERE id = $2`, libraryID, id)
+	return checkRowsAffected(res, err)
+}
+
 type CreateNZBDownloadInput struct {
 	LibraryID   *string
 	MediaItemID *string

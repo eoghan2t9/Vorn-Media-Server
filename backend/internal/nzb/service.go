@@ -218,7 +218,29 @@ func (svc *Service) ReconcileFromTorBox(ctx context.Context) {
 					// This download finished while Vorn was offline (status
 					// still "repairing"), or it completed but was never
 					// promoted (e.g. the old IsProbableHash filter blocked
-					// it). Either way, ensure files are recorded, CDN stream
+					// it). If it has no library, try to auto-assign one
+					// the same way the orphaned-download branch does.
+					if existing.LibraryID == nil {
+						if parsed := scanner.ParseFilename(existing.Name); parsed.Kind == "movie" || parsed.Kind == "episode" {
+							libs, _ := svc.store.ListLibraries()
+							for _, lib := range libs {
+								if parsed.Kind == "movie" && lib.Type == "movie" {
+									existing.LibraryID = &lib.ID
+									break
+								}
+								if parsed.Kind == "episode" && lib.Type == "series" {
+									existing.LibraryID = &lib.ID
+									break
+								}
+							}
+							if existing.LibraryID != nil {
+								if err := svc.store.SetNZBDownloadLibrary(existing.ID, *existing.LibraryID); err != nil {
+									log.Printf("nzb: reconciliation: setting library for %s: %v", existing.ID, err)
+								}
+							}
+						}
+					}
+					// Either way, ensure files are recorded, CDN stream
 					// URLs are fetched (same as runTorBox), WebDAV URLs are
 					// matched, and promotion runs.
 					log.Printf("nzb: reconciliation: %s (%s) catching up (status=%s promoted=%v)", existing.ID, existing.Name, existing.Status, existing.Promoted)
