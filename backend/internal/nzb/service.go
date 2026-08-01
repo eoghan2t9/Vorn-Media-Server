@@ -246,13 +246,14 @@ func (svc *Service) runSync(ctx context.Context) {
 // syncFromTorBox (formerly ReconcileFromTorBox) is the heart of the
 // continuous polling approach. Called on startup and every
 // backgroundSyncInterval thereafter, it fetches every usenet download on
-// the TorBox account and reconciles them with Vorn's DB records:
+// the TorBox account (both active and queued — mirroring rdt-client's
+// GetCurrentUsenet + GetQueuedUsenet) and reconciles them with Vorn's DB:
 //   - "repairing" downloads that TorBox says are done → record files, match
 //     WebDAV, finish + promote.
 //   - Downloads on TorBox not in Vorn's DB → auto-import with library
 //     auto-assignment.
-//   - Downloads in Vorn's DB not on TorBox → mark as removed (expired/
-//     deleted externally).
+//   - Downloads in Vorn's DB not on TorBox (neither active nor queued) →
+//     mark as removed (expired/deleted externally).
 //   - Failed downloads → ensure Vorn's error status matches.
 //
 // This is the Go equivalent of rdt-client's UpdateRdData: one full sweep
@@ -263,11 +264,27 @@ func (svc *Service) syncFromTorBox(ctx context.Context) {
 		return
 	}
 
-	remote, err := svc.torboxClient.ListUsenetDownloads(ctx, server.APIKey)
+	// Fetch both active and queued downloads — TorBox may queue a download
+	// before it starts actively processing it, and a download that's only
+	// queued (not yet active) won't appear in the plain /usenet/mylist
+	// response. rdt-client's GetDownloads does this as four separate calls
+	// (current + queued for both torrents and usenet); we only need the two
+	// usenet variants.
+	active, err := svc.torboxClient.ListUsenetDownloads(ctx, server.APIKey)
 	if err != nil {
-		log.Printf("nzb: sync: listing usenet downloads: %v", err)
+		log.Printf("nzb: sync: listing active usenet downloads: %v", err)
 		return
 	}
+	queued, err := svc.torboxClient.ListQueuedUsenetDownloads(ctx, server.APIKey)
+	if err != nil {
+		log.Printf("nzb: sync: listing queued usenet downloads: %v", err)
+		// Don't abort — active downloads are still useful even if the
+		// queued endpoint failed.
+	}
+
+	// Combine active + queued into one unified list for reconciliation.
+	remote := active
+	remote = append(remote, queued...)
 
 	// Build a provider_ref → nzb_download lookup from Vorn's own records.
 	// provider_ref is stored as "usenetID:hash" — extract just the
@@ -298,14 +315,9 @@ func (svc *Service) syncFromTorBox(ctx context.Context) {
 		case dl.DownloadFinished && dl.DownloadPresent && !dl.Failed():
 			if existing != nil {
 				if existing.Status == "repairing" || (existing.Status == "completed" && !existing.Promoted) {
-					// This download finished (either while Vorn was
-					// offline, or the background sync just caught it).
-					// Record files, match WebDAV, and promote.
 					svc.catchUpDownload(ctx, existing, &dl, server)
 				}
 			} else {
-				// TorBox has a completed download Vorn knows nothing
-				// about — auto-import it.
 				svc.importOrphanedDownload(ctx, &dl, server, ref)
 			}
 		case dl.Failed():
@@ -324,13 +336,21 @@ func (svc *Service) syncFromTorBox(ctx context.Context) {
 	}
 
 	// Auto-delete: any local record with a provider_ref that wasn't in the
-	// remote list has been deleted/expired from TorBox. Mark it removed so
-	// it doesn't linger in the admin list forever.
+	// remote list (neither active nor queued) has been deleted/expired from
+	// TorBox. Also clean up stale "repairing" downloads — if TorBox no
+	// longer knows about a download Vorn still thinks is in progress, it
+	// was deleted externally (e.g., from the TorBox dashboard).
 	for ref, d := range byRef {
-		if !seenRemote[ref] && d.Status == "completed" && d.Promoted {
-			log.Printf("nzb: sync: %s (%s) no longer on torbox — marking removed", d.ID, d.Name)
-			if err := svc.store.RemoveNZBDownload(d.ID); err != nil {
-				log.Printf("nzb: sync: removing expired %s: %v", d.ID, err)
+		if !seenRemote[ref] {
+			switch {
+			case d.Status == "repairing":
+				log.Printf("nzb: sync: %s (%s) disappeared from torbox while repairing — marking error", d.ID, d.Name)
+				svc.finish(d, fmt.Errorf("torbox: download disappeared — may have been deleted externally"))
+			case d.Status == "completed" && d.Promoted:
+				log.Printf("nzb: sync: %s (%s) no longer on torbox — marking removed", d.ID, d.Name)
+				if err := svc.store.RemoveNZBDownload(d.ID); err != nil {
+					log.Printf("nzb: sync: removing expired %s: %v", d.ID, err)
+				}
 			}
 		}
 	}

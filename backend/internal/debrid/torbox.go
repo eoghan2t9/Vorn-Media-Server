@@ -485,14 +485,26 @@ func (c *TorBoxClient) RequestUsenetDownloadLink(ctx context.Context, apiKey str
 	return resp.Data, nil
 }
 
-// ListUsenetDownloads returns every usenet download on the account (GET
-// /usenet/mylist without an id filter), for startup reconciliation when
-// Vorn has been restarted and lost track of in-flight downloads. The
-// bypass_cache parameter skips TorBox's own 60-second CDN cache so the
-// response reflects the server's actual current state.
+// ListUsenetDownloads returns every active usenet download on the account
+// (GET /usenet/mylist without an id filter). The bypass_cache parameter
+// skips TorBox's own 60-second CDN cache so the response reflects the
+// server's actual current state. Does not include queued downloads — see
+// ListQueuedUsenetDownloads.
 func (c *TorBoxClient) ListUsenetDownloads(ctx context.Context, apiKey string) ([]TBUsenetInfo, error) {
+	return c.listUsenetDownloads(ctx, apiKey, "")
+}
+
+// ListQueuedUsenetDownloads returns every queued (not yet active) usenet
+// download on the account — mirrors rdt-client's GetQueuedUsenet.
+// Combined with ListUsenetDownloads, this gives a complete picture of
+// everything TorBox is working on, not just the currently-active items.
+func (c *TorBoxClient) ListQueuedUsenetDownloads(ctx context.Context, apiKey string) ([]TBUsenetInfo, error) {
+	return c.listUsenetDownloads(ctx, apiKey, "&queued=true")
+}
+
+func (c *TorBoxClient) listUsenetDownloads(ctx context.Context, apiKey, extraQuery string) ([]TBUsenetInfo, error) {
 	var resp tbEnvelope[json.RawMessage]
-	if err := c.do(ctx, http.MethodGet, "/usenet/mylist?bypass_cache=true", apiKey, "", nil, &resp); err != nil {
+	if err := c.do(ctx, http.MethodGet, "/usenet/mylist?bypass_cache=true"+extraQuery, apiKey, "", nil, &resp); err != nil {
 		return nil, err
 	}
 	if !resp.Success {
