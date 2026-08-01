@@ -27,8 +27,9 @@ type Config struct {
 	SubtitlesCacheDir    string
 	ArtworkCacheDir      string
 	BackupDir            string
-	GitHubRepo           string
-	FanartAPIKey         string
+	GitHubRepo             string
+	NZBSyncIntervalSeconds int
+	FanartAPIKey           string
 	OMDbAPIKey           string
 	TVDbAPIKey           string
 	TVDbPin              string
@@ -57,8 +58,9 @@ func Load() Config {
 		SubtitlesCacheDir:    getEnv("VORN_SUBTITLES_CACHE_DIR", "./data/subtitles-cache"),
 		ArtworkCacheDir:      getEnv("VORN_ARTWORK_CACHE_DIR", "./data/artwork-cache"),
 		BackupDir:            getEnv("VORN_BACKUP_DIR", "./data/backups"),
-		GitHubRepo:           getEnv("VORN_GITHUB_REPO", "eoghan2t9/Vorn-Media-Server"),
-		FanartAPIKey:         getEnv("VORN_FANART_API_KEY", ""),
+		GitHubRepo:             getEnv("VORN_GITHUB_REPO", "eoghan2t9/Vorn-Media-Server"),
+		NZBSyncIntervalSeconds: getIntEnv("VORN_NZB_SYNC_INTERVAL", 30),
+		FanartAPIKey:           getEnv("VORN_FANART_API_KEY", ""),
 		OMDbAPIKey:           getEnv("VORN_OMDB_API_KEY", ""),
 		TVDbAPIKey:           getEnv("VORN_TVDB_API_KEY", ""),
 		TVDbPin:              getEnv("VORN_TVDB_PIN", ""),

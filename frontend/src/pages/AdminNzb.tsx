@@ -91,6 +91,8 @@ export function AdminNzb() {
   const [searching, setSearching] = useState(false)
   const [downloadingResult, setDownloadingResult] = useState<string | null>(null)
 
+  const fallbackRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
   async function refreshDownloads() {
     setDownloads(await listNZBDownloads())
   }
@@ -102,10 +104,28 @@ export function AdminNzb() {
       listUsenetServers().then(setServers),
       listNZBIndexers().then(setIndexers),
     ]).catch((err) => setError(err instanceof ApiError ? err.message : String(err)))
-    const interval = setInterval(() => {
+    // Use Server-Sent Events instead of polling: the backend pushes an
+    // event whenever the background sync detects a completed download.
+    const es = new EventSource('/api/nzb/events')
+    es.onmessage = () => {
       refreshDownloads().catch(() => {})
-    }, 2000)
-    return () => clearInterval(interval)
+    }
+    es.onerror = () => {
+      // If the SSE connection drops, fall back to polling.
+      es.close()
+      if (fallbackRef.current == null) {
+        fallbackRef.current = setInterval(() => {
+          refreshDownloads().catch(() => {})
+        }, 5000)
+      }
+    }
+    return () => {
+      es.close()
+      if (fallbackRef.current != null) {
+        clearInterval(fallbackRef.current)
+        fallbackRef.current = null
+      }
+    }
   }, [])
 
   async function handleFileSelected(file: File) {

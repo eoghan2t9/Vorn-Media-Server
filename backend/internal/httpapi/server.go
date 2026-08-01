@@ -258,7 +258,7 @@ func (s *Server) reconfigure() error {
 		// ProviderUpdater: one periodic sweep of all TorBox usenet
 		// downloads catches every completion, orphan, and expiry
 		// without any per-download goroutine ever blocking.
-		ns.StartBackgroundSync()
+		ns.StartBackgroundSyncWithInterval(time.Duration(s.baseCfg.NZBSyncIntervalSeconds) * time.Second)
 		nzbChanged = true
 	} else if !nzbEnabled {
 		if old := s.nzbSvc.Swap(nil); old != nil {
@@ -454,6 +454,7 @@ func NewRouter(deps Deps) http.Handler {
 	mux.HandleFunc("GET /api/nzb", s.withAdmin(s.handleListNZBDownloads))
 	mux.HandleFunc("POST /api/nzb", s.withAdmin(s.handleAddNZB))
 	mux.HandleFunc("DELETE /api/nzb/{id}", s.withAdmin(s.handleRemoveNZB))
+	mux.HandleFunc("GET /api/nzb/events", s.withAdmin(s.handleNZBEvents))
 	mux.HandleFunc("GET /api/nzb/search", s.withAdmin(s.handleNZBSearch))
 	mux.HandleFunc("POST /api/nzb/from-url", s.withAdmin(s.handleAddNZBFromURL))
 	mux.HandleFunc("GET /api/nzb-indexers", s.withAdmin(s.handleListNZBIndexers))

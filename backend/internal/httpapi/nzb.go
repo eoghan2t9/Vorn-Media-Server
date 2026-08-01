@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -515,6 +516,45 @@ func (s *Server) handleUpdateNZBIndexer(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	writeJSON(w, http.StatusOK, toNZBIndexerResponse(idx))
+}
+
+// handleNZBEvents streams Server-Sent Events whenever a download completes
+// via the background sync. Clients (the Admin NZB page) use this instead
+// of polling the list endpoint every 2 seconds.
+func (s *Server) handleNZBEvents(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "streaming not supported")
+		return
+	}
+
+	ns := s.nzbSvc.Load()
+	if ns == nil {
+		writeError(w, http.StatusServiceUnavailable, nzbServiceUnavailable)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.WriteHeader(http.StatusOK)
+	flusher.Flush()
+
+	ch, unsub := ns.Subscribe()
+	defer unsub()
+
+	for {
+		select {
+		case _, ok := <-ch:
+			if !ok {
+				return
+			}
+			fmt.Fprintf(w, "data: update\n\n")
+			flusher.Flush()
+		case <-r.Context().Done():
+			return
+		}
+	}
 }
 
 func (s *Server) handleDeleteNZBIndexer(w http.ResponseWriter, r *http.Request) {

@@ -17,7 +17,13 @@ import (
 )
 
 const providerDeleteTimeout = 30 * time.Second
-const backgroundSyncInterval = 30 * time.Second
+const defaultBackgroundSyncInterval = 30 * time.Second
+
+// NZBDownloadEvent is published to SSE subscribers whenever a download
+// completes (via catchUpDownload or importOrphanedDownload). The event is
+// minimal — the client fetches full state via the list endpoint, same as
+// the polling interval it replaces.
+type NZBDownloadEvent struct{}
 
 // Service resolves NZB releases via a configured TorBox account: parsing
 // the index, handing it to TorBox for server-side caching/repair, then
@@ -48,6 +54,10 @@ type Service struct {
 	// previous sweep is still running when the ticker fires, the new tick
 	// is skipped.
 	syncRunning sync.Mutex
+	// subscribers is the SSE broadcast list: every channel receives a
+	// ping when a download completes. Guarded by subMu.
+	subscribers map[chan NZBDownloadEvent]struct{}
+	subMu       sync.Mutex
 }
 
 // NewService takes torboxLimiter (see debrid.Service.TorBoxLimiter) rather
@@ -55,7 +65,11 @@ type Service struct {
 // the exact same rate budget as debrid.Service's TorBox debrid-resolve
 // client and torrent.Service's TorBox indexer search.
 func NewService(st *store.Store, torboxLimiter *debrid.Limiter) *Service {
-	svc := &Service{store: st, torboxClient: debrid.NewTorBoxClient(torboxLimiter)}
+	svc := &Service{
+		store:        st,
+		torboxClient: debrid.NewTorBoxClient(torboxLimiter),
+		subscribers:  make(map[chan NZBDownloadEvent]struct{}),
+	}
 	svc.onComplete = func(n *store.NZBDownload) bool {
 		if n.MediaItemID == nil {
 			// Manual/admin-added download -- never auto-delete from TorBox
@@ -181,6 +195,15 @@ func (svc *Service) CheckCachedURLs(ctx context.Context, urls []string) (map[str
 // regardless of whether it was created by Vorn or externally (e.g., via the
 // TorBox dashboard), and no download is ever orphaned by a restart.
 func (svc *Service) StartBackgroundSync() {
+	svc.StartBackgroundSyncWithInterval(defaultBackgroundSyncInterval)
+}
+
+// StartBackgroundSyncWithInterval starts a continuous background goroutine
+// that periodically calls syncFromTorBox at the given interval.
+func (svc *Service) StartBackgroundSyncWithInterval(interval time.Duration) {
+	if interval <= 0 {
+		interval = defaultBackgroundSyncInterval
+	}
 	svc.syncMu.Lock()
 	defer svc.syncMu.Unlock()
 	if svc.syncCancel != nil {
@@ -189,7 +212,7 @@ func (svc *Service) StartBackgroundSync() {
 	ctx, cancel := context.WithCancel(context.Background())
 	svc.syncCancel = cancel
 	// Run an immediate sync on startup (the old one-shot ReconcileFromTorBox
-	// behavior), then every backgroundSyncInterval thereafter. The syncRunning
+	// behavior), then every interval thereafter. The syncRunning
 	// mutex prevents overlapping sweeps: if the previous sync is still
 	// running when the ticker fires, the tick is silently skipped.
 	go func() {
@@ -199,7 +222,7 @@ func (svc *Service) StartBackgroundSync() {
 			}
 		}()
 		svc.runSync(ctx)
-		ticker := time.NewTicker(backgroundSyncInterval)
+		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {
 			select {
@@ -217,6 +240,39 @@ func (svc *Service) StartBackgroundSync() {
 			}
 		}
 	}()
+}
+
+// Close stops the background sync goroutine. Safe to call multiple times;
+// after Close returns, the sync goroutine has stopped and no further sync
+// sweeps will run.
+// Subscribe returns a receive-only channel and an unsubscribe function.
+// The channel receives an event whenever a download completes via the
+// background sync. The caller must call the returned function when done
+// to avoid leaking the channel.
+func (svc *Service) Subscribe() (<-chan NZBDownloadEvent, func()) {
+	ch := make(chan NZBDownloadEvent, 1)
+	svc.subMu.Lock()
+	svc.subscribers[ch] = struct{}{}
+	svc.subMu.Unlock()
+	return ch, func() {
+		svc.subMu.Lock()
+		delete(svc.subscribers, ch)
+		svc.subMu.Unlock()
+		close(ch)
+	}
+}
+
+func (svc *Service) broadcast() {
+	svc.subMu.Lock()
+	defer svc.subMu.Unlock()
+	for ch := range svc.subscribers {
+		select {
+		case ch <- NZBDownloadEvent{}:
+		default:
+			// Channel buffer is full — subscriber isn't consuming fast
+			// enough; skip this event rather than blocking the sync.
+		}
+	}
 }
 
 // Close stops the background sync goroutine. Safe to call multiple times;
@@ -420,6 +476,7 @@ func (svc *Service) catchUpDownload(ctx context.Context, existing *store.NZBDown
 		if svc.onComplete != nil {
 			svc.onComplete(existing)
 		}
+		svc.broadcast()
 	}
 }
 
@@ -488,6 +545,7 @@ func (svc *Service) importOrphanedDownload(ctx context.Context, dl *debrid.TBUse
 			svc.deleteFromTorBox(rec.ID, rec.ProviderRef)
 		}
 	}
+	svc.broadcast()
 	log.Printf("nzb: sync: created record %s for orphaned torbox download %d (library=%v)", rec.ID, dl.ID, libraryID)
 }
 
