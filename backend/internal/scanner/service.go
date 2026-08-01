@@ -93,14 +93,28 @@ func (svc *Service) StartLibraryScan(library *store.Library) (*store.ScanJob, er
 		if nzbAPIKey != "" {
 			if nzbDirs, err := svc.store.ListNZBFileWebDAVDirs(library.ID); err == nil && len(nzbDirs) > 0 {
 				log.Printf("scanner: walking %d known NZB webdav subdirs for library %s", len(nzbDirs), library.ID)
+				// ListNZBFileWebDAVDirs returns either full URLs (from
+				// nzb_files.webdav_url) or bare hashes (from provider_ref).
+				// Bare hashes need the WebDAV folder URL prepended.
 				for _, dir := range nzbDirs {
-					wg.Add(1)
-					go func(dir string) {
-						defer wg.Done()
-						if err := walkWebDAVDir(ctx, svc.queue, job.ID, dir, nzbAPIKey, found); err != nil {
-							log.Printf("scanner: walking nzb webdav dir %s: %v", dir, err)
+					dirURL := dir
+					if !strings.HasPrefix(dir, "http") {
+						// Pick the first enabled folder's URL as the base —
+						// all folders in a library point to the same account.
+						for _, wf := range webdavFolders {
+							if wf.Enabled {
+								dirURL = wf.URL + "/" + dir + "/"
+								break
+							}
 						}
-					}(dir)
+					}
+					wg.Add(1)
+					go func(dirURL string) {
+						defer wg.Done()
+						if err := walkWebDAVDir(ctx, svc.queue, job.ID, dirURL, nzbAPIKey, found); err != nil {
+							log.Printf("scanner: walking nzb webdav dir %s: %v", dirURL, err)
+						}
+					}(dirURL)
 				}
 			}
 		}

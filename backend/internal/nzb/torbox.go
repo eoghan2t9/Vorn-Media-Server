@@ -6,6 +6,7 @@ import (
 	"log"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/scanner"
@@ -35,12 +36,16 @@ func (svc *Service) runTorBox(parentCtx context.Context, rec *store.NZBDownload,
 		log.Printf("nzb: setting status for %s: %v", rec.ID, err)
 	}
 
-	usenetID, err := client.CreateUsenetDownload(ctx, server.APIKey, data, rec.Name)
+	usenetID, webdavHash, err := client.CreateUsenetDownload(ctx, server.APIKey, data, rec.Name)
 	if err != nil {
 		svc.finish(rec, fmt.Errorf("torbox: %w", err))
 		return
 	}
-	if err := svc.store.SetNZBDownloadProviderRef(rec.ID, strconv.Itoa(usenetID)); err != nil {
+	// Store both the usenet ID (for delete/control operations) and the
+	// WebDAV hash (for walking the exact directory where cached files
+	// will appear) as provider_ref — the format "<usenetID>:<hash>"
+	// is parsed by matchWebDAVURLs and deleteFromTorBox.
+	if err := svc.store.SetNZBDownloadProviderRef(rec.ID, strconv.Itoa(usenetID)+":"+webdavHash); err != nil {
 		log.Printf("nzb: recording provider ref for %s: %v", rec.ID, err)
 	}
 
@@ -110,15 +115,23 @@ func (svc *Service) runTorBox(parentCtx context.Context, rec *store.NZBDownload,
 
 const matchWebDAVTimeout = 30 * time.Second
 
-// matchWebDAVURLs walks each WebDAV folder attached to rec's library and
-// matches nzb_files by size against discovered WebDAV files, storing the
-// stable WebDAV URL on each matched nzb_file. TorBox's WebDAV serves
-// NZB-cached files under random hash filenames, so the only shared key
-// between the API response (real name + size) and the WebDAV listing
-// (hash name + size) is the file size. Best-effort — any failure
-// (no WebDAV folder, network error, no match) is logged and ignored;
-// promotion falls back to the CDN stream URL when no WebDAV URL is stored.
+// matchWebDAVURLs walks the WebDAV directory for rec's cached files
+// (constructed from the hash returned by CreateUsenetDownload) and matches
+// nzb_files by size+extension against discovered WebDAV files, storing
+// the stable WebDAV URL on each matched nzb_file. Previously this walked
+// the root WebDAV URL and relied on the server listing every subdirectory,
+// but TorBox's root PROPFIND returns 404 — the hash from the creation
+// response gives us the exact directory to walk directly, which is both
+// faster and actually works. Best-effort: any failure is logged and
+// ignored; promotion falls back to the CDN stream URL.
 func (svc *Service) matchWebDAVURLs(ctx context.Context, rec *store.NZBDownload) {
+	// Extract the WebDAV hash from provider_ref, which now stores
+	// "<usenetID>:<hash>" (see runTorBox).
+	webdavHash := webdavHashFromProviderRef(rec.ProviderRef)
+	if webdavHash == "" {
+		return
+	}
+
 	if rec.LibraryID == nil {
 		return
 	}
@@ -132,11 +145,6 @@ func (svc *Service) matchWebDAVURLs(ctx context.Context, rec *store.NZBDownload)
 		return
 	}
 
-	// Build a composite (size, extension) → file map for matching.
-	// Size alone can collide between completely different files;
-	// adding the file extension (.mkv, .mp4, etc.) eliminates that class
-	// of false match while still being a key both the API response (nzb_file.
-	// Name) and the WebDAV listing (DiscoveredFile.Path) share.
 	type matchKey struct {
 		size int64
 		ext  string
@@ -151,33 +159,43 @@ func (svc *Service) matchWebDAVURLs(ctx context.Context, rec *store.NZBDownload)
 		return
 	}
 
+	// Walk the exact hash directory on the WebDAV server — no need to
+	// walk the root or enumerate subdirectories since we know the path.
 	for _, folder := range folders {
 		if !folder.Enabled {
 			continue
 		}
+		dirURL := folder.URL + "/" + webdavHash + "/"
 		matchCtx, cancel := context.WithTimeout(ctx, matchWebDAVTimeout)
-		// Refresh the WebDAV index first so newly cached NZB files appear
-		// without waiting for the server's own 15-minute refresh cycle —
-		// same pattern the scanner's WebDAV walker uses.
-		if err := webdav.Refresh(matchCtx, folder.URL, folder.APIKey); err != nil {
-			log.Printf("nzb: refreshing webdav index for %s: %v", folder.URL, err)
+		if err := webdav.Refresh(matchCtx, dirURL, folder.APIKey); err != nil {
+			log.Printf("nzb: refreshing webdav index for %s: %v", dirURL, err)
 		}
-		if err := webdav.Walk(matchCtx, folder.URL, folder.APIKey, func(f webdav.DiscoveredFile) {
+		if err := webdav.Walk(matchCtx, dirURL, folder.APIKey, func(f webdav.DiscoveredFile) {
 			key := matchKey{f.SizeBytes, filepath.Ext(f.Path)}
 			if nf, ok := byKey[key]; ok {
 				if err := svc.store.SetNZBFileWebDAVURL(nf.ID, f.Path); err != nil {
 					log.Printf("nzb: storing webdav url for %s: %v", nf.ID, err)
 					return
 				}
-				delete(byKey, key) // only match once
+				delete(byKey, key)
 			}
 		}); err != nil {
-			log.Printf("nzb: matching webdav urls for %s against %s: %v", rec.ID, folder.URL, err)
+			log.Printf("nzb: matching webdav urls for %s against %s: %v", rec.ID, dirURL, err)
 		}
 		cancel()
 
 		if len(byKey) == 0 {
-			break // all matched
+			break
 		}
 	}
+}
+
+// webdavHashFromProviderRef extracts the WebDAV hash from a provider_ref
+// that was stored in the format "<usenetID>:<hash>". For older records
+// that only have the usenet ID (no colon), returns "".
+func webdavHashFromProviderRef(ref string) string {
+	if idx := strings.LastIndex(ref, ":"); idx >= 0 && idx < len(ref)-1 {
+		return ref[idx+1:]
+	}
+	return ""
 }

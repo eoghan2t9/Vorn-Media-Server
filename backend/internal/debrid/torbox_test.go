@@ -104,7 +104,7 @@ func (f *torBoxFake) handler() http.HandlerFunc {
 			}
 			json.NewEncoder(w).Encode(tbEnvelope[tbCreateUsenetData]{
 				Success: true,
-				Data:    tbCreateUsenetData{UsenetDownloadID: 99},
+				Data:    tbCreateUsenetData{UsenetDownloadID: 99, Hash: "ABC123DEF456"},
 			})
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/usenet/mylist"):
 			f.usenetPolls++
@@ -259,12 +259,15 @@ func TestTorBoxClient_Usenet(t *testing.T) {
 	c.pollInterval = time.Millisecond
 
 	ctx := context.Background()
-	usenetID, err := c.CreateUsenetDownload(ctx, "test-key", []byte("<nzb/>"), "Show.S01E01")
+	usenetID, webdavHash, err := c.CreateUsenetDownload(ctx, "test-key", []byte("<nzb/>"), "Show.S01E01")
 	if err != nil {
 		t.Fatalf("CreateUsenetDownload: %v", err)
 	}
 	if usenetID != 99 {
 		t.Fatalf("expected usenet id 99, got %d", usenetID)
+	}
+	if webdavHash == "" {
+		t.Fatalf("expected non-empty webdav hash")
 	}
 
 	var lastProgress float64

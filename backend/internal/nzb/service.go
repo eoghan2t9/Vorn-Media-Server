@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/debrid"
@@ -185,12 +186,19 @@ func (svc *Service) ReconcileFromTorBox(ctx context.Context) {
 	log.Printf("nzb: reconciling %d usenet download(s) from torbox", len(remote))
 
 	// Build a provider_ref → nzb_download lookup from Vorn's own records.
+	// provider_ref is now stored as "usenetID:hash" — extract just the
+	// usenet ID for matching against TorBox's id field.
 	local, _ := svc.store.ListNZBDownloads()
 	byRef := make(map[string]*store.NZBDownload, len(local))
 	for _, d := range local {
-		if d.ProviderRef != "" {
-			byRef[d.ProviderRef] = d
+		if d.ProviderRef == "" {
+			continue
 		}
+		refID := d.ProviderRef
+		if idx := strings.Index(refID, ":"); idx >= 0 {
+			refID = refID[:idx]
+		}
+		byRef[refID] = d
 	}
 
 	for _, dl := range remote {
@@ -330,7 +338,14 @@ func (svc *Service) deleteFromTorBox(id, providerRef string) {
 	if providerRef == "" {
 		return
 	}
-	usenetID, cerr := strconv.Atoi(providerRef)
+	// provider_ref is stored as "<usenetID>:<webdavHash>" (see runTorBox).
+	// For backwards compatibility with older records that just have the ID,
+	// parse the usenet ID from before the first colon.
+	refPart := providerRef
+	if idx := strings.Index(providerRef, ":"); idx >= 0 {
+		refPart = providerRef[:idx]
+	}
+	usenetID, cerr := strconv.Atoi(refPart)
 	if cerr != nil {
 		log.Printf("nzb: parsing provider ref for %s: %v", id, cerr)
 		return

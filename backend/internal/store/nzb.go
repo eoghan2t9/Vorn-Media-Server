@@ -282,11 +282,15 @@ func (s *Store) FindNZBFileBySize(libraryID string, sizeBytes int64, extension s
 }
 
 // ListNZBFileWebDAVDirs returns the unique parent directories of all
-// nzb_files with a populated webdav_url for the given library — these
-// are the hash-named subdirectories TorBox creates for NZB-cached files
-// that won't appear in a root PROPFIND, so the scanner can walk them
-// directly.
+// nzb_files with a populated webdav_url, plus any WebDAV hash directories
+// derived from nzb_downloads.provider_ref (the "hash" part of
+// "usenetID:hash"), for the given library. These are the hash-named
+// subdirectories TorBox creates for NZB-cached files that won't appear in
+// a root PROPFIND, so the scanner can walk them directly.
 func (s *Store) ListNZBFileWebDAVDirs(libraryID string) ([]string, error) {
+	dirs := make(map[string]bool)
+
+	// From nzb_files.webdav_url (already matched files).
 	rows, err := s.db.Query(
 		`SELECT DISTINCT regexp_replace(nf.webdav_url, '/[^/]+$', '/')
 		 FROM nzb_files nf
@@ -297,17 +301,51 @@ func (s *Store) ListNZBFileWebDAVDirs(libraryID string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	var dirs []string
 	for rows.Next() {
 		var d string
 		if err := rows.Scan(&d); err != nil {
+			rows.Close()
 			return nil, err
 		}
-		dirs = append(dirs, d)
+		dirs[d] = true
 	}
-	return dirs, rows.Err()
+	rows.Close()
+
+	// From provider_ref hashes (for downloads whose files haven't been
+	// WebDAV-matched yet — runTorBox stores "usenetID:hash" at creation
+	// time, before matchWebDAVURLs runs). The scanner uses these to
+	// discover files even when the API's mylist endpoint is empty.
+	rows2, err := s.db.Query(
+		`SELECT DISTINCT provider_ref
+		 FROM nzb_downloads
+		 WHERE library_id = $1 AND provider_ref LIKE '%:%' AND status NOT IN ('error', 'removed')`,
+		libraryID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows2.Close()
+	for rows2.Next() {
+		var ref string
+		if err := rows2.Scan(&ref); err != nil {
+			return nil, err
+		}
+		if idx := strings.LastIndex(ref, ":"); idx >= 0 && idx < len(ref)-1 {
+			hash := ref[idx+1:]
+			// The scanner walks WebDAV folders attached to the library,
+			// so the hash alone is enough — walkWebDAVDir prepends the
+			// folder's URL.
+			// Store just the hash, since the scanner code constructs the
+			// full URL from the WebDAV folder's base URL.
+			dirs[hash] = true
+		}
+	}
+
+	out := make([]string, 0, len(dirs))
+	for d := range dirs {
+		out = append(out, d)
+	}
+	return out, nil
 }
 
 func (s *Store) ListNZBFiles(downloadID string) ([]*NZBFile, error) {

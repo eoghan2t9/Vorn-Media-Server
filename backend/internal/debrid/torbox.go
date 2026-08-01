@@ -326,32 +326,34 @@ type tbCreateUsenetData struct {
 
 // CreateUsenetDownload submits a raw .nzb file to TorBox's own Usenet
 // backend (POST /usenet/createusenetdownload): TorBox downloads, yEnc
-// decodes, and par2-repairs it server-side, entirely off-box.
-func (c *TorBoxClient) CreateUsenetDownload(ctx context.Context, apiKey string, nzbData []byte, name string) (int, error) {
+// decodes, and par2-repairs it server-side, entirely off-box. Returns the
+// usenet download ID AND the hash that identifies the WebDAV directory
+// where the cached files will appear.
+func (c *TorBoxClient) CreateUsenetDownload(ctx context.Context, apiKey string, nzbData []byte, name string) (usenetID int, webdavHash string, err error) {
 	var body bytes.Buffer
 	w := multipart.NewWriter(&body)
 	part, err := w.CreateFormFile("file", name+".nzb")
 	if err != nil {
-		return 0, err
+		return 0, "", err
 	}
 	if _, err := part.Write(nzbData); err != nil {
-		return 0, err
+		return 0, "", err
 	}
 	if err := w.WriteField("name", name); err != nil {
-		return 0, err
+		return 0, "", err
 	}
 	if err := w.Close(); err != nil {
-		return 0, err
+		return 0, "", err
 	}
 
 	var resp tbEnvelope[tbCreateUsenetData]
 	if err := c.do(ctx, http.MethodPost, "/usenet/createusenetdownload", apiKey, w.FormDataContentType(), &body, &resp); err != nil {
-		return 0, err
+		return 0, "", err
 	}
 	if !resp.Success {
-		return 0, fmt.Errorf("torbox: %s", resp.Detail)
+		return 0, "", fmt.Errorf("torbox: %s", resp.Detail)
 	}
-	return int(resp.Data.UsenetDownloadID), nil
+	return int(resp.Data.UsenetDownloadID), resp.Data.Hash, nil
 }
 
 type tbUsenetInfo struct {
