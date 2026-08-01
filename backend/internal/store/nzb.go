@@ -281,6 +281,35 @@ func (s *Store) FindNZBFileBySize(libraryID string, sizeBytes int64, extension s
 	return f, err
 }
 
+// ListNZBFileWebDAVDirs returns the unique parent directories of all
+// nzb_files with a populated webdav_url for the given library — these
+// are the hash-named subdirectories TorBox creates for NZB-cached files
+// that won't appear in a root PROPFIND, so the scanner can walk them
+// directly.
+func (s *Store) ListNZBFileWebDAVDirs(libraryID string) ([]string, error) {
+	rows, err := s.db.Query(
+		`SELECT DISTINCT regexp_replace(nf.webdav_url, '/[^/]+$', '/')
+		 FROM nzb_files nf
+		 JOIN nzb_downloads nd ON nd.id = nf.nzb_download_id
+		 WHERE nd.library_id = $1 AND nf.webdav_url != ''`,
+		libraryID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var dirs []string
+	for rows.Next() {
+		var d string
+		if err := rows.Scan(&d); err != nil {
+			return nil, err
+		}
+		dirs = append(dirs, d)
+	}
+	return dirs, rows.Err()
+}
+
 func (s *Store) ListNZBFiles(downloadID string) ([]*NZBFile, error) {
 	rows, err := s.db.Query(`SELECT id, nzb_download_id, name, size_bytes, stream_url, coalesce(webdav_url, '') FROM nzb_files WHERE nzb_download_id = $1`, downloadID)
 	if err != nil {

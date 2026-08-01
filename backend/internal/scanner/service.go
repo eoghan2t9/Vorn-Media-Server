@@ -74,6 +74,37 @@ func (svc *Service) StartLibraryScan(library *store.Library) (*store.ScanJob, er
 	go svc.run(job, library.Type, func(ctx context.Context, found *atomic.Int64) {
 		var wg sync.WaitGroup
 
+		// Walk known NZB-cached WebDAV subdirectories — TorBox WebDAV
+		// serves files under hash-named dirs that don't appear in a root
+		// PROPFIND, so a plain Walk from root returns nothing. But nzb_files
+		// rows with a populated webdav_url tell us exactly which dirs
+		// exist; walking them directly discovers those files.
+		//
+		// Pick up the API key from the first enabled webdav folder —
+		// all folders in a library point to the same TorBox account.
+		// Only proceed if we have both dirs to walk and a key to use.
+		var nzbAPIKey string
+		for _, wf := range webdavFolders {
+			if wf.Enabled && wf.APIKey != "" {
+				nzbAPIKey = wf.APIKey
+				break
+			}
+		}
+		if nzbAPIKey != "" {
+			if nzbDirs, err := svc.store.ListNZBFileWebDAVDirs(library.ID); err == nil && len(nzbDirs) > 0 {
+				log.Printf("scanner: walking %d known NZB webdav subdirs for library %s", len(nzbDirs), library.ID)
+				for _, dir := range nzbDirs {
+					wg.Add(1)
+					go func(dir string) {
+						defer wg.Done()
+						if err := walkWebDAVDir(ctx, svc.queue, job.ID, dir, nzbAPIKey, found); err != nil {
+							log.Printf("scanner: walking nzb webdav dir %s: %v", dir, err)
+						}
+					}(dir)
+				}
+			}
+		}
+
 		// Local filesystem walk in its own goroutine.
 		if len(library.Folders) > 0 {
 			wg.Add(1)
@@ -286,6 +317,18 @@ type nzbFileBySizeLookup interface {
 // random hash name (as TorBox serves NZB-downloaded files); if an nzb_file
 // with the same size exists in libraryID, its real Name is returned for
 // parsing instead of the hash. Otherwise path is returned unchanged.
+// walkWebDAVDir walks a single WebDAV directory URL and pushes discovered
+// files into the staging queue, used by StartLibraryScan to walk known
+// hash-named subdirs from nzb_files when the root PROPFIND is empty.
+func walkWebDAVDir(ctx context.Context, q *Queue, jobID, dirURL, apiKey string, found *atomic.Int64) error {
+	return webdav.Walk(ctx, dirURL, apiKey, func(f webdav.DiscoveredFile) {
+		found.Add(1)
+		if err := q.Push(ctx, jobID, QueuedFile{Path: f.Path, SizeBytes: f.SizeBytes, ModifiedAt: f.ModifiedAt}); err != nil {
+			log.Printf("scanner: pushing webdav file from %s: %v", dirURL, err)
+		}
+	})
+}
+
 func resolveWebDAVName(st nzbFileBySizeLookup, libraryID, path string, sizeBytes int64) string {
 	if !strings.HasPrefix(path, "http") {
 		return path

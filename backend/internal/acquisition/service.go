@@ -924,14 +924,31 @@ func (s *Service) raceNZBCandidates(item *store.MediaItem, ranked []ScoredNZBRel
 			return true
 		}
 		allDone := true
+		anyCompleted := false
+		allCompletedPromoted := true
 		for _, id := range launched {
 			r, err := s.store.GetNZBDownload(id)
 			if err != nil || (r.Status != "completed" && r.Status != "error") {
 				allDone = false
 				break
 			}
+			if r.Status == "completed" {
+				anyCompleted = true
+				if !r.Promoted {
+					allCompletedPromoted = false
+				}
+			}
 		}
-		if allDone || time.Now().After(deadline) {
+		// If all downloads finished and none completed successfully,
+		// give up immediately — there's nothing left to hope for.
+		// If at least one completed but all completed ones have
+		// already been promoted (yet the item still isn't "owned"),
+		// onComplete already ran and failed — waiting longer won't
+		// help.
+		if allDone && (!anyCompleted || allCompletedPromoted) {
+			return false
+		}
+		if time.Now().After(deadline) {
 			return false
 		}
 		time.Sleep(outcomePoll)
