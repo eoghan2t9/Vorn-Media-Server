@@ -269,6 +269,17 @@ export interface ServerStats {
   episodeCount: number
   activeUsers: number
 }
+export interface AcquisitionUpgrade {
+  id: number
+  itemId: string
+  title: string
+  oldRelease: string
+  newRelease: string
+  source: string
+  createdAt: string
+}
+export const listUpgrades = () => request<AcquisitionUpgrade[]>('/api/admin/upgrades')
+
 export const fetchServerStats = () => request<ServerStats>('/api/admin/stats')
 
 export interface SearchResult extends MediaItem {

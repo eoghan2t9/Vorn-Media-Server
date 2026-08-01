@@ -69,6 +69,7 @@ export function AdminCurrentlyWatching() {
                       {e.item.acquisitionStatus === 'owned' && (
                         <button
                           type="button"
+                          className="vorn-card-monitor-btn"
                           onClick={async () => {
                             try {
                               const updated = await setItemMonitored(e.item.id, !e.item.monitored)

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ApiError, fetchHealth, type HealthResponse } from '../api/client'
+import { ApiError, fetchHealth, listUpgrades, type AcquisitionUpgrade, type HealthResponse } from '../api/client'
 import './AdminUsers.css'
 import './AdminAbout.css'
 
@@ -102,11 +102,16 @@ function ProviderLogo({ domain, name }: { domain: string; name: string }) {
 export function AdminAbout() {
   const [health, setHealth] = useState<HealthResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [upgrades, setUpgrades] = useState<AcquisitionUpgrade[]>([])
+  const [upgradesErr, setUpgradesErr] = useState<string | null>(null)
 
   useEffect(() => {
     fetchHealth()
       .then(setHealth)
       .catch((err) => setError(err instanceof ApiError ? err.message : String(err)))
+    listUpgrades()
+      .then(setUpgrades)
+      .catch((err) => setUpgradesErr(err instanceof ApiError ? err.message : String(err)))
   }, [])
 
   return (
@@ -142,6 +147,41 @@ export function AdminAbout() {
         <p className="vorn-panel-subtitle" style={{ margin: '0.75rem 0 0' }}>
           To check for or apply an update, see <Link to="/admin/server-settings">Network</Link>.
         </p>
+      </div>
+
+      <div className="vorn-panel">
+        <div className="vorn-panel-header">
+          <h2>Quality Upgrades</h2>
+        </div>
+        {upgradesErr && <p className="vorn-form-error">{upgradesErr}</p>}
+        {upgrades.length === 0 ? (
+          <p className="vorn-empty">No quality upgrades recorded yet. When the monitor finds a better release for a monitored item, it'll show up here.</p>
+        ) : (
+          <div className="vorn-table-wrap">
+          <table className="vorn-table">
+            <thead>
+              <tr>
+                <th>Title</th>
+                <th>Old Release</th>
+                <th>New Release</th>
+                <th>Source</th>
+                <th>When</th>
+              </tr>
+            </thead>
+            <tbody>
+              {upgrades.map((u) => (
+                <tr key={u.id}>
+                  <td>{u.title}</td>
+                  <td className="vorn-muted">{u.oldRelease || '—'}</td>
+                  <td>{u.newRelease}</td>
+                  <td>{u.source}</td>
+                  <td className="vorn-muted">{new Date(u.createdAt).toLocaleString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          </div>
+        )}
       </div>
 
       {CREDIT_GROUPS.map((group) => (

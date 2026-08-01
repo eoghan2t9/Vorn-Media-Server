@@ -235,6 +235,7 @@ func (s *Service) checkUpgrade(ctx context.Context, item *store.MediaItem) error
 				}
 				if s.raceTorrentCandidates(item, account, []ScoredRelease{best}) {
 					s.notifySend("upgraded", map[string]any{"itemId": item.ID, "title": item.Title, "release": best.Title})
+					_ = s.store.RecordUpgrade(item.ID, item.Title, item.CurrentReleaseTitle, best.Title, "torrent")
 					return nil
 				}
 			}
@@ -254,6 +255,7 @@ func (s *Service) checkUpgrade(ctx context.Context, item *store.MediaItem) error
 			if newTier, known := resolutionTier(best.Resolution); known && newTier > currentTier {
 				if s.raceNZBCandidates(item, []ScoredNZBRelease{best}) {
 					s.notifySend("upgraded", map[string]any{"itemId": item.ID, "title": item.Title, "release": best.Title})
+					_ = s.store.RecordUpgrade(item.ID, item.Title, item.CurrentReleaseTitle, best.Title, "nzb")
 				}
 			}
 		}

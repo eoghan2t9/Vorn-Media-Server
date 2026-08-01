@@ -575,6 +575,8 @@ func NewRouter(deps Deps) http.Handler {
 	mux.HandleFunc("DELETE /api/admin/backups/{filename}", s.withAdmin(s.handleDeleteAutoBackup))
 	mux.HandleFunc("POST /api/admin/backups/{filename}/restore", s.withAdmin(s.handleRestoreAutoBackup))
 
+	mux.HandleFunc("GET /api/admin/upgrades", s.withAdmin(s.handleListUpgrades))
+
 	// Registered last, as a catch-all -- Go's ServeMux always prefers the
 	// most specific matching pattern regardless of registration order, so
 	// this only ever serves paths nothing above claimed (in practice: "/"
