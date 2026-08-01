@@ -1,12 +1,15 @@
 package transcode
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type MediaInfo struct {
@@ -84,15 +87,30 @@ type ffprobeOutput struct {
 // decision (direct play vs. transcode) and player need.
 func Probe(ctx context.Context, path string) (*MediaInfo, error) {
 	cmd := exec.CommandContext(ctx, "ffprobe",
-		"-v", "quiet",
+		// "-v error" (not the original "quiet") so a real failure's reason
+		// -- a genuinely dead/unreachable link vs. ffprobe timing out mid-
+		// analysis vs. a content-level parse error -- actually shows up in
+		// the wrapped error below instead of being silently discarded.
+		// Callers already only care about the media info on success, so
+		// this doesn't change behavior for anyone -- it's purely
+		// diagnostic, and was added after a proactive link-health check
+		// kept flagging a link as dead despite the same link, and a
+		// manual ffprobe against the same URL, both working fine seconds
+		// later -- with no error detail at all, that was unfalsifiable.
+		"-v", "error",
 		"-print_format", "json",
 		"-show_format",
 		"-show_streams",
 		"-show_chapters",
 		path,
 	)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
+		if stderr.Len() > 0 {
+			return nil, fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
+		}
 		return nil, err
 	}
 	info, err := parseFFprobeOutput(out)
@@ -101,6 +119,49 @@ func Probe(ctx context.Context, path string) (*MediaInfo, error) {
 	}
 	info.ContainerNative = isNativeContainer(path)
 	return info, nil
+}
+
+const (
+	probeAttemptTimeout = 8 * time.Second
+	probeRetryDelay     = 2 * time.Second
+)
+
+// ProbeWithRetry is Probe with one retry after a short delay if the first
+// attempt fails. A remote debrid/NZB CDN link occasionally blips (a slow
+// response, a transient connection reset) without actually being dead --
+// confirmed live: a link that failed this exact probe on three separate
+// 30-minute checks in a row (see acquisition.MonitorScheduler.
+// refreshDeadLinks) then succeeded immediately on a manual retest and on
+// the very next scheduled check, with nothing about the link itself
+// having changed. Treating a single failed attempt as "the link is dead"
+// was triggering a full re-acquisition (search->score->resolve) for
+// content that was actually fine and already cached -- wasted work at
+// best, and at worst indistinguishable from a real dead link if indexers
+// happen to be having a bad day too. Only reports failure if both
+// attempts fail.
+//
+// Each attempt gets its own bounded sub-timeout rather than splitting the
+// caller's context deadline across both, so callers should give ctx
+// roughly 2*probeAttemptTimeout+probeRetryDelay of headroom to avoid the
+// second attempt getting cut short by their own deadline instead of ever
+// running.
+func ProbeWithRetry(ctx context.Context, path string) (*MediaInfo, error) {
+	attempt := func() (*MediaInfo, error) {
+		attemptCtx, cancel := context.WithTimeout(ctx, probeAttemptTimeout)
+		defer cancel()
+		return Probe(attemptCtx, path)
+	}
+
+	info, err := attempt()
+	if err == nil {
+		return info, nil
+	}
+	select {
+	case <-time.After(probeRetryDelay):
+	case <-ctx.Done():
+		return nil, err
+	}
+	return attempt()
 }
 
 // nativeContainerExts are the file extensions a browser <video>/<audio>

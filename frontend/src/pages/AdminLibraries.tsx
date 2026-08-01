@@ -2,21 +2,26 @@ import { Fragment, useEffect, useState, type FormEvent } from 'react'
 import {
   ApiError,
   createLibrary,
+  createWebDAVFolder,
   deleteLibrary,
+  deleteWebDAVFolder,
   getMetadataJob,
   getQualityProfile,
   getScanJob,
   listLibraries,
+  listWebDAVFolders,
   reorderLibraries,
   startLibraryScan,
   startMetadataSync,
   updateLibrary,
   updateQualityProfile,
+  updateWebDAVFolder,
   type Library,
   type LibraryType,
   type MetadataJob,
   type QualityProfile,
   type ScanJob,
+  type WebDAVFolder,
 } from '../api/client'
 import { DirectoryBrowser } from '../components/DirectoryBrowser'
 import { Select } from '../components/Select'
@@ -41,6 +46,13 @@ export function AdminLibraries() {
   const [qualityLoading, setQualityLoading] = useState(false)
   const [qualitySaving, setQualitySaving] = useState(false)
 
+  // WebDAV state
+  const [webdavFolders, setWebdavFolders] = useState<Record<string, WebDAVFolder[]>>({})
+  const [webdavOpenFor, setWebdavOpenFor] = useState<string | null>(null)
+  const [webdavUrl, setWebdavUrl] = useState('')
+  const [webdavApiKey, setWebdavApiKey] = useState('')
+  const [webdavSubmitting, setWebdavSubmitting] = useState(false)
+
   async function refresh() {
     setLibraries(await listLibraries())
   }
@@ -48,6 +60,15 @@ export function AdminLibraries() {
   useEffect(() => {
     refresh().catch((err) => setError(err instanceof ApiError ? err.message : String(err)))
   }, [])
+
+  async function loadWebdavFolders(libraryId: string) {
+    try {
+      const folders = await listWebDAVFolders(libraryId)
+      setWebdavFolders((prev) => ({ ...prev, [libraryId]: folders }))
+    } catch {
+      // silently ignore -- webdav folders are optional
+    }
+  }
 
   async function handleCreate(e: FormEvent) {
     e.preventDefault()
@@ -75,10 +96,6 @@ export function AdminLibraries() {
     }
   }
 
-  // Optimistic: swaps the two rows locally first so the reorder feels
-  // instant, then persists the full new order -- reverting to the
-  // pre-swap list on failure rather than leaving the UI out of sync with
-  // what the server actually saved.
   async function handleMove(index: number, direction: -1 | 1) {
     const target = index + direction
     if (target < 0 || target >= libraries.length) return
@@ -167,6 +184,55 @@ export function AdminLibraries() {
     }
   }
 
+  async function handleToggleWebdav(libraryId: string) {
+    if (webdavOpenFor === libraryId) {
+      setWebdavOpenFor(null)
+      return
+    }
+    setWebdavOpenFor(libraryId)
+    setWebdavUrl('')
+    setWebdavApiKey('')
+    await loadWebdavFolders(libraryId)
+  }
+
+  async function handleAddWebdav(e: FormEvent) {
+    e.preventDefault()
+    if (!webdavOpenFor) return
+    setWebdavSubmitting(true)
+    setError(null)
+    try {
+      await createWebDAVFolder(webdavOpenFor, {
+        url: webdavUrl || undefined,
+        apiKey: webdavApiKey,
+      })
+      setWebdavApiKey('')
+      await loadWebdavFolders(webdavOpenFor)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to add WebDAV folder')
+    } finally {
+      setWebdavSubmitting(false)
+    }
+  }
+
+  async function handleToggleWebdavEnabled(libraryId: string, wf: WebDAVFolder) {
+    try {
+      await updateWebDAVFolder(libraryId, wf.id, { enabled: !wf.enabled })
+      await loadWebdavFolders(libraryId)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to update WebDAV folder')
+    }
+  }
+
+  async function handleDeleteWebdav(libraryId: string, wf: WebDAVFolder) {
+    if (!confirm(`Remove WebDAV folder ${wf.url}? Files already scanned from it will stay in the library.`)) return
+    try {
+      await deleteWebDAVFolder(libraryId, wf.id)
+      await loadWebdavFolders(libraryId)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to delete WebDAV folder')
+    }
+  }
+
   return (
     <section className="vorn-admin-page">
       <div className="vorn-admin-page-header">
@@ -196,6 +262,7 @@ export function AdminLibraries() {
           {libraries.map((l, index) => {
             const scanJob = scanJobs[l.id]
             const metaJob = metadataJobs[l.id]
+            const wfs = webdavFolders[l.id] ?? []
             return (
               <Fragment key={l.id}>
                 <tr>
@@ -239,7 +306,19 @@ export function AdminLibraries() {
                     )}
                   </td>
                   <td>{l.type}</td>
-                  <td>{l.folders.join(', ')}</td>
+                  <td>
+                    {l.folders.join(', ')}
+                    {wfs.filter((wf) => wf.enabled).map((wf) => (
+                      <span
+                        key={wf.id}
+                        className="vorn-user-badge"
+                        style={{ marginLeft: '0.35rem' }}
+                        title={`WebDAV: ${wf.url}`}
+                      >
+                        WebDAV
+                      </span>
+                    ))}
+                  </td>
                   <td>
                     {scanJob ? `${scanJob.status} (${scanJob.filesSynced}/${scanJob.filesFound} files)` : '—'}
                   </td>
@@ -268,6 +347,11 @@ export function AdminLibraries() {
                         </button>
                       )}
                       {(l.type === 'movie' || l.type === 'series') && (
+                        <button type="button" onClick={() => handleToggleWebdav(l.id)}>
+                          {webdavOpenFor === l.id ? 'Hide WebDAV' : 'WebDAV'}
+                        </button>
+                      )}
+                      {(l.type === 'movie' || l.type === 'series') && (
                         <button
                           type="button"
                           onClick={() => handleToggleDefaultTarget(l)}
@@ -284,7 +368,7 @@ export function AdminLibraries() {
                 </tr>
                 {qualityOpenFor === l.id && (
                   <tr>
-                    <td colSpan={6}>
+                    <td colSpan={7}>
                       {qualityLoading || !qualityProfile ? (
                         <p className="vorn-panel-subtitle">Loading…</p>
                       ) : (
@@ -357,6 +441,76 @@ export function AdminLibraries() {
                     </td>
                   </tr>
                 )}
+                {webdavOpenFor === l.id && (
+                  <tr>
+                    <td colSpan={7}>
+                      <div style={{ padding: '0.75rem 0' }}>
+                        <p className="vorn-panel-subtitle" style={{ margin: '0 0 0.75rem' }}>
+                          WebDAV folders for this library — files discovered here are promoted alongside
+                          locally-scanned files. Uses your TorBox API key for Basic auth.
+                        </p>
+                        {wfs.length > 0 && (
+                          <div className="vorn-table-wrap" style={{ marginBottom: '1rem' }}>
+                            <table className="vorn-table">
+                              <thead>
+                                <tr>
+                                  <th>URL</th>
+                                  <th>API Key</th>
+                                  <th>Status</th>
+                                  <th></th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {wfs.map((wf) => (
+                                  <tr key={wf.id}>
+                                    <td>{wf.url}</td>
+                                    <td>{wf.apiKey}</td>
+                                    <td>{wf.enabled ? 'Enabled' : 'Disabled'}</td>
+                                    <td>
+                                      <div className="vorn-button-group">
+                                        <button
+                                          type="button"
+                                          onClick={() => handleToggleWebdavEnabled(l.id, wf)}
+                                        >
+                                          {wf.enabled ? 'Disable' : 'Enable'}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className="vorn-btn-danger"
+                                          onClick={() => handleDeleteWebdav(l.id, wf)}
+                                        >
+                                          Remove
+                                        </button>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                        <form className="vorn-inline-form" onSubmit={handleAddWebdav}>
+                          <input
+                            placeholder="WebDAV URL (default: https://webdav.torbox.app)"
+                            value={webdavUrl}
+                            onChange={(e) => setWebdavUrl(e.target.value)}
+                            style={{ minWidth: '22rem' }}
+                          />
+                          <input
+                            placeholder="TorBox API key"
+                            value={webdavApiKey}
+                            onChange={(e) => setWebdavApiKey(e.target.value)}
+                            required
+                            style={{ minWidth: '18rem' }}
+                          />
+                          <button type="submit" disabled={webdavSubmitting}>
+                            {webdavSubmitting ? 'Adding…' : 'Add WebDAV folder'}
+                          </button>
+                        </form>
+                      </div>
+                    </td>
+                  </tr>
+                )}
               </Fragment>
             )
           })}
@@ -419,7 +573,8 @@ export function AdminLibraries() {
           <p className="vorn-panel-subtitle" style={{ margin: '0.75rem 0 0' }}>
             No folder means nothing to scan from disk — fine for a library meant purely as a debrid acquisition
             target (e.g. one you'll set as the default target for content requests), since debrid-resolved items
-            stream directly from the provider and never touch a local folder.
+            stream directly from the provider and never touch a local folder. You can also add a WebDAV source
+            above to populate the library from a WebDAV server like TorBox.
           </p>
         )}
       </div>

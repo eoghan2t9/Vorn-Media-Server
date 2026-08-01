@@ -234,3 +234,120 @@ func (s *Server) handleReorderLibraries(w http.ResponseWriter, r *http.Request) 
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
+
+// -- WebDAV folder endpoints -------------------------------------------------
+
+type webdavFolderResponse struct {
+	ID        string `json:"id"`
+	LibraryID string `json:"libraryId"`
+	URL       string `json:"url"`
+	APIKey    string `json:"apiKey"`
+	Enabled   bool   `json:"enabled"`
+}
+
+func toWebDAVFolderResponse(f *store.WebDAVFolder) webdavFolderResponse {
+	return webdavFolderResponse{
+		ID: f.ID, LibraryID: f.LibraryID, URL: f.URL, APIKey: maskAPIKey(f.APIKey), Enabled: f.Enabled,
+	}
+}
+
+// maskAPIKey returns the last 4 characters of key with asterisks for the rest,
+// so the admin UI can show which key is in use without exposing the full secret.
+func maskAPIKey(key string) string {
+	if len(key) <= 4 {
+		return key
+	}
+	return "********" + key[len(key)-4:]
+}
+
+type createWebDAVFolderRequest struct {
+	URL    string `json:"url"`
+	APIKey string `json:"apiKey"`
+}
+
+func (s *Server) handleCreateWebDAVFolder(w http.ResponseWriter, r *http.Request) {
+	libraryID := r.PathValue("id")
+	var req createWebDAVFolderRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.APIKey == "" {
+		writeError(w, http.StatusBadRequest, "apiKey is required")
+		return
+	}
+	if req.URL == "" {
+		req.URL = "https://webdav.torbox.app"
+	}
+
+	// Quick validity check: try GET /user/me against TorBox's API using
+	// the same key (reuses the existing debrid TorBoxClient for the check).
+	if s.debridSvc != nil {
+		if _, err := s.debridSvc.TestAccount(r.Context(), "torbox", req.APIKey); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid API key: "+err.Error())
+			return
+		}
+	}
+
+	f, err := s.store.CreateWebDAVFolder(libraryID, req.URL, req.APIKey)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "creating webdav folder")
+		return
+	}
+	writeJSON(w, http.StatusCreated, toWebDAVFolderResponse(f))
+}
+
+func (s *Server) handleListWebDAVFolders(w http.ResponseWriter, r *http.Request) {
+	libraryID := r.PathValue("id")
+	folders, err := s.store.ListWebDAVFoldersByLibrary(libraryID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "listing webdav folders")
+		return
+	}
+	resp := make([]webdavFolderResponse, 0, len(folders))
+	for _, f := range folders {
+		resp = append(resp, toWebDAVFolderResponse(f))
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+type updateWebDAVFolderRequest struct {
+	URL     string `json:"url,omitempty"`
+	APIKey  string `json:"apiKey,omitempty"`
+	Enabled *bool  `json:"enabled,omitempty"`
+}
+
+func (s *Server) handleUpdateWebDAVFolder(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("webdavId")
+	var req updateWebDAVFolderRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	// If a new API key is provided, validate it first.
+	if req.APIKey != "" && s.debridSvc != nil {
+		if _, err := s.debridSvc.TestAccount(r.Context(), "torbox", req.APIKey); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid API key: "+err.Error())
+			return
+		}
+	}
+	if err := s.store.UpdateWebDAVFolder(id, req.URL, req.APIKey, req.Enabled); err != nil {
+		s.writeStoreErr(w, err, "updating webdav folder")
+		return
+	}
+	f, err := s.store.GetWebDAVFolder(id)
+	if err != nil {
+		s.writeStoreErr(w, err, "loading updated webdav folder")
+		return
+	}
+	writeJSON(w, http.StatusOK, toWebDAVFolderResponse(f))
+}
+
+func (s *Server) handleDeleteWebDAVFolder(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("webdavId")
+	if err := s.store.DeleteWebDAVFolder(id); err != nil {
+		s.writeStoreErr(w, err, "deleting webdav folder")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}

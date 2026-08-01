@@ -9,12 +9,15 @@ import (
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/transcode"
 )
 
-// linkProbeTimeout bounds a single liveness check in refreshDeadLinks --
-// short, since this runs against every owned remote item on every tick;
-// a provider that's slow to respond here shouldn't stall the whole sweep
-// waiting on one title (that title's link is just deemed dead this round,
-// same as any other timeout/error, and gets a fresh resolve attempted).
-const linkProbeTimeout = 10 * time.Second
+// linkProbeTimeout bounds a single liveness check (both attempts --
+// transcode.ProbeWithRetry's own two 8s sub-timeouts plus its 2s gap fit
+// comfortably inside 20s) in refreshDeadLinks. Still short relative to a
+// full sweep since this runs against every owned remote item on every
+// tick; a provider that's slow to respond on both attempts shouldn't
+// stall the whole sweep waiting on one title (that title's link is just
+// deemed dead this round, same as any other timeout/error, and gets a
+// fresh resolve attempted).
+const linkProbeTimeout = 20 * time.Second
 
 // monitorInterval mirrors backup.Scheduler's own reasoning for its
 // checkInterval: fine-grained enough that toggling monitoring on
@@ -172,13 +175,14 @@ func (m *MonitorScheduler) refreshDeadLinks(ctx context.Context) {
 		if item.Path == nil {
 			continue
 		}
+		probeStart := time.Now()
 		probeCtx, cancel := context.WithTimeout(ctx, linkProbeTimeout)
-		_, err := transcode.Probe(probeCtx, *item.Path)
+		_, err := transcode.ProbeWithRetry(probeCtx, *item.Path)
 		cancel()
 		if err == nil {
 			continue
 		}
-		log.Printf("acquisition: monitor: link dead for %s (%s), re-resolving", item.ID, item.Title)
+		log.Printf("acquisition: monitor: link dead for %s (%s) after %v: %v -- re-resolving", item.ID, item.Title, time.Since(probeStart), err)
 		if err := m.service.ReacquireSoftFail(ctx, item.ID); err != nil {
 			log.Printf("acquisition: monitor: refreshing dead link for %s: %v", item.ID, err)
 		}

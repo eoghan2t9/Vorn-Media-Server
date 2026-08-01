@@ -384,6 +384,10 @@ func NewRouter(deps Deps) http.Handler {
 	mux.HandleFunc("GET /api/admin/browse", s.withAdmin(s.handleBrowseFilesystem))
 
 	mux.HandleFunc("POST /api/libraries/{id}/scan", s.withAdmin(s.handleStartLibraryScan))
+	mux.HandleFunc("GET /api/libraries/{id}/webdav", s.withAdmin(s.handleListWebDAVFolders))
+	mux.HandleFunc("POST /api/libraries/{id}/webdav", s.withAdmin(s.handleCreateWebDAVFolder))
+	mux.HandleFunc("PATCH /api/libraries/{id}/webdav/{webdavId}", s.withAdmin(s.handleUpdateWebDAVFolder))
+	mux.HandleFunc("DELETE /api/libraries/{id}/webdav/{webdavId}", s.withAdmin(s.handleDeleteWebDAVFolder))
 	mux.HandleFunc("GET /api/scan-jobs", s.withAdmin(s.handleListScanJobs))
 	mux.HandleFunc("GET /api/scan-jobs/{id}", s.withAdmin(s.handleGetScanJob))
 	mux.HandleFunc("POST /api/dev/synthetic-scan", s.withAdmin(s.handleSyntheticScan))

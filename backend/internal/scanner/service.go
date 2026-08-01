@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/store"
+	"github.com/eoghan2t9/vorn-media-server/backend/internal/webdav"
 )
 
 const (
@@ -50,7 +51,9 @@ func (svc *Service) FlushStagingCache(ctx context.Context) (int64, error) {
 }
 
 // StartLibraryScan kicks off a real filesystem scan of a library's folders
-// in the background and returns immediately with the created job.
+// in the background and returns immediately with the created job. WebDAV
+// folders (if any) are listed alongside local filesystem folders in
+// parallel, feeding the same staging queue so promotion works identically.
 func (svc *Service) StartLibraryScan(library *store.Library) (*store.ScanJob, error) {
 	job, err := svc.store.CreateScanJob(library.ID, "real")
 	if err != nil {
@@ -60,7 +63,13 @@ func (svc *Service) StartLibraryScan(library *store.Library) (*store.ScanJob, er
 	if library.Type == "music" || library.Type == "audiobook" {
 		isMediaFile = IsAudioFile
 	}
+
+	// Load webdav folders once (before the background goroutine) so a
+	// concurrent admin save doesn't race the scan.
+	webdavFolders, _ := svc.store.ListWebDAVFoldersByLibrary(library.ID)
+
 	go svc.run(job, library.Type, func(ctx context.Context, found *atomic.Int64) {
+		// Local filesystem walk.
 		workers := runtime.NumCPU() * 4
 		WalkConcurrent(library.Folders, workers, isMediaFile, func(f DiscoveredFile) {
 			found.Add(1)
@@ -68,6 +77,27 @@ func (svc *Service) StartLibraryScan(library *store.Library) (*store.ScanJob, er
 				log.Printf("scanner: pushing discovered file: %v", err)
 			}
 		})
+
+		// WebDAV discovery, in parallel with local walk since both feed the
+		// same staging queue.
+		for _, wf := range webdavFolders {
+			if !wf.Enabled {
+				continue
+			}
+			// Refresh the WebDAV index first so newly added files appear
+			// without waiting for the server's own 15-minute refresh cycle.
+			if err := webdav.Refresh(ctx, wf.URL, wf.APIKey); err != nil {
+				log.Printf("scanner: refreshing webdav index for %s: %v", wf.URL, err)
+			}
+			if err := webdav.Walk(ctx, wf.URL, wf.APIKey, func(f webdav.DiscoveredFile) {
+				found.Add(1)
+				if err := svc.queue.Push(ctx, job.ID, QueuedFile{Path: f.Path, SizeBytes: f.SizeBytes, ModifiedAt: f.ModifiedAt}); err != nil {
+					log.Printf("scanner: pushing discovered webdav file: %v", err)
+				}
+			}); err != nil {
+				log.Printf("scanner: walking webdav %s: %v", wf.URL, err)
+			}
+		}
 	})
 	return job, nil
 }

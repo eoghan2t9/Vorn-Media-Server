@@ -176,10 +176,15 @@ func (s *Server) handlePlayItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	// 20s comfortably covers ProbeWithRetry's worst case (two 8s attempts
+	// plus a 2s gap between them) -- a single failed attempt here used to
+	// be treated as "the link is dead" and kick off a full re-acquisition,
+	// but a debrid/NZB CDN link occasionally just blips without actually
+	// being dead (see transcode.ProbeWithRetry's doc comment).
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
 
-	info, err := transcode.Probe(ctx, *item.Path)
+	info, err := transcode.ProbeWithRetry(ctx, *item.Path)
 	if err != nil {
 		// A debrid-backed item's path is a provider CDN URL, not a local
 		// file -- those commonly expire between viewing sessions, so a
@@ -319,17 +324,29 @@ func (s *Server) handleDirectStream(w http.ResponseWriter, r *http.Request) {
 	// Range/Accept-Ranges/Content-Range headers so the browser can
 	// seek freely. For local scanned files, serve from disk directly.
 	if isRemoteURL(*item.Path) {
-		proxyDebridStream(w, r, *item.Path)
+		// WebDAV-backed items need Basic auth on the upstream request --
+		// look up the API key from the webdav folder whose URL matches.
+		// GetWebDAVFolderByURL returns ErrNotFound when the path doesn't
+		// match any webdav folder (the common case: a debrid CDN URL),
+		// and the store short-circuits with a COUNT check so this is a
+		// cheap no-op when no webdav folders are configured at all.
+		var authFunc func(*http.Request)
+		if wf, err := s.store.GetWebDAVFolderByURL(*item.Path); err == nil {
+			authFunc = func(req *http.Request) {
+				req.SetBasicAuth("torbox", wf.APIKey)
+			}
+		}
+		proxyRemoteStream(w, r, *item.Path, authFunc)
 		return
 	}
 	http.ServeFile(w, r, *item.Path)
 }
 
-// proxyDebridStream proxies a GET request to the debrid provider's CDN
-// URL, forwarding Range headers so the browser can seek (scrub/timeline).
-// The entire response body is streamed through with no buffering, so memory
-// use stays flat regardless of file size.
-func proxyDebridStream(w http.ResponseWriter, r *http.Request, cdnURL string) {
+// proxyRemoteStream proxies a GET request to a remote CDN/debrid/WebDAV URL,
+// forwarding Range headers so the browser can seek. If authFunc is non-nil,
+// it's called on the outgoing request before dispatch (e.g. for WebDAV Basic
+// auth). The entire response body is streamed through with no buffering.
+func proxyRemoteStream(w http.ResponseWriter, r *http.Request, cdnURL string, authFunc func(*http.Request)) {
 	ctx := r.Context()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, cdnURL, nil)
@@ -338,14 +355,14 @@ func proxyDebridStream(w http.ResponseWriter, r *http.Request, cdnURL string) {
 		return
 	}
 
-	// Forward the Range header if the browser sent one (e.g. when seeking).
 	if rangeHeader := r.Header.Get("Range"); rangeHeader != "" {
 		req.Header.Set("Range", rangeHeader)
 	}
+	if authFunc != nil {
+		authFunc(req)
+	}
 
-	// Use a shared transport so connections are pooled/reused
-	// (keep-alive to the debrid CDN).
-	client := &http.Client{Timeout: 0} // no timeout -- stream can be hours long
+	client := &http.Client{Timeout: 0}
 	resp, err := client.Do(req)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, "fetching stream from provider")
@@ -353,31 +370,23 @@ func proxyDebridStream(w http.ResponseWriter, r *http.Request, cdnURL string) {
 	}
 	defer resp.Body.Close()
 
-	// Always announce byte-range support — our proxy inherently supports
-	// seeking by making new Range requests to the CDN, regardless of whether
-	// the CDN itself announces Accept-Ranges. Without this the browser will
-	// never attempt to seek.
 	w.Header().Set("Accept-Ranges", "bytes")
-
-	// Content-Range: set from the CDN's 206 response if the browser sent a
-	// Range header; otherwise absent on the initial full-file request.
 	if v := resp.Header.Get("Content-Range"); v != "" {
 		w.Header().Set("Content-Range", v)
 	}
-	// Content-Type and Content-Length forwarded from the CDN so the browser
-	// knows the codec and total size for the seek bar.
 	for _, h := range []string{"Content-Type", "Content-Length"} {
 		if v := resp.Header.Get(h); v != "" {
 			w.Header().Set(h, v)
 		}
 	}
-
-	// Cache-Control: no-store prevents the browser from caching the stream
-	// response locally, which is important for debrid URLs that may expire.
 	w.Header().Set("Cache-Control", "no-store")
-
 	w.WriteHeader(resp.StatusCode)
 	io.Copy(w, resp.Body)
+}
+// proxyDebridStream delegates to proxyRemoteStream with no auth callback --
+// debrid CDN URLs already embed a signed token in their query string.
+func proxyDebridStream(w http.ResponseWriter, r *http.Request, cdnURL string) {
+	proxyRemoteStream(w, r, cdnURL, nil)
 }
 
 func isRemoteURL(path string) bool {

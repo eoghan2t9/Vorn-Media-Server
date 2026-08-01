@@ -783,6 +783,28 @@ func (s *Service) winningDebridItem(mediaItemID string) (*store.DebridItem, erro
 	return s.store.GetDebridItem(*mi.ActiveDebridItemID)
 }
 
+// dedupeNZBByURL drops repeat entries by DownloadURL, keeping the first
+// occurrence -- acquireViaNZB combines a plain-query search with a
+// separate IMDb/TVDB-id-based search against the same indexers, which
+// commonly return heavily overlapping (or identical) results for anything
+// with an id to search by. Left undeduped, a scored/ranked list with the
+// same release appearing 2-3x can end up racing that release against
+// itself (wasting one of only maxNZBCandidates race slots) and, more
+// severely, sends every duplicate to TorBox's cache-check endpoint in
+// prioritizeCachedNZB -- confirmed live to occasionally balloon to ~150
+// URLs in one request and time out entirely.
+func dedupeNZBByURL(candidates []nzb.SearchResult) []nzb.SearchResult {
+	out := make([]nzb.SearchResult, 0, len(candidates))
+	seen := make(map[string]bool, len(candidates))
+	for _, c := range candidates {
+		if !seen[c.DownloadURL] {
+			seen[c.DownloadURL] = true
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
 // acquireViaNZB is acquireViaTorrent's NZB counterpart, tried only after it
 // fails -- see runAcquire.
 func (s *Service) acquireViaNZB(item *store.MediaItem, query string, profile store.QualityProfile) error {
@@ -806,6 +828,7 @@ func (s *Service) acquireViaNZB(item *store.MediaItem, query string, profile sto
 	if len(candidates) == 0 {
 		return ErrNoNZBSearchResults
 	}
+	candidates = dedupeNZBByURL(candidates)
 
 	ranked := ScoreAndRankNZB(candidates, profile)
 	if len(ranked) == 0 {
@@ -889,9 +912,23 @@ func (s *Service) raceNZBCandidates(item *store.MediaItem, ranked []ScoredNZBRel
 // itself), so there's no per-candidate skip the way a .torrent-file-URL
 // candidate has no extractable info-hash on the debrid side.
 func (s *Service) prioritizeCachedNZB(ctx context.Context, ranked []ScoredNZBRelease) []ScoredNZBRelease {
-	urls := make([]string, len(ranked))
-	for i, c := range ranked {
-		urls[i] = c.DownloadURL
+	// Deduplicated, unlike a naive one-URL-per-candidate list -- ranked
+	// commonly has the same release twice (acquireViaNZB appends a plain
+	// query search and an ID-based search, which overlap heavily for
+	// anything with an IMDb/TVDB id), and prioritizeCached's own dedup
+	// (via its "seen" map, above) was never mirrored here. Live evidence
+	// of the gap: a real search sent ~150 URLs, many repeated 2-3x, to
+	// TorBox's cache-check endpoint in one request, which then timed out
+	// ("context deadline exceeded") -- failing the cache check entirely
+	// and falling through to a blind (non-cache-prioritized) resolve for
+	// every candidate.
+	urls := make([]string, 0, len(ranked))
+	seen := make(map[string]bool, len(ranked))
+	for _, c := range ranked {
+		if !seen[c.DownloadURL] {
+			seen[c.DownloadURL] = true
+			urls = append(urls, c.DownloadURL)
+		}
 	}
 
 	checkCtx, cancel := context.WithTimeout(ctx, cacheCheckTimeout)

@@ -26,6 +26,36 @@ export interface Library {
   folders: string[]
 }
 
+export interface WebDAVFolder {
+  id: string
+  libraryId: string
+  url: string
+  apiKey: string
+  enabled: boolean
+}
+
+export const listWebDAVFolders = (libraryId: string) =>
+  request<WebDAVFolder[]>(`/api/libraries/${libraryId}/webdav`)
+
+export const createWebDAVFolder = (libraryId: string, input: { url?: string; apiKey: string }) =>
+  request<WebDAVFolder>(`/api/libraries/${libraryId}/webdav`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+
+export const updateWebDAVFolder = (
+  libraryId: string,
+  webdavId: string,
+  input: { url?: string; apiKey?: string; enabled?: boolean },
+) =>
+  request<WebDAVFolder>(`/api/libraries/${libraryId}/webdav/${webdavId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  })
+
+export const deleteWebDAVFolder = (libraryId: string, webdavId: string) =>
+  request<void>(`/api/libraries/${libraryId}/webdav/${webdavId}`, { method: 'DELETE' })
+
 export class ApiError extends Error {
   status: number
 
