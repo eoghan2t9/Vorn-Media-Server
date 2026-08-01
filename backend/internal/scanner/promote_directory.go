@@ -1,12 +1,14 @@
 package scanner
 
 import (
+	"context"
 	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
 
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/store"
+	"github.com/eoghan2t9/vorn-media-server/backend/internal/transcode"
 )
 
 // PromoteDirectory walks root (a single file or a directory) and promotes
@@ -22,6 +24,17 @@ func PromoteDirectory(st *store.Store, libraryID, root string) error {
 
 	for _, path := range files {
 		parsed := ParseFilename(path)
+		// Probe duration before promoting — same minimum-floor check
+		// the scanner and NZB paths use, catching obviously wrong content.
+		if parsed.Kind == "movie" || parsed.Kind == "episode" {
+			ctx, cancel := context.WithTimeout(context.Background(), scanFileProbeTimeout)
+			if err := transcode.VerifyContentDuration(ctx, path, parsed.Kind); err != nil {
+				cancel()
+				log.Printf("scanner: rejecting %s: %v", path, err)
+				continue
+			}
+			cancel()
+		}
 		var promoteErr error
 		switch parsed.Kind {
 		case "movie":

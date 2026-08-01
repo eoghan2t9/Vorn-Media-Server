@@ -1,10 +1,13 @@
 package scanner
 
 import (
+	"context"
 	"log"
 	"sort"
+	"time"
 
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/store"
+	"github.com/eoghan2t9/vorn-media-server/backend/internal/transcode"
 )
 
 // promoteScanFiles turns not-yet-matched scan_files rows into browsable
@@ -32,14 +35,24 @@ func (svc *Service) promoteScanFiles(libraryID string) error {
 		if f.GuessedKind == "chapter" {
 			chapterFiles = append(chapterFiles, f)
 			continue
-		}		// Belt-and-suspenders: even if flushBatch should have
-			// already filtered hash-named files, refuse to promote
-			// any scan file whose guessed title still looks like a
-			// TorBox hash. Don't call MarkScanFilePromoted with an
-			// empty media_item_id (FK constraint would reject it);
-			// the file stays unmatched and will be skipped again on
-			// the next scan, which is harmless.
+		}
+		// Belt-and-suspenders: even if flushBatch should have
+		// already filtered hash-named files, refuse to promote
+		// any scan file whose guessed title still looks like a
+		// TorBox hash. Don't call MarkScanFilePromoted with an
+		// empty media_item_id (FK constraint would reject it);
+		// the file stays unmatched and will be skipped again on
+		// the next scan, which is harmless.
 		if IsProbableHash(f.GuessedTitle) {
+			continue
+		}
+
+		// Probe duration before promoting — the scanner has no
+		// TMDb data to compare against, but a minimum-duration
+		// check catches obviously wrong content that slipped
+		// through the hash filter.
+		if err := svc.verifyScanFileDuration(f.GuessedKind, f.Path); err != nil {
+			log.Printf("scanner: rejecting %s (%s): %v", f.ID, f.Path, err)
 			continue
 		}
 
@@ -187,4 +200,16 @@ func derefOrZero(n *int) int {
 		return 0
 	}
 	return *n
+}
+
+const scanFileProbeTimeout = 25 * time.Second
+
+// verifyScanFileDuration probes a scan file before promotion and rejects
+// it if the actual duration is below the minimum for its kind. The scanner
+// has no TMDb data at promotion time, so only the minimum floor check
+// applies — but that's enough to catch obviously wrong content.
+func (svc *Service) verifyScanFileDuration(kind, path string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), scanFileProbeTimeout)
+	defer cancel()
+	return transcode.VerifyContentDuration(ctx, path, kind)
 }

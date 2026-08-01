@@ -20,17 +20,25 @@ const verifyProbeTimeout = 25 * time.Second
 // verifyRuntime is a small wrapper so both PromoteToExistingItem and
 // PromoteSeasonPackToExistingItems can check a resolved stream URL against a
 // media_item's expected TMDb runtime with one line, logging and returning
-// false on any failure -- a nil expectedMinutes means "unknown, don't
-// verify."
-func verifyRuntime(logPrefix, path string, expectedMinutes *int) bool {
-	if expectedMinutes == nil {
-		return true
-	}
+// false on any failure. Always probes the file — even when TMDb data isn't
+// available yet, the minimum-duration floor (10 min movies, 2 min episodes)
+// catches obviously wrong content.
+func verifyRuntime(logPrefix, path string, item *store.MediaItem) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), verifyProbeTimeout)
 	defer cancel()
-	if err := transcode.VerifyRuntime(ctx, path, *expectedMinutes); err != nil {
+
+	// Always check minimum duration — catches obviously wrong content
+	// even when TMDb data hasn't been backfilled yet.
+	if err := transcode.VerifyContentDuration(ctx, path, item.Kind); err != nil {
 		log.Printf("nzb: content verification failed for %s: %v", logPrefix, err)
 		return false
+	}
+
+	if item.RuntimeMinutes != nil && *item.RuntimeMinutes > 0 {
+		if err := transcode.VerifyRuntime(ctx, path, *item.RuntimeMinutes); err != nil {
+			log.Printf("nzb: content verification failed for %s: %v", logPrefix, err)
+			return false
+		}
 	}
 	return true
 }
@@ -70,6 +78,17 @@ func promoteStreamFiles(st *store.Store, libraryID string, files []*store.NZBFil
 			continue
 		}
 		parsed := scanner.ParseFilename(f.Name)
+		path := bestPathForPromotion(f)
+
+		// Probe every file before promoting — library-level promotion
+		// has no TMDb data to compare against, but a minimum-duration
+		// check catches obviously wrong content (porno, samples, etc.)
+		// even when the filename looks legitimate.
+		if err := verifyContentDuration(path, parsed.Kind); err != nil {
+			log.Printf("nzb: rejecting %s: %v", f.Name, err)
+			continue
+		}
+
 		var promoteErr error
 		switch parsed.Kind {
 		case "movie":
@@ -77,7 +96,7 @@ func promoteStreamFiles(st *store.Store, libraryID string, files []*store.NZBFil
 				LibraryID: libraryID,
 				Title:     parsed.Title,
 				Year:      yearPtr(parsed.Year),
-				Path:      bestPathForPromotion(f),
+				Path:      path,
 			})
 		case "episode":
 			_, promoteErr = st.PromoteEpisode(store.PromoteEpisodeInput{
@@ -85,7 +104,7 @@ func promoteStreamFiles(st *store.Store, libraryID string, files []*store.NZBFil
 				SeriesTitle:   parsed.Title,
 				SeasonNumber:  parsed.SeasonNumber,
 				EpisodeNumber: parsed.EpisodeNumber,
-				Path:          bestPathForPromotion(f),
+				Path:          path,
 			})
 		default:
 			continue
@@ -94,6 +113,16 @@ func promoteStreamFiles(st *store.Store, libraryID string, files []*store.NZBFil
 			log.Printf("nzb: promoting %s: %v", f.Name, promoteErr)
 		}
 	}
+}
+
+// verifyContentDuration probes path and rejects it if the file is too
+// short for its parsed kind. Factored out of promoteStreamFiles so it can
+// be called from a single probe + reuse its result across both the minimum
+// check and the caller's own promotion logic without probing twice.
+func verifyContentDuration(path, kind string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), verifyProbeTimeout)
+	defer cancel()
+	return transcode.VerifyContentDuration(ctx, path, kind)
 }
 
 func yearPtr(y int) *int {
@@ -140,7 +169,7 @@ func PromoteToExistingItem(st *store.Store, mediaItem *store.MediaItem, rec *sto
 	// over the expiring CDN stream URL — for both content verification and
 	// the final media_item Path.
 	verifyPath := bestPathForPromotion(best)
-	if !verifyRuntime(mediaItem.ID, verifyPath, mediaItem.RuntimeMinutes) {
+	if !verifyRuntime(mediaItem.ID, verifyPath, mediaItem) {
 		return false
 	}
 	claimed, err := st.ClaimMediaItemForNZBDownload(mediaItem.ID, rec.ID)
@@ -232,7 +261,7 @@ func PromoteSeasonPackToExistingItems(st *store.Store, seasonItem *store.MediaIt
 		if !ok {
 			continue // pack contains an episode not in Vorn's synced tree (e.g. a special) -- ignore it
 		}
-		if !verifyRuntime(ep.ID, f.path, ep.RuntimeMinutes) {
+		if !verifyRuntime(ep.ID, f.path, ep) {
 			continue // treated like an unmatched file -- skip this episode, not the whole pack
 		}
 		claimed, err := st.ClaimMediaItemForNZBDownload(ep.ID, rec.ID)

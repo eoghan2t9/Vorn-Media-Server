@@ -49,3 +49,46 @@ func VerifyRuntime(ctx context.Context, path string, expectedMinutes int) error 
 	}
 	return nil
 }
+
+const (
+	// minMovieDurationSeconds is the shortest a promoted movie file must
+	// be, regardless of whether TMDb runtime data is available. Anything
+	// shorter than 10 minutes is almost certainly not a real feature film
+	// and catches the common "porno/sample labeled as movie" case.
+	minMovieDurationSeconds = 10 * 60
+	// minEpisodeDurationSeconds is the shortest a promoted episode file
+	// must be. Even the shortest legitimate TV episodes (adult swim
+	// shorts, etc.) are at least a couple of minutes.
+	minEpisodeDurationSeconds = 2 * 60
+)
+
+// VerifyContentDuration probes path and rejects it if the actual duration
+// is below the minimum for its kind (movie or episode). Unlike
+// VerifyRuntime, this check runs even when TMDb data is unavailable —
+// it catches obviously wrong content (a 20-minute adult video labeled
+// as a feature film, a 30-second sample labeled as an episode) on every
+// promotion path, not just the on-demand-acquisition path that has TMDb
+// metadata available.
+func VerifyContentDuration(ctx context.Context, path, kind string) error {
+	var minDuration float64
+	switch kind {
+	case "movie":
+		minDuration = minMovieDurationSeconds
+	case "episode":
+		minDuration = minEpisodeDurationSeconds
+	default:
+		return nil // music/audiobook — no minimum-duration check
+	}
+
+	info, err := Probe(ctx, path)
+	if err != nil {
+		return fmt.Errorf("probing %s: %w", kind, err)
+	}
+	if info.DurationSeconds <= 0 {
+		return fmt.Errorf("%s probe reported no usable duration", kind)
+	}
+	if info.DurationSeconds < minDuration {
+		return fmt.Errorf("%s duration %.0fs is below the minimum %s duration of %.0fs", kind, info.DurationSeconds, kind, minDuration)
+	}
+	return nil
+}
