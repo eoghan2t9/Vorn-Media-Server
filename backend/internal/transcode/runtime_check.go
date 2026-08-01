@@ -7,10 +7,10 @@ import (
 
 // runtimeToleranceFraction is how far a resolved release's actual duration
 // may differ from its expected (TMDb) runtime before VerifyRuntime rejects
-// it. Generous enough to tolerate extended cuts, TMDb data imprecision, and
-// re-encodes that trim/pad credits, while still catching wildly wrong
-// content -- the incident this guards against was off by roughly 3x.
-const runtimeToleranceFraction = 0.35
+// it. Set generously (1.0 = 100%) so it tolerates extended/director's cuts,
+// TMDb data imprecision, re-encodes, and mislabeled NZB releases, while
+// still catching wildly wrong content (anything more than 2x off).
+const runtimeToleranceFraction = 1.0
 
 // VerifyRuntime probes path (local file or remote provider URL -- Probe
 // already supports both) and compares its actual duration against

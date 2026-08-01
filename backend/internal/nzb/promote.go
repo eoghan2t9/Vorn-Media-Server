@@ -136,7 +136,11 @@ func PromoteToExistingItem(st *store.Store, mediaItem *store.MediaItem, rec *sto
 	if best == nil {
 		return false
 	}
-	if !verifyRuntime(mediaItem.ID, best.StreamURL, mediaItem.RuntimeMinutes) {
+	// Prefer the stable WebDAV URL (matched by size after TorBox caching)
+	// over the expiring CDN stream URL — for both content verification and
+	// the final media_item Path.
+	verifyPath := bestPathForPromotion(best)
+	if !verifyRuntime(mediaItem.ID, verifyPath, mediaItem.RuntimeMinutes) {
 		return false
 	}
 	claimed, err := st.ClaimMediaItemForNZBDownload(mediaItem.ID, rec.ID)
@@ -147,14 +151,7 @@ func PromoteToExistingItem(st *store.Store, mediaItem *store.MediaItem, rec *sto
 	if !claimed {
 		return false
 	}
-	// Prefer the stable WebDAV URL (matched by size after TorBox caching)
-	// over the expiring CDN stream URL. If no WebDAV URL was matched, fall
-	// back to the CDN link as before.
-	path := best.WebDAVURL
-	if path == "" {
-		path = best.StreamURL
-	}
-	if err := st.SetMediaItemPath(mediaItem.ID, path, rec.Name); err != nil {
+	if err := st.SetMediaItemPath(mediaItem.ID, verifyPath, rec.Name); err != nil {
 		log.Printf("nzb: setting path on %s: %v", mediaItem.ID, err)
 		return true // claimed and the stream is real -- don't delete it just because this write failed
 	}
