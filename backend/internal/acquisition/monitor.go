@@ -19,35 +19,39 @@ import (
 // fresh resolve attempted).
 const linkProbeTimeout = 20 * time.Second
 
-// monitorInterval mirrors backup.Scheduler's own reasoning for its
-// checkInterval: fine-grained enough that toggling monitoring on
-// something takes effect within the hour, not needing a restart, while not
-// so tight it hammers indexers/TMDb for items that rarely change.
-const monitorInterval = 30 * time.Minute
-
 // MonitorScheduler periodically re-checks every monitored movie/series:
 // grabbing newly-aired episodes or retrying a still-unavailable movie, and
 // re-searching already-owned monitored items for a better release than
 // what they currently have (auto-swapping in, per the same fenced
-// resolve-and-promote path Acquire itself uses). Mirrors backup.Scheduler's
-// shape exactly (a single boot-started ticker goroutine).
+// resolve-and-promote path Acquire itself uses).
 type MonitorScheduler struct {
-	store   *store.Store
-	service *Service
+	store    *store.Store
+	service  *Service
+	interval time.Duration
 }
 
 // NewMonitorScheduler is a method on Service (not a free function) so
 // callers already holding an acquisition.Service don't need to separately
 // thread its dependencies through again.
 func (s *Service) NewMonitorScheduler(st *store.Store) *MonitorScheduler {
-	return &MonitorScheduler{store: st, service: s}
+	return s.NewMonitorSchedulerWithInterval(st, 1800) // 30 min default
 }
 
-// Run blocks, ticking on startup and then every monitorInterval, until ctx
+// NewMonitorSchedulerWithInterval creates a MonitorScheduler with a
+// custom tick interval (in seconds). Values <= 0 fall back to the default.
+func (s *Service) NewMonitorSchedulerWithInterval(st *store.Store, intervalSecs int) *MonitorScheduler {
+	interval := 30 * time.Minute
+	if intervalSecs > 0 {
+		interval = time.Duration(intervalSecs) * time.Second
+	}
+	return &MonitorScheduler{store: st, service: s, interval: interval}
+}
+
+// Run blocks, ticking on startup and then every m.interval, until ctx
 // is cancelled. Meant to be started in its own goroutine.
 func (m *MonitorScheduler) Run(ctx context.Context) {
 	m.tick(ctx)
-	ticker := time.NewTicker(monitorInterval)
+	ticker := time.NewTicker(m.interval)
 	defer ticker.Stop()
 	for {
 		select {

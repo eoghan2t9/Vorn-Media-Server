@@ -289,7 +289,7 @@ func (s *Server) reconfigure() error {
 			s.acquisition.Store(acq)
 			ctx, cancel := context.WithCancel(context.Background())
 			s.monitorCancel = cancel
-			go acq.NewMonitorScheduler(s.store).Run(ctx)
+			go acq.NewMonitorSchedulerWithInterval(s.store, s.baseCfg.AcquisitionMonitorIntervalSeconds).Run(ctx)
 		} else {
 			s.acquisition.Store(nil)
 		}

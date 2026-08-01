@@ -28,8 +28,9 @@ type Config struct {
 	ArtworkCacheDir      string
 	BackupDir            string
 	GitHubRepo             string
-	NZBSyncIntervalSeconds int
-	FanartAPIKey           string
+	NZBSyncIntervalSeconds           int
+	AcquisitionMonitorIntervalSeconds int
+	FanartAPIKey                      string
 	OMDbAPIKey           string
 	TVDbAPIKey           string
 	TVDbPin              string
@@ -59,8 +60,9 @@ func Load() Config {
 		ArtworkCacheDir:      getEnv("VORN_ARTWORK_CACHE_DIR", "./data/artwork-cache"),
 		BackupDir:            getEnv("VORN_BACKUP_DIR", "./data/backups"),
 		GitHubRepo:             getEnv("VORN_GITHUB_REPO", "eoghan2t9/Vorn-Media-Server"),
-		NZBSyncIntervalSeconds: getIntEnv("VORN_NZB_SYNC_INTERVAL", 30),
-		FanartAPIKey:           getEnv("VORN_FANART_API_KEY", ""),
+		NZBSyncIntervalSeconds:           getIntEnv("VORN_NZB_SYNC_INTERVAL", 30),
+		AcquisitionMonitorIntervalSeconds: getIntEnv("VORN_ACQUISITION_MONITOR_INTERVAL", 1800),
+		FanartAPIKey:                      getEnv("VORN_FANART_API_KEY", ""),
 		OMDbAPIKey:           getEnv("VORN_OMDB_API_KEY", ""),
 		TVDbAPIKey:           getEnv("VORN_TVDB_API_KEY", ""),
 		TVDbPin:              getEnv("VORN_TVDB_PIN", ""),

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ApiError, getLibrary, listLibraryItems, type Library, type MediaItem } from '../api/client'
+import { ApiError, getLibrary, listLibraryItems, setItemMonitored, type Library, type MediaItem } from '../api/client'
 import { Pagination } from '../components/Pagination'
 import { Poster } from '../components/Poster'
 import { RatingBadge } from '../components/RatingBadge'
@@ -74,6 +74,22 @@ export function LibraryPage() {
               </Poster>
               <div className="vorn-card-title">{item.title}</div>
               {item.releaseDate && <div className="vorn-card-meta">{item.releaseDate.slice(0, 4)}</div>}
+              {item.acquisitionStatus === 'owned' && (item.kind === 'movie' || item.kind === 'series') && (
+                <span
+                  className="vorn-card-monitor-btn"
+                  onClick={async (e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    try {
+                      const updated = await setItemMonitored(item.id, !item.monitored)
+                      setItems((prev) => prev.map((i) => (i.id === updated.id ? updated : i)))
+                    } catch {}
+                  }}
+                  title={item.monitored ? 'Stop watching for upgrades and new episodes' : 'Watch for better releases and new episodes'}
+                >
+                  {item.monitored ? '★ Monitored' : '☆ Monitor'}
+                </span>
+              )}
             </Link>
           ))}
         </div>
