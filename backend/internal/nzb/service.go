@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/debrid"
+	"github.com/eoghan2t9/vorn-media-server/backend/internal/scanner"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/store"
 )
 
@@ -248,7 +249,10 @@ func (svc *Service) ReconcileFromTorBox(ctx context.Context) {
 				}
 			} else if existing == nil {
 				// TorBox has a completed download Vorn knows nothing about —
-				// create a record and promote it so the files aren't stranded.
+				// create a record with full CDN stream URLs, WebDAV
+				// matching, and library auto-assignment so the files
+				// become playable rather than just visible in the admin
+				// list.
 				name := dl.Files[0].Name
 				if name == "" && len(dl.Files) > 0 {
 					name = dl.Files[0].ShortName
@@ -256,8 +260,32 @@ func (svc *Service) ReconcileFromTorBox(ctx context.Context) {
 				if name == "" {
 					name = fmt.Sprintf("usenet-%d", dl.ID)
 				}
+
+				// Try to guess the best library: if the filename parses
+				// as a movie or episode, assign it to the first library
+				// of that kind (movies to a movie library, TV to a
+				// series library). Best-effort — the admin can always
+				// reassign from the NZB list.
+				var libraryID *string
+				if parsed := scanner.ParseFilename(name); parsed.Kind == "movie" || parsed.Kind == "episode" {
+					libs, _ := svc.store.ListLibraries()
+					for _, lib := range libs {
+						if parsed.Kind == "movie" && lib.Type == "movie" {
+							lid := lib.ID
+							libraryID = &lid
+							break
+						}
+						if parsed.Kind == "episode" && lib.Type == "series" {
+							lid := lib.ID
+							libraryID = &lid
+							break
+						}
+					}
+				}
+
 				rec, err := svc.store.CreateNZBDownload(store.CreateNZBDownloadInput{
-					Name: name,
+					Name:      name,
+					LibraryID: libraryID,
 				})
 				if err != nil {
 					log.Printf("nzb: reconciliation: creating record for %d: %v", dl.ID, err)
@@ -266,23 +294,33 @@ func (svc *Service) ReconcileFromTorBox(ctx context.Context) {
 				if err := svc.store.SetNZBDownloadProviderRef(rec.ID, ref); err != nil {
 					log.Printf("nzb: reconciliation: setting provider ref for %s: %v", rec.ID, err)
 				}
+
+				// Request CDN stream URLs and record files — same as the
+				// catch-up path for existing downloads.
 				for _, f := range dl.Files {
 					name := f.Name
 					if name == "" {
 						name = f.ShortName
 					}
-					if _, err := svc.store.AddNZBFile(rec.ID, name, f.Size, ""); err != nil {
+					link, err := svc.torboxClient.RequestUsenetDownloadLink(ctx, server.APIKey, dl.ID, f.ID)
+					if err != nil {
+						log.Printf("nzb: reconciliation: requesting download link for %s: %v", rec.ID, err)
+						link = ""
+					}
+					if _, err := svc.store.AddNZBFile(rec.ID, name, f.Size, link); err != nil {
 						log.Printf("nzb: reconciliation: recording file for %s: %v", rec.ID, err)
 					}
 				}
-				// These orphaned downloads have no library association —
-				// promoteStreamFiles needs one for PromoteCompleted, so this
-				// is best-effort: the files appear in the admin NZB list and
-				// the admin can assign them to a library or delete them.
-				// The stream URLs aren't fetched (no CDN links requested),
-				// but the file list is there and visible.
+
+				svc.matchWebDAVURLs(ctx, rec)
 				svc.finish(rec, nil)
-				log.Printf("nzb: reconciliation: created record %s for orphaned torbox download %d", rec.ID, dl.ID)
+
+				if libraryID != nil && svc.onComplete != nil {
+					if used := svc.onComplete(rec); !used {
+						svc.deleteFromTorBox(rec.ID, rec.ProviderRef)
+					}
+				}
+				log.Printf("nzb: reconciliation: created record %s for orphaned torbox download %d (library=%v)", rec.ID, dl.ID, libraryID)
 			}
 		case dl.Failed():
 			if existing != nil && existing.Status != "error" {
