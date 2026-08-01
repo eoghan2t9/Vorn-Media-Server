@@ -77,7 +77,7 @@ func promoteStreamFiles(st *store.Store, libraryID string, files []*store.NZBFil
 				LibraryID: libraryID,
 				Title:     parsed.Title,
 				Year:      yearPtr(parsed.Year),
-				Path:      f.StreamURL,
+				Path:      bestPathForPromotion(f),
 			})
 		case "episode":
 			_, promoteErr = st.PromoteEpisode(store.PromoteEpisodeInput{
@@ -85,7 +85,7 @@ func promoteStreamFiles(st *store.Store, libraryID string, files []*store.NZBFil
 				SeriesTitle:   parsed.Title,
 				SeasonNumber:  parsed.SeasonNumber,
 				EpisodeNumber: parsed.EpisodeNumber,
-				Path:          f.StreamURL,
+				Path:          bestPathForPromotion(f),
 			})
 		default:
 			continue
@@ -101,6 +101,16 @@ func yearPtr(y int) *int {
 		return nil
 	}
 	return &y
+}
+
+// bestPathForPromotion returns the stable WebDAV URL if one was matched
+// (by size at download time — see Service.matchWebDAVURLs), otherwise
+// falls back to the expiring CDN stream URL.
+func bestPathForPromotion(f *store.NZBFile) string {
+	if f.WebDAVURL != "" {
+		return f.WebDAVURL
+	}
+	return f.StreamURL
 }
 
 // PromoteToExistingItem fulfils a specific placeholder media_item from a
@@ -137,7 +147,14 @@ func PromoteToExistingItem(st *store.Store, mediaItem *store.MediaItem, rec *sto
 	if !claimed {
 		return false
 	}
-	if err := st.SetMediaItemPath(mediaItem.ID, best.StreamURL, rec.Name); err != nil {
+	// Prefer the stable WebDAV URL (matched by size after TorBox caching)
+	// over the expiring CDN stream URL. If no WebDAV URL was matched, fall
+	// back to the CDN link as before.
+	path := best.WebDAVURL
+	if path == "" {
+		path = best.StreamURL
+	}
+	if err := st.SetMediaItemPath(mediaItem.ID, path, rec.Name); err != nil {
 		log.Printf("nzb: setting path on %s: %v", mediaItem.ID, err)
 		return true // claimed and the stream is real -- don't delete it just because this write failed
 	}
@@ -204,7 +221,7 @@ func PromoteSeasonPackToExistingItems(st *store.Store, seasonItem *store.MediaIt
 			continue
 		}
 		if cur, ok := bestPerEpisode[parsed.EpisodeNumber]; !ok || f.SizeBytes > cur.size {
-			bestPerEpisode[parsed.EpisodeNumber] = sized{path: f.StreamURL, size: f.SizeBytes}
+			bestPerEpisode[parsed.EpisodeNumber] = sized{path: bestPathForPromotion(f), size: f.SizeBytes}
 		}
 	}
 

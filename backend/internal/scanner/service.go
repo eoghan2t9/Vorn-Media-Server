@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -215,8 +216,17 @@ func (svc *Service) flushBatch(ctx context.Context, job *store.ScanJob, libraryT
 
 	batch := make([]store.ScanFileInsert, 0, len(files))
 	for _, f := range files {
+		// For WebDAV files with hash names (TorBox serves NZB-downloaded
+		// files under random filenames like "6388E2V4...mkv" whose real
+		// name was recorded in nzb_files at download time), resolve the real
+		// name by matching file size before parsing — otherwise
+		// ParseFilename produces a garbage title from the hash. Scoped to
+		// this library so a same-size file from a different library's NZB
+		// download doesn't produce a false match.
+		parsePath := resolveWebDAVName(svc.store, job.LibraryID, f.Path, f.SizeBytes)
+
 		if isAudio {
-			parsed := ParseAudioFile(f.Path, libraryType)
+			parsed := ParseAudioFile(parsePath, libraryType)
 			insert := store.ScanFileInsert{
 				LibraryID:     job.LibraryID,
 				ScanJobID:     job.ID,
@@ -236,7 +246,7 @@ func (svc *Service) flushBatch(ctx context.Context, job *store.ScanJob, libraryT
 			continue
 		}
 
-		parsed := ParseFilename(f.Path)
+		parsed := ParseFilename(parsePath)
 		insert := store.ScanFileInsert{
 			LibraryID:    job.LibraryID,
 			ScanJobID:    job.ID,
@@ -262,4 +272,25 @@ func (svc *Service) flushBatch(ctx context.Context, job *store.ScanJob, libraryT
 		return 0, err
 	}
 	return len(files), nil
+}
+
+// resolveWebDAVName checks whether path is a WebDAV URL whose file has a
+// random hash name (as TorBox serves NZB-downloaded files); if an nzb_file
+// with the same size exists in libraryID, its real Name is returned for
+// parsing instead of the hash. Otherwise path is returned unchanged.
+func resolveWebDAVName(st *store.Store, libraryID, path string, sizeBytes int64) string {
+	if !strings.HasPrefix(path, "http") {
+		return path
+	}
+	nf, err := st.FindNZBFileBySize(libraryID, sizeBytes)
+	if err != nil {
+		return path
+	}
+	// Only substitute when the WebDAV filename differs from the real name
+	// — if they already match (a non-NZB WebDAV file with its real name),
+	// there's nothing to fix.
+	if nf.Name == "" {
+		return path
+	}
+	return nf.Name
 }

@@ -137,6 +137,35 @@ func (s *Store) FindWebDAVPathForItem(libraryID, kind, title string, seasonNumbe
 	return path, err
 }
 
+// FindWebDAVPathFromNZB returns the largest WebDAV URL from nzb_files linked
+// to a given media_item via its ActiveNZBDownloadID — the fallback path for
+// when a CDN link expires: the NZB download's nzb_files rows have stable
+// WebDAV URLs matched by size at download time (see nzb.Service.
+// matchWebDAVURLs). Returns ErrNotFound if the item has no active NZB
+// download or no matched WebDAV URL exists.
+func (s *Store) FindWebDAVPathFromNZB(mediaItemID string) (string, error) {
+	// Go through the media_item's active NZB download rather than
+	// re-matching by title — the NZB resolve already targeted this exact
+	// placeholder, so its nzb_files are the authoritative match.
+	var activeID string
+	if err := s.db.QueryRow(
+		`SELECT coalesce(active_nzb_download_id, '') FROM media_items WHERE id = $1`, mediaItemID,
+	).Scan(&activeID); err != nil || activeID == "" {
+		return "", ErrNotFound
+	}
+	var path string
+	err := s.db.QueryRow(
+		`SELECT nf.webdav_url FROM nzb_files nf
+		 WHERE nf.nzb_download_id = $1 AND nf.webdav_url != ''
+		 ORDER BY nf.size_bytes DESC LIMIT 1`,
+		activeID,
+	).Scan(&path)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	return path, err
+}
+
 // CreatePlaceholder inserts a media_item with no file/stream yet
 // (acquisition_status='placeholder', path left NULL).
 func (s *Store) CreatePlaceholder(in CreatePlaceholderInput) (*MediaItem, error) {

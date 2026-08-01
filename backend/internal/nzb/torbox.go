@@ -7,7 +7,9 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/eoghan2t9/vorn-media-server/backend/internal/scanner"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/store"
+	"github.com/eoghan2t9/vorn-media-server/backend/internal/webdav"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -82,6 +84,15 @@ func (svc *Service) runTorBox(parentCtx context.Context, rec *store.NZBDownload,
 		log.Printf("nzb: updating progress for %s: %v", rec.ID, err)
 	}
 
+	// After all CDN stream URLs are stored, match each file against the
+	// WebDAV server by size to find its stable (non-expiring) WebDAV URL.
+	// TorBox's WebDAV serves NZB-downloaded files under random hash
+	// filenames, so the only shared key between the API response and the
+	// WebDAV listing is the file size. Doing this before finish/onComplete
+	// means promotion sees the WebDAV URL and can use it as the primary
+	// media_item Path.
+	svc.matchWebDAVURLs(ctx, rec)
+
 	svc.finish(rec, nil)
 	if svc.onComplete == nil {
 		return
@@ -93,5 +104,71 @@ func (svc *Service) runTorBox(parentCtx context.Context, rec *store.NZBDownload,
 	}
 	if used := svc.onComplete(fresh); !used {
 		svc.deleteFromTorBox(fresh.ID, fresh.ProviderRef)
+	}
+}
+
+const matchWebDAVTimeout = 30 * time.Second
+
+// matchWebDAVURLs walks each WebDAV folder attached to rec's library and
+// matches nzb_files by size against discovered WebDAV files, storing the
+// stable WebDAV URL on each matched nzb_file. TorBox's WebDAV serves
+// NZB-cached files under random hash filenames, so the only shared key
+// between the API response (real name + size) and the WebDAV listing
+// (hash name + size) is the file size. Best-effort — any failure
+// (no WebDAV folder, network error, no match) is logged and ignored;
+// promotion falls back to the CDN stream URL when no WebDAV URL is stored.
+func (svc *Service) matchWebDAVURLs(ctx context.Context, rec *store.NZBDownload) {
+	if rec.LibraryID == nil {
+		return
+	}
+	folders, err := svc.store.ListWebDAVFoldersByLibrary(*rec.LibraryID)
+	if err != nil || len(folders) == 0 {
+		return
+	}
+
+	files, err := svc.store.ListNZBFiles(rec.ID)
+	if err != nil {
+		return
+	}
+
+	// Build a size→file map for matching — only video files are
+	// relevant (non-video files are skipped by promotion anyway).
+	bySize := make(map[int64]*store.NZBFile, len(files))
+	for _, f := range files {
+		if scanner.IsVideoFile(f.Name) && f.WebDAVURL == "" {
+			bySize[f.SizeBytes] = f
+		}
+	}
+	if len(bySize) == 0 {
+		return
+	}
+
+	for _, folder := range folders {
+		if !folder.Enabled {
+			continue
+		}
+		matchCtx, cancel := context.WithTimeout(ctx, matchWebDAVTimeout)
+		// Refresh the WebDAV index first so newly cached NZB files appear
+		// without waiting for the server's own 15-minute refresh cycle —
+		// same pattern the scanner's WebDAV walker uses.
+		if err := webdav.Refresh(matchCtx, folder.URL, folder.APIKey); err != nil {
+			log.Printf("nzb: refreshing webdav index for %s: %v", folder.URL, err)
+		}
+		if err := webdav.Walk(matchCtx, folder.URL, folder.APIKey, func(f webdav.DiscoveredFile) {
+			if nf, ok := bySize[f.SizeBytes]; ok {
+				if err := svc.store.SetNZBFileWebDAVURL(nf.ID, f.Path); err != nil {
+					log.Printf("nzb: storing webdav url for %s: %v", nf.ID, err)
+					return
+				}
+				delete(bySize, f.SizeBytes) // only match once
+			}
+		}); err != nil {
+			log.Printf("nzb: matching webdav urls for %s against %s: %v", rec.ID, folder.URL, err)
+		}
+		cancel()
+
+		if len(bySize) == 0 {
+			break // all matched
+		}
 	}
 }

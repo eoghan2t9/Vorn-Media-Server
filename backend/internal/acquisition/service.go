@@ -481,11 +481,10 @@ func (s *Service) startAcquire(itemID string, blockOwned bool, onFailureStatus s
 	}
 
 	// Before launching the full search→resolve pipeline, check whether a
-	// prior WebDAV scan has already found this content in the same library.
-	// A WebDAV URL is stable (no expiry like a debrid CDN link), so reusing
-	// one means skipping indexer search and provider resolve entirely.
-	// Matches on (library, kind, title, season, episode) -- the same
-	// identity key findOrCreateMediaItem and FindPlaceholderChild both use.
+	// prior WebDAV scan has already found this content in the same library
+	// (matched on library, kind, title, season, episode). A WebDAV URL is
+	// stable — no expiry like a debrid CDN link — so reusing one means
+	// skipping indexer search and provider resolve entirely.
 	if webdavPath, err := s.store.FindWebDAVPathForItem(item.LibraryID, item.Kind, item.Title, item.SeasonNumber, item.EpisodeNumber); err == nil {
 		setErr := s.store.SetMediaItemPath(item.ID, webdavPath, "webdav")
 		if setErr == nil {
@@ -493,6 +492,19 @@ func (s *Service) startAcquire(itemID string, blockOwned bool, onFailureStatus s
 			return nil
 		}
 		log.Printf("acquisition: setting webdav path on %s: %v", item.ID, setErr)
+	}
+
+	// Also check whether a prior NZB download (targeting this exact
+	// placeholder) already has a stable WebDAV URL matched by size at
+	// download time — the same CDN-link-expiry scenario, but from the NZB
+	// path rather than a WebDAV scan.
+	if webdavPath, err := s.store.FindWebDAVPathFromNZB(item.ID); err == nil {
+		setErr := s.store.SetMediaItemPath(item.ID, webdavPath, "webdav")
+		if setErr == nil {
+			log.Printf("acquisition: %s found NZB-matched WebDAV path, skipping search", item.ID)
+			return nil
+		}
+		log.Printf("acquisition: setting NZB webdav path on %s: %v", item.ID, setErr)
 	}
 
 	go s.runAcquire(item, onFailureStatus)

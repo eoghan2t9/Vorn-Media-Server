@@ -207,6 +207,13 @@ type NZBFile struct {
 	Name          string
 	SizeBytes     int64
 	StreamURL     string
+	// WebDAVURL is the stable WebDAV URL for this file, matched by size
+	// after TorBox finishes caching (TorBox WebDAV uses random hash
+	// filenames, so the only shared key between the API response and the
+	// WebDAV listing is the file size). Empty if unmatched or not yet
+	// resolved. Preferred over StreamURL (which expires) as the media_item
+	// Path wherever possible.
+	WebDAVURL string
 }
 
 func (s *Store) AddNZBFile(downloadID, name string, sizeBytes int64, streamURL string) (*NZBFile, error) {
@@ -218,8 +225,47 @@ func (s *Store) AddNZBFile(downloadID, name string, sizeBytes int64, streamURL s
 	return f, err
 }
 
+// SetNZBFileWebDAVURL records the stable WebDAV URL for an NZB file, found
+// by matching the file size against WebDAV PROPFIND results after TorBox
+// finishes caching (see nzb.Service.matchWebDAVURLs).
+func (s *Store) SetNZBFileWebDAVURL(fileID, webdavURL string) error {
+	_, err := s.db.Exec(`UPDATE nzb_files SET webdav_url = $1 WHERE id = $2`, webdavURL, fileID)
+	return err
+}
+
+// FindNZBFileBySize returns the NZB file with the given size (most recent
+// first) -- optionally scoped to libraryID, which prevents a WebDAV file in
+// one library from being matched against an NZB download for a completely
+// different library whose file happens to have the same byte size. When
+// libraryID is empty, the query matches across all libraries (used when
+// caller doesn't have library context). Returns ErrNotFound if no match
+// exists.
+func (s *Store) FindNZBFileBySize(libraryID string, sizeBytes int64) (*NZBFile, error) {
+	f := &NZBFile{}
+	var err error
+	if libraryID != "" {
+		err = s.db.QueryRow(
+			`SELECT nf.id, nf.nzb_download_id, nf.name, nf.size_bytes, nf.stream_url, coalesce(nf.webdav_url, '')
+			 FROM nzb_files nf
+			 JOIN nzb_downloads nd ON nd.id = nf.nzb_download_id
+			 WHERE nf.size_bytes = $1 AND nd.library_id = $2
+			 ORDER BY nf.id DESC LIMIT 1`,
+			sizeBytes, libraryID,
+		).Scan(&f.ID, &f.NZBDownloadID, &f.Name, &f.SizeBytes, &f.StreamURL, &f.WebDAVURL)
+	} else {
+		err = s.db.QueryRow(
+			`SELECT id, nzb_download_id, name, size_bytes, stream_url, coalesce(webdav_url, '') FROM nzb_files WHERE size_bytes = $1 ORDER BY id DESC LIMIT 1`,
+			sizeBytes,
+		).Scan(&f.ID, &f.NZBDownloadID, &f.Name, &f.SizeBytes, &f.StreamURL, &f.WebDAVURL)
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return f, err
+}
+
 func (s *Store) ListNZBFiles(downloadID string) ([]*NZBFile, error) {
-	rows, err := s.db.Query(`SELECT id, nzb_download_id, name, size_bytes, stream_url FROM nzb_files WHERE nzb_download_id = $1`, downloadID)
+	rows, err := s.db.Query(`SELECT id, nzb_download_id, name, size_bytes, stream_url, coalesce(webdav_url, '') FROM nzb_files WHERE nzb_download_id = $1`, downloadID)
 	if err != nil {
 		return nil, err
 	}
@@ -228,7 +274,7 @@ func (s *Store) ListNZBFiles(downloadID string) ([]*NZBFile, error) {
 	var out []*NZBFile
 	for rows.Next() {
 		f := &NZBFile{}
-		if err := rows.Scan(&f.ID, &f.NZBDownloadID, &f.Name, &f.SizeBytes, &f.StreamURL); err != nil {
+		if err := rows.Scan(&f.ID, &f.NZBDownloadID, &f.Name, &f.SizeBytes, &f.StreamURL, &f.WebDAVURL); err != nil {
 			return nil, err
 		}
 		out = append(out, f)

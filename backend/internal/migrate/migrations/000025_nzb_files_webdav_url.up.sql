@@ -1,0 +1,1 @@
+ALTER TABLE nzb_files ADD COLUMN webdav_url TEXT NOT NULL DEFAULT '';
