@@ -111,6 +111,32 @@ type CreatePlaceholderInput struct {
 	Monitored bool
 }
 
+// FindWebDAVPathForItem returns the Path of an existing owned media_item in
+// the same library with the same kind/title/season/episode whose Path is a
+// WebDAV URL (starts with the configured webdav folder URL). Used by
+// acquisition as a first-resort check before searching indexers: if a prior
+// WebDAV scan already found this content, reuse that stable URL instead of
+// resolving a new CDN link.
+func (s *Store) FindWebDAVPathForItem(libraryID, kind, title string, seasonNumber, episodeNumber *int) (string, error) {
+	var path string
+	err := s.db.QueryRow(
+		`SELECT mi.path FROM media_items mi
+		 JOIN webdav_folders wf ON wf.library_id = mi.library_id AND wf.enabled = true
+		 WHERE mi.library_id = $1 AND mi.kind = $2 AND mi.title = $3
+		   AND mi.season_number IS NOT DISTINCT FROM $4
+		   AND mi.episode_number IS NOT DISTINCT FROM $5
+		   AND mi.acquisition_status = 'owned'
+		   AND mi.path IS NOT NULL
+		   AND mi.path LIKE (wf.url || '%')
+		 ORDER BY mi.updated_at DESC LIMIT 1`,
+		libraryID, kind, title, seasonNumber, episodeNumber,
+	).Scan(&path)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	return path, err
+}
+
 // CreatePlaceholder inserts a media_item with no file/stream yet
 // (acquisition_status='placeholder', path left NULL).
 func (s *Store) CreatePlaceholder(in CreatePlaceholderInput) (*MediaItem, error) {
