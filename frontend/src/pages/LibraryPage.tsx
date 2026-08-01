@@ -9,6 +9,7 @@ import { usePagination } from '../components/usePagination'
 import './ViewerHome.css'
 
 type SortMode = 'recent' | 'alpha'
+type MonitorFilter = 'all' | 'unmonitored'
 
 // The full-catalog counterpart to Home's per-library preview row (see
 // PREVIEW_COUNT in ViewerHome.tsx) -- this is where sorting and paging
@@ -18,8 +19,15 @@ export function LibraryPage() {
   const [library, setLibrary] = useState<Library | null>(null)
   const [items, setItems] = useState<MediaItem[]>([])
   const [sort, setSort] = useState<SortMode>('alpha')
+  const [monitorFilter, setMonitorFilter] = useState<MonitorFilter>('all')
+  const [monitoringAll, setMonitoringAll] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const itemsPage = usePagination(items, 24)
+
+  // Apply client-side monitor filter.
+  const filtered = monitorFilter === 'all'
+    ? items
+    : items.filter((i) => i.acquisitionStatus === 'owned' && (i.kind === 'movie' || i.kind === 'series') && !i.monitored)
+  const itemsPage = usePagination(filtered, 24)
 
   useEffect(() => {
     if (!id) return
@@ -35,10 +43,29 @@ export function LibraryPage() {
       .catch((err) => setError(err instanceof ApiError ? err.message : String(err)))
   }, [id, sort])
 
-  // Changing sort order effectively reshuffles which items land on which
-  // page -- staying on, say, page 3 of "Recently added" after switching to
-  // "A-Z" would show an unrelated, likely truncated slice of the library.
-  useEffect(() => itemsPage.setPage(1), [sort])
+  // Changing sort order or filter reshuffles which items land on which
+  // page -- staying on, say, page 3 after switching would show an
+  // unrelated, likely truncated slice of the library.
+  useEffect(() => itemsPage.setPage(1), [sort, monitorFilter])
+
+  const handleMonitorAll = async () => {
+    setMonitoringAll(true)
+    try {
+      const owned = items.filter(
+        (i) => i.acquisitionStatus === 'owned' && (i.kind === 'movie' || i.kind === 'series') && !i.monitored,
+      )
+      for (const item of owned) {
+        try {
+          const updated = await setItemMonitored(item.id, true)
+          setItems((prev) => prev.map((i) => (i.id === updated.id ? updated : i)))
+        } catch {
+          // continue trying other items
+        }
+      }
+    } finally {
+      setMonitoringAll(false)
+    }
+  }
 
   return (
     <section className="vorn-library-row">
@@ -51,20 +78,44 @@ export function LibraryPage() {
             </span>
           )}
         </h1>
-        <Select
-          value={sort}
-          onChange={(v) => setSort(v as SortMode)}
-          options={[
-            { value: 'alpha', label: 'A–Z' },
-            { value: 'recent', label: 'Recently added' },
-          ]}
-        />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <Select
+            value={monitorFilter}
+            onChange={(v) => setMonitorFilter(v as MonitorFilter)}
+            options={[
+              { value: 'all', label: 'All' },
+              { value: 'unmonitored', label: 'Unmonitored' },
+            ]}
+          />
+          <Select
+            value={sort}
+            onChange={(v) => setSort(v as SortMode)}
+            options={[
+              { value: 'alpha', label: 'A–Z' },
+              { value: 'recent', label: 'Recently added' },
+            ]}
+          />
+          {monitorFilter === 'unmonitored' && (
+            <button
+              type="button"
+              className="vorn-library-monitor-all"
+              onClick={handleMonitorAll}
+              disabled={monitoringAll}
+            >
+              {monitoringAll ? 'Monitoring…' : '★ Monitor All Unmonitored'}
+            </button>
+          )}
+        </div>
       </div>
 
       {error && <p className="vorn-form-error">{error}</p>}
 
-      {items.length === 0 ? (
-        <p className="vorn-empty">Nothing here yet — scan this library from the admin area.</p>
+      {filtered.length === 0 ? (
+        <p className="vorn-empty">
+          {monitorFilter === 'unmonitored'
+            ? 'All owned items are monitored.'
+            : 'Nothing here yet — scan this library from the admin area.'}
+        </p>
       ) : (
         <div className="vorn-card-grid">
           {itemsPage.pageItems.map((item) => (

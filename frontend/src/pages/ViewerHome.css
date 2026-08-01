@@ -153,3 +153,42 @@
   background: var(--vorn-gradient);
   box-shadow: 0 0 8px rgba(139, 92, 246, 0.6);
 }
+
+.vorn-card-monitor-btn {
+  display: inline-block;
+  margin-top: 0.15rem;
+  font-size: 0.72rem;
+  color: var(--vorn-text-muted);
+  cursor: pointer;
+  user-select: none;
+  transition: color var(--vorn-transition);
+  background: none;
+  border: none;
+  padding: 0;
+}
+
+.vorn-card-monitor-btn:hover {
+  color: #f59e0b;
+}
+
+.vorn-library-monitor-all {
+  font-size: 0.8rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--vorn-border);
+  background: var(--vorn-bg-elevated);
+  color: var(--vorn-text);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color var(--vorn-transition), color var(--vorn-transition);
+}
+
+.vorn-library-monitor-all:hover {
+  border-color: #f59e0b;
+  color: #f59e0b;
+}
+
+.vorn-library-monitor-all:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
