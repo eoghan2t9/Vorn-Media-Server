@@ -84,6 +84,7 @@ export function AdminHome() {
   const [watchingCount, setWatchingCount] = useState<number | null>(null)
   const [sysStats, setSysStats] = useState<SystemStats | null>(null)
   const [upgrades, setUpgrades] = useState<AcquisitionUpgrade[]>([])
+  const [upgradeCount, setUpgradeCount] = useState<number | null>(null)
 
   const [restarting, setRestarting] = useState(false)
   const [restartConfirmOpen, setRestartConfirmOpen] = useState(false)
@@ -103,7 +104,10 @@ export function AdminHome() {
       .then((w) => setWatchingCount(w.length))
       .catch(() => setWatchingCount(null))
     listUpgrades()
-      .then((u) => setUpgrades(u.slice(0, 5)))
+      .then((u) => {
+        setUpgradeCount(u.length)
+        setUpgrades(u.slice(0, 5))
+      })
       .catch(() => {})
   }, [])
 
@@ -167,6 +171,11 @@ export function AdminHome() {
           <div className="vorn-stat-label">Currently watching</div>
         </div>
         <div className="vorn-stat-card">
+          <UsersIcon className="vorn-stat-icon" />
+          <div className="vorn-stat-value">{upgradeCount ?? '—'}</div>
+          <div className="vorn-stat-label">Upgrades</div>
+        </div>
+        <div className="vorn-stat-card">
           <DashboardIcon className="vorn-stat-icon" />
           <div className="vorn-stat-value vorn-stat-value-status">
             <span className={`vorn-status-dot${transcoderReady ? ' vorn-status-dot-on' : ''}`} />
@@ -224,7 +233,7 @@ export function AdminHome() {
             <tbody>
               {upgrades.map((u) => (
                 <tr key={u.id}>
-                  <td>{u.title}</td>
+                  <td><Link to={`/items/${u.itemId}`}>{u.title}</Link></td>
                   <td>{u.newRelease}</td>
                   <td>{u.source}</td>
                   <td className="vorn-muted">{new Date(u.createdAt).toLocaleString()}</td>

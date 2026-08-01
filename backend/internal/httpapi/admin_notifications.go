@@ -9,8 +9,11 @@ import (
 )
 
 type notificationSettingsResponse struct {
-	Enabled    bool   `json:"enabled"`
-	WebhookURL string `json:"webhookUrl"`
+	Enabled          bool   `json:"enabled"`
+	WebhookURL       string `json:"webhookUrl"`
+	NotifyOnAcquired bool   `json:"notifyOnAcquired"`
+	NotifyOnFailed   bool   `json:"notifyOnFailed"`
+	NotifyOnUpgraded bool   `json:"notifyOnUpgraded"`
 }
 
 func (s *Server) handleGetNotificationSettings(w http.ResponseWriter, r *http.Request) {
@@ -19,12 +22,15 @@ func (s *Server) handleGetNotificationSettings(w http.ResponseWriter, r *http.Re
 		writeError(w, http.StatusInternalServerError, "loading notification settings")
 		return
 	}
-	writeJSON(w, http.StatusOK, notificationSettingsResponse{Enabled: settings.Enabled, WebhookURL: settings.WebhookURL})
+	writeJSON(w, http.StatusOK, notificationSettingsResponse{Enabled: settings.Enabled, WebhookURL: settings.WebhookURL, NotifyOnAcquired: settings.NotifyOnAcquired, NotifyOnFailed: settings.NotifyOnFailed, NotifyOnUpgraded: settings.NotifyOnUpgraded})
 }
 
 type updateNotificationSettingsRequest struct {
-	Enabled    bool   `json:"enabled"`
-	WebhookURL string `json:"webhookUrl"`
+	Enabled          bool   `json:"enabled"`
+	WebhookURL       string `json:"webhookUrl"`
+	NotifyOnAcquired bool   `json:"notifyOnAcquired"`
+	NotifyOnFailed   bool   `json:"notifyOnFailed"`
+	NotifyOnUpgraded bool   `json:"notifyOnUpgraded"`
 }
 
 func (s *Server) handleUpdateNotificationSettings(w http.ResponseWriter, r *http.Request) {
@@ -37,7 +43,7 @@ func (s *Server) handleUpdateNotificationSettings(w http.ResponseWriter, r *http
 		writeError(w, http.StatusBadRequest, "webhookUrl is required to enable notifications")
 		return
 	}
-	if err := s.store.SetNotificationSettings(store.NotificationSettings{Enabled: req.Enabled, WebhookURL: req.WebhookURL}); err != nil {
+	if err := s.store.SetNotificationSettings(store.NotificationSettings{Enabled: req.Enabled, WebhookURL: req.WebhookURL, NotifyOnAcquired: req.NotifyOnAcquired, NotifyOnFailed: req.NotifyOnFailed, NotifyOnUpgraded: req.NotifyOnUpgraded}); err != nil {
 		writeError(w, http.StatusInternalServerError, "saving notification settings")
 		return
 	}

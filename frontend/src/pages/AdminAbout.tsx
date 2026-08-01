@@ -171,7 +171,7 @@ export function AdminAbout() {
             <tbody>
               {upgrades.map((u) => (
                 <tr key={u.id}>
-                  <td>{u.title}</td>
+                  <td><Link to={`/items/${u.itemId}`}>{u.title}</Link></td>
                   <td className="vorn-muted">{u.oldRelease || '—'}</td>
                   <td>{u.newRelease}</td>
                   <td>{u.source}</td>

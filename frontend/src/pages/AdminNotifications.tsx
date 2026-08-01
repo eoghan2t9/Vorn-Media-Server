@@ -81,6 +81,32 @@ export function AdminNotifications() {
               onChange={(e) => setSettings({ ...settings, webhookUrl: e.target.value })}
               style={{ minWidth: '20rem' }}
             />
+            <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap', margin: '0.3rem 0' }}>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={settings.notifyOnAcquired}
+                  onChange={(e) => setSettings({ ...settings, notifyOnAcquired: e.target.checked })}
+                />{' '}
+                Acquired
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={settings.notifyOnFailed}
+                  onChange={(e) => setSettings({ ...settings, notifyOnFailed: e.target.checked })}
+                />{' '}
+                Failed
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={settings.notifyOnUpgraded}
+                  onChange={(e) => setSettings({ ...settings, notifyOnUpgraded: e.target.checked })}
+                />{' '}
+                Upgraded
+              </label>
+            </div>
             <button type="button" onClick={handleTest} disabled={testing || !settings.webhookUrl}>
               {testing ? 'Sending…' : 'Send test notification'}
             </button>

@@ -744,6 +744,9 @@ export const updateBackupSettings = (input: BackupSettings) =>
 export interface NotificationSettings {
   enabled: boolean
   webhookUrl: string
+  notifyOnAcquired: boolean
+  notifyOnFailed: boolean
+  notifyOnUpgraded: boolean
 }
 export const fetchNotificationSettings = () => request<NotificationSettings>('/api/admin/notifications')
 export const updateNotificationSettings = (input: NotificationSettings) =>

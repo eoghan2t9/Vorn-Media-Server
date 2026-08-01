@@ -42,6 +42,21 @@ func (s *Service) Send(ctx context.Context, event string, payload map[string]any
 	if !settings.Enabled || settings.WebhookURL == "" {
 		return
 	}
+	// Per-event-type toggle: silently skip events the admin hasn't opted into.
+	switch event {
+	case "acquired":
+		if !settings.NotifyOnAcquired {
+			return
+		}
+	case "acquisition_failed":
+		if !settings.NotifyOnFailed {
+			return
+		}
+	case "upgraded":
+		if !settings.NotifyOnUpgraded {
+			return
+		}
+	}
 	s.SendTo(ctx, settings.WebhookURL, event, payload)
 }
 
