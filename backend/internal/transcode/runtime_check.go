@@ -7,10 +7,13 @@ import (
 
 // runtimeToleranceFraction is how far a resolved release's actual duration
 // may differ from its expected (TMDb) runtime before VerifyRuntime rejects
-// it. Set generously (1.0 = 100%) so it tolerates extended/director's cuts,
-// TMDb data imprecision, re-encodes, and mislabeled NZB releases, while
-// still catching wildly wrong content (anything more than 2x off).
-const runtimeToleranceFraction = 1.0
+// it. 0.30 (30%) tolerates extended/director's cuts (LOTR theatrical
+// 178m → extended 228m = +28%), PAL speedup (~4%), re-encodes with
+// slightly different chapter boundaries, and minor TMDb imprecision,
+// while still catching wildly wrong content (a 20-minute porno labeled as
+// a 124-minute action movie = 84% off) that the prior 1.0 tolerance let
+// through.
+const runtimeToleranceFraction = 0.30
 
 // VerifyRuntime probes path (local file or remote provider URL -- Probe
 // already supports both) and compares its actual duration against
