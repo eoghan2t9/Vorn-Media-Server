@@ -69,6 +69,12 @@ func promoteStreamFiles(st *store.Store, libraryID string, files []*store.NZBFil
 		if !scanner.IsVideoFile(f.Name) {
 			continue
 		}
+		// TorBox serves NZB-downloaded files under hash names that
+		// ParseFilename can't distinguish from real titles — skip
+		// them here the same way the scanner does.
+		if scanner.IsProbableHash(f.Name) {
+			continue
+		}
 		parsed := scanner.ParseFilename(f.Name)
 		var promoteErr error
 		switch parsed.Kind {

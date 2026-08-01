@@ -257,6 +257,16 @@ func (svc *Service) flushBatch(ctx context.Context, job *store.ScanJob, libraryT
 		// download doesn't produce a false match.
 		parsePath := resolveWebDAVName(svc.store, job.LibraryID, f.Path, f.SizeBytes)
 
+		// Skip WebDAV files whose filename is a TorBox hash — the
+		// file exists on WebDAV and resolveWebDAVName returned a
+		// matching nzb_file row, but that nzb_file's own Name is
+		// also a hash (TorBox never exposes the original NZB
+		// filename for these downloads). Promoting it produces a
+		// garbage media item with a hash title.
+		if IsProbableHash(parsePath) {
+			continue
+		}
+
 		if isAudio {
 			parsed := ParseAudioFile(parsePath, libraryType)
 			insert := store.ScanFileInsert{
@@ -275,6 +285,11 @@ func (svc *Service) flushBatch(ctx context.Context, job *store.ScanJob, libraryT
 				insert.EpisodeNumber = &track
 			}
 			batch = append(batch, insert)
+			continue
+		}
+
+		// Same hash-guard for video files (see audio branch above).
+		if IsProbableHash(parsePath) {
 			continue
 		}
 
