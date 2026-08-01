@@ -62,7 +62,7 @@ func (f *torBoxFake) handler() http.HandlerFunc {
 				Data: []tbTorrentInfo{{
 					ID:               42,
 					DownloadFinished: f.polls >= 2,
-					Files: []tbFile{
+					Files: []TBFile{
 						{ID: 7, Name: "Movie.2020.mkv", Size: 2000},
 					},
 				}},
@@ -108,14 +108,14 @@ func (f *torBoxFake) handler() http.HandlerFunc {
 			})
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/usenet/mylist"):
 			f.usenetPolls++
-			json.NewEncoder(w).Encode(tbEnvelope[[]tbUsenetInfo]{
+			json.NewEncoder(w).Encode(tbEnvelope[[]TBUsenetInfo]{
 				Success: true,
-				Data: []tbUsenetInfo{{
+				Data: []TBUsenetInfo{{
 					ID:               99,
 					DownloadFinished: f.usenetPolls >= 2,
 					DownloadPresent:  f.usenetPolls >= 2,
 					Progress:         float64(f.usenetPolls) / 2,
-					Files: []tbFile{
+					Files: []TBFile{
 						{ID: 3, Name: "Show.S01E01.mkv", Size: 1500},
 					},
 				}},
@@ -225,9 +225,9 @@ func TestTorBoxClient_DeleteUsenetDownload(t *testing.T) {
 func TestTorBoxClient_WaitForUsenetCache_FailsFast(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/usenet/mylist") {
-			json.NewEncoder(w).Encode(tbEnvelope[[]tbUsenetInfo]{
+			json.NewEncoder(w).Encode(tbEnvelope[[]TBUsenetInfo]{
 				Success: true,
-				Data:    []tbUsenetInfo{{ID: 5, DownloadState: "failed: missing articles"}},
+				Data:    []TBUsenetInfo{{ID: 5, DownloadState: "failed: missing articles"}},
 			})
 			return
 		}

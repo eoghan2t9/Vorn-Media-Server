@@ -177,7 +177,7 @@ func (c *TorBoxClient) checkCached(ctx context.Context, apiKey, path string, has
 	return out, nil
 }
 
-func (c *TorBoxClient) waitForCache(ctx context.Context, apiKey string, torrentID int) ([]tbFile, error) {
+func (c *TorBoxClient) waitForCache(ctx context.Context, apiKey string, torrentID int) ([]TBFile, error) {
 	deadline := time.Now().Add(tbPollTimeout)
 	for {
 		item, err := c.torrentInfo(ctx, apiKey, torrentID)
@@ -251,7 +251,10 @@ func (c *TorBoxClient) createTorrent(ctx context.Context, apiKey, magnet string)
 	return int(resp.Data.TorrentID), nil
 }
 
-type tbFile struct {
+// TBFile is a single file within a TorBox usenet or torrent download.
+// Exported for nzb.Service's syncFromTorBox which inspects file metadata
+// directly.
+type TBFile struct {
 	ID        int    `json:"id"`
 	Name      string `json:"name"`
 	ShortName string `json:"short_name"`
@@ -261,13 +264,8 @@ type tbFile struct {
 type tbTorrentInfo struct {
 	ID               int      `json:"id"`
 	DownloadFinished bool     `json:"download_finished"`
-	// DownloadState mirrors the field on tbUsenetInfo -- carries
-	// human-readable states like "downloading", "completed", "failed",
-	// or "cached". A dead/invalid torrent shows up as "failed" here,
-	// letting waitForCache bail out immediately instead of polling until
-	// the 20-minute tbPollTimeout.
 	DownloadState    string   `json:"download_state"`
-	Files            []tbFile `json:"files"`
+	Files            []TBFile `json:"files"`
 }
 
 func (i *tbTorrentInfo) failed() bool {
@@ -356,42 +354,33 @@ func (c *TorBoxClient) CreateUsenetDownload(ctx context.Context, apiKey string, 
 	return int(resp.Data.UsenetDownloadID), resp.Data.Hash, nil
 }
 
-type tbUsenetInfo struct {
-	ID               int  `json:"id"`
-	DownloadFinished bool `json:"download_finished"`
-	// DownloadPresent lags DownloadFinished: TorBox's own SDK models these
-	// as separate booleans (unlike the torrent side, where the file list is
-	// known upfront from the torrent's metadata) -- download_finished flips
-	// once the repair job itself is done, but the file listing is only
-	// populated once TorBox's server-side extraction/finalization catches
-	// up, signaled by download_present. Treating DownloadFinished alone as
-	// "ready" was observed in production returning a real, finished item
-	// with an empty Files slice.
-	DownloadPresent bool    `json:"download_present"`
-	Progress        float64 `json:"progress"`
-	// DownloadState carries human-readable states like "downloading",
-	// "completed", "failed", or "cached" -- checked below so a genuinely
-	// broken NZB (missing articles, etc) fails fast instead of burning the
-	// full tbPollTimeout waiting for download_finished/download_present to
-	// flip, which they never will.
-	DownloadState string   `json:"download_state"`
-	Files         []tbFile `json:"files"`
+// TBUsenetInfo is the TorBox API's response shape for a single usenet
+// download (GET /usenet/mylist). Exported for nzb.Service's continuous
+// background sync (syncFromTorBox), which needs to inspect file lists,
+// progress, and download state directly.
+type TBUsenetInfo struct {
+	ID               int      `json:"id"`
+	DownloadFinished bool     `json:"download_finished"`
+	DownloadPresent  bool     `json:"download_present"`
+	Progress         float64  `json:"progress"`
+	DownloadState    string   `json:"download_state"`
+	Files            []TBFile `json:"files"`
 }
 
-func (i *tbUsenetInfo) failed() bool {
+func (i *TBUsenetInfo) failed() bool {
 	s := strings.ToLower(i.DownloadState)
 	return strings.Contains(s, "failed") || strings.Contains(s, "invalid") || strings.Contains(s, "error")
 }
 
 // Failed reports whether this usenet download has reached a terminal
-// failure state on TorBox's side, exported for nzb.Service's reconciliation.
-func (i *tbUsenetInfo) Failed() bool { return i.failed() }
+// failure state on TorBox's side.
+func (i *TBUsenetInfo) Failed() bool { return i.failed() }
 
 // WaitForUsenetCache polls GET /usenet/mylist until TorBox finishes
 // downloading, repairing, and finalizing usenetID's file listing,
 // invoking progress (0..1) as it goes so callers can mirror it into their
 // own byte-progress tracking.
-func (c *TorBoxClient) WaitForUsenetCache(ctx context.Context, apiKey string, usenetID int, progress func(float64)) ([]tbFile, error) {
+func (c *TorBoxClient) WaitForUsenetCache(ctx context.Context, apiKey string, usenetID int, progress func(float64)) ([]TBFile, error) {
 	deadline := time.Now().Add(tbPollTimeout)
 	for {
 		item, err := c.usenetInfo(ctx, apiKey, usenetID)
@@ -443,7 +432,7 @@ func (c *TorBoxClient) WaitForUsenetCache(ctx context.Context, apiKey string, us
 // production returning data as a bare JSON object rather than a
 // single-element array -- so data is decoded as json.RawMessage and
 // unmarshaled as whichever shape it actually is, rather than assuming one.
-func (c *TorBoxClient) usenetInfo(ctx context.Context, apiKey string, usenetID int) (*tbUsenetInfo, error) {
+func (c *TorBoxClient) usenetInfo(ctx context.Context, apiKey string, usenetID int) (*TBUsenetInfo, error) {
 	path := "/usenet/mylist?bypass_cache=true&id=" + url.QueryEscape(strconv.Itoa(usenetID))
 	var resp tbEnvelope[json.RawMessage]
 	if err := c.do(ctx, http.MethodGet, path, apiKey, "", nil, &resp); err != nil {
@@ -458,7 +447,7 @@ func (c *TorBoxClient) usenetInfo(ctx context.Context, apiKey string, usenetID i
 	}
 
 	if raw[0] == '[' {
-		var items []tbUsenetInfo
+		var items []TBUsenetInfo
 		if err := json.Unmarshal(raw, &items); err != nil {
 			return nil, fmt.Errorf("torbox: decoding usenet list: %w", err)
 		}
@@ -473,7 +462,7 @@ func (c *TorBoxClient) usenetInfo(ctx context.Context, apiKey string, usenetID i
 		return nil, nil
 	}
 
-	var item tbUsenetInfo
+	var item TBUsenetInfo
 	if err := json.Unmarshal(raw, &item); err != nil {
 		return nil, fmt.Errorf("torbox: decoding usenet item: %w", err)
 	}
@@ -501,7 +490,7 @@ func (c *TorBoxClient) RequestUsenetDownloadLink(ctx context.Context, apiKey str
 // Vorn has been restarted and lost track of in-flight downloads. The
 // bypass_cache parameter skips TorBox's own 60-second CDN cache so the
 // response reflects the server's actual current state.
-func (c *TorBoxClient) ListUsenetDownloads(ctx context.Context, apiKey string) ([]tbUsenetInfo, error) {
+func (c *TorBoxClient) ListUsenetDownloads(ctx context.Context, apiKey string) ([]TBUsenetInfo, error) {
 	var resp tbEnvelope[json.RawMessage]
 	if err := c.do(ctx, http.MethodGet, "/usenet/mylist?bypass_cache=true", apiKey, "", nil, &resp); err != nil {
 		return nil, err
@@ -513,7 +502,7 @@ func (c *TorBoxClient) ListUsenetDownloads(ctx context.Context, apiKey string) (
 	if len(raw) == 0 || string(raw) == "null" {
 		return nil, nil
 	}
-	var items []tbUsenetInfo
+	var items []TBUsenetInfo
 	if err := json.Unmarshal(raw, &items); err != nil {
 		return nil, fmt.Errorf("torbox: decoding usenet list: %w", err)
 	}

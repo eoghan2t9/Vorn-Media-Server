@@ -254,14 +254,15 @@ func (s *Server) reconfigure() error {
 	if nzbEnabled && s.nzbSvc.Load() == nil {
 		ns := nzb.NewService(s.store, s.debridSvc.TorBoxLimiter())
 		s.nzbSvc.Store(ns)
-		// Reconcile TorBox state on startup: any download that completed
-		// while the process was offline gets caught up now instead of
-		// sitting on TorBox forever consuming quota with Vorn none the
-		// wiser. Best-effort — logged but never fatal.
-		go ns.ReconcileFromTorBox(context.Background())
+		// Start continuous background sync — mirrors rdt-client's
+		// ProviderUpdater: one periodic sweep of all TorBox usenet
+		// downloads catches every completion, orphan, and expiry
+		// without any per-download goroutine ever blocking.
+		ns.StartBackgroundSync()
 		nzbChanged = true
 	} else if !nzbEnabled {
 		if old := s.nzbSvc.Swap(nil); old != nil {
+			old.Close()
 			nzbChanged = true
 		}
 	}

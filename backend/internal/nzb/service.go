@@ -8,6 +8,7 @@ import (
 	"log"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/debrid"
@@ -16,6 +17,7 @@ import (
 )
 
 const providerDeleteTimeout = 30 * time.Second
+const backgroundSyncInterval = 30 * time.Second
 
 // Service resolves NZB releases via a configured TorBox account: parsing
 // the index, handing it to TorBox for server-side caching/repair, then
@@ -37,6 +39,15 @@ type Service struct {
 	// instead of one real, shared cap across every TorBox interaction this
 	// process makes.
 	torboxClient *debrid.TorBoxClient
+	// syncCancel stops the continuous background poller goroutine. Guarded
+	// by syncMu since StartBackgroundSync and Close may be called from
+	// different goroutines.
+	syncCancel context.CancelFunc
+	syncMu     sync.Mutex
+	// syncRunning prevents overlapping syncFromTorBox sweeps — if the
+	// previous sweep is still running when the ticker fires, the new tick
+	// is skipped.
+	syncRunning sync.Mutex
 }
 
 // NewService takes torboxLimiter (see debrid.Service.TorBoxLimiter) rather
@@ -162,14 +173,91 @@ func (svc *Service) CheckCachedURLs(ctx context.Context, urls []string) (map[str
 	return out, nil
 }
 
-// ReconcileFromTorBox queries TorBox for every existing usenet download and
-// ensures Vorn's nzb_downloads/nzb_files rows reflect reality. Called once
-// at startup (and after every reconfigure that rebuilds the NZB service),
-// it catches downloads that completed while the process was down, or whose
-// in-memory polling goroutines were lost across a restart — without this,
-// those downloads stay on TorBox forever consuming quota/storage while Vorn
-// has no record of them at all.
-func (svc *Service) ReconcileFromTorBox(ctx context.Context) {
+// StartBackgroundSync starts a continuous background goroutine that
+// periodically calls syncFromTorBox — one API call fetches every usenet
+// download on the account, and syncFromTorBox reconciles them with Vorn's
+// own records. This mirrors rdt-client's ProviderUpdater: no per-download
+// goroutine ever blocks polling; one periodic sweep catches every download
+// regardless of whether it was created by Vorn or externally (e.g., via the
+// TorBox dashboard), and no download is ever orphaned by a restart.
+func (svc *Service) StartBackgroundSync() {
+	svc.syncMu.Lock()
+	defer svc.syncMu.Unlock()
+	if svc.syncCancel != nil {
+		return // already running
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	svc.syncCancel = cancel
+	// Run an immediate sync on startup (the old one-shot ReconcileFromTorBox
+	// behavior), then every backgroundSyncInterval thereafter. The syncRunning
+	// mutex prevents overlapping sweeps: if the previous sync is still
+	// running when the ticker fires, the tick is silently skipped.
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("nzb: background sync panicked: %v — sync will retry on next tick", r)
+			}
+		}()
+		svc.runSync(ctx)
+		ticker := time.NewTicker(backgroundSyncInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				func() {
+					defer func() {
+						if r := recover(); r != nil {
+							log.Printf("nzb: background sync panicked: %v — sync will retry on next tick", r)
+						}
+					}()
+					svc.runSync(ctx)
+				}()
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+}
+
+// Close stops the background sync goroutine. Safe to call multiple times;
+// after Close returns, the sync goroutine has stopped and no further sync
+// sweeps will run.
+func (svc *Service) Close() {
+	svc.syncMu.Lock()
+	defer svc.syncMu.Unlock()
+	if svc.syncCancel != nil {
+		svc.syncCancel()
+		svc.syncCancel = nil
+	}
+}
+
+// runSync is a thin wrapper that acquires syncRunning before calling
+// syncFromTorBox, ensuring at most one sweep is in-flight at a time.
+// Non-blocking: if the previous sweep is still running, this returns
+// immediately (the tick was skipped).
+func (svc *Service) runSync(ctx context.Context) {
+	if !svc.syncRunning.TryLock() {
+		return
+	}
+	defer svc.syncRunning.Unlock()
+	svc.syncFromTorBox(ctx)
+}
+
+// syncFromTorBox (formerly ReconcileFromTorBox) is the heart of the
+// continuous polling approach. Called on startup and every
+// backgroundSyncInterval thereafter, it fetches every usenet download on
+// the TorBox account and reconciles them with Vorn's DB records:
+//   - "repairing" downloads that TorBox says are done → record files, match
+//     WebDAV, finish + promote.
+//   - Downloads on TorBox not in Vorn's DB → auto-import with library
+//     auto-assignment.
+//   - Downloads in Vorn's DB not on TorBox → mark as removed (expired/
+//     deleted externally).
+//   - Failed downloads → ensure Vorn's error status matches.
+//
+// This is the Go equivalent of rdt-client's UpdateRdData: one full sweep
+// catches everything.
+func (svc *Service) syncFromTorBox(ctx context.Context) {
 	server, err := svc.pickServer()
 	if err != nil {
 		return
@@ -177,17 +265,12 @@ func (svc *Service) ReconcileFromTorBox(ctx context.Context) {
 
 	remote, err := svc.torboxClient.ListUsenetDownloads(ctx, server.APIKey)
 	if err != nil {
-		log.Printf("nzb: reconciling from torbox: listing usenet downloads: %v", err)
+		log.Printf("nzb: sync: listing usenet downloads: %v", err)
 		return
 	}
-	if len(remote) == 0 {
-		return
-	}
-
-	log.Printf("nzb: reconciling %d usenet download(s) from torbox", len(remote))
 
 	// Build a provider_ref → nzb_download lookup from Vorn's own records.
-	// provider_ref is now stored as "usenetID:hash" — extract just the
+	// provider_ref is stored as "usenetID:hash" — extract just the
 	// usenet ID for matching against TorBox's id field.
 	local, _ := svc.store.ListNZBDownloads()
 	byRef := make(map[string]*store.NZBDownload, len(local))
@@ -202,154 +285,190 @@ func (svc *Service) ReconcileFromTorBox(ctx context.Context) {
 		byRef[refID] = d
 	}
 
+	// Track which remote IDs we've seen so we can detect expired downloads
+	// (local records not present on TorBox anymore).
+	seenRemote := make(map[string]bool, len(remote))
+
 	for _, dl := range remote {
 		ref := strconv.Itoa(dl.ID)
+		seenRemote[ref] = true
 		existing := byRef[ref]
 
-		// If Vorn already has this download and it's finished (completed or
-		// errored on TorBox's side), ensure Vorn's own status agrees and
-		// that it was marked promoted. A download that Vorn still thinks is
-		// "repairing" after a restart definitely finished while the process
-		// was down — promote it now.
 		switch {
 		case dl.DownloadFinished && dl.DownloadPresent && !dl.Failed():
 			if existing != nil {
 				if existing.Status == "repairing" || (existing.Status == "completed" && !existing.Promoted) {
-					// This download finished while Vorn was offline (status
-					// still "repairing"), or it completed but was never
-					// promoted (e.g. the old IsProbableHash filter blocked
-					// it). If it has no library, try to auto-assign one
-					// the same way the orphaned-download branch does.
-					if existing.LibraryID == nil {
-						if parsed := scanner.ParseFilename(existing.Name); parsed.Kind == "movie" || parsed.Kind == "episode" {
-							libs, _ := svc.store.ListLibraries()
-							for _, lib := range libs {
-								if parsed.Kind == "movie" && lib.Type == "movie" {
-									existing.LibraryID = &lib.ID
-									break
-								}
-								if parsed.Kind == "episode" && lib.Type == "series" {
-									existing.LibraryID = &lib.ID
-									break
-								}
-							}
-							if existing.LibraryID != nil {
-								if err := svc.store.SetNZBDownloadLibrary(existing.ID, *existing.LibraryID); err != nil {
-									log.Printf("nzb: reconciliation: setting library for %s: %v", existing.ID, err)
-								}
-							}
-						}
-					}
-					// Either way, ensure files are recorded, CDN stream
-					// URLs are fetched (same as runTorBox), WebDAV URLs are
-					// matched, and promotion runs.
-					log.Printf("nzb: reconciliation: %s (%s) catching up (status=%s promoted=%v)", existing.ID, existing.Name, existing.Status, existing.Promoted)
-					for _, f := range dl.Files {
-						name := f.Name
-						if name == "" {
-							name = f.ShortName
-						}
-						link, err := svc.torboxClient.RequestUsenetDownloadLink(ctx, server.APIKey, dl.ID, f.ID)
-						if err != nil {
-							log.Printf("nzb: reconciliation: requesting download link for %s: %v", existing.ID, err)
-							// Still record the file even without a CDN URL —
-							// WebDAV matching below may still find it.
-							link = ""
-						}
-						if _, err := svc.store.AddNZBFile(existing.ID, name, f.Size, link); err != nil {
-							log.Printf("nzb: reconciliation: recording file for %s: %v", existing.ID, err)
-						}
-					}
-				files, _ := svc.store.ListNZBFiles(existing.ID)
-					if len(files) > 0 {
-						svc.matchWebDAVURLs(ctx, existing)
-						svc.finish(existing, nil)
-						if svc.onComplete != nil {
-							svc.onComplete(existing)
-						}
-					}
+					// This download finished (either while Vorn was
+					// offline, or the background sync just caught it).
+					// Record files, match WebDAV, and promote.
+					svc.catchUpDownload(ctx, existing, &dl, server)
 				}
-			} else if existing == nil {
-				// TorBox has a completed download Vorn knows nothing about —
-				// create a record with full CDN stream URLs, WebDAV
-				// matching, and library auto-assignment so the files
-				// become playable rather than just visible in the admin
-				// list.
-				name := dl.Files[0].Name
-				if name == "" && len(dl.Files) > 0 {
-					name = dl.Files[0].ShortName
-				}
-				if name == "" {
-					name = fmt.Sprintf("usenet-%d", dl.ID)
-				}
-
-				// Try to guess the best library: if the filename parses
-				// as a movie or episode, assign it to the first library
-				// of that kind (movies to a movie library, TV to a
-				// series library). Best-effort — the admin can always
-				// reassign from the NZB list.
-				var libraryID *string
-				if parsed := scanner.ParseFilename(name); parsed.Kind == "movie" || parsed.Kind == "episode" {
-					libs, _ := svc.store.ListLibraries()
-					for _, lib := range libs {
-						if parsed.Kind == "movie" && lib.Type == "movie" {
-							lid := lib.ID
-							libraryID = &lid
-							break
-						}
-						if parsed.Kind == "episode" && lib.Type == "series" {
-							lid := lib.ID
-							libraryID = &lid
-							break
-						}
-					}
-				}
-
-				rec, err := svc.store.CreateNZBDownload(store.CreateNZBDownloadInput{
-					Name:      name,
-					LibraryID: libraryID,
-				})
-				if err != nil {
-					log.Printf("nzb: reconciliation: creating record for %d: %v", dl.ID, err)
-					continue
-				}
-				if err := svc.store.SetNZBDownloadProviderRef(rec.ID, ref); err != nil {
-					log.Printf("nzb: reconciliation: setting provider ref for %s: %v", rec.ID, err)
-				}
-
-				// Request CDN stream URLs and record files — same as the
-				// catch-up path for existing downloads.
-				for _, f := range dl.Files {
-					name := f.Name
-					if name == "" {
-						name = f.ShortName
-					}
-					link, err := svc.torboxClient.RequestUsenetDownloadLink(ctx, server.APIKey, dl.ID, f.ID)
-					if err != nil {
-						log.Printf("nzb: reconciliation: requesting download link for %s: %v", rec.ID, err)
-						link = ""
-					}
-					if _, err := svc.store.AddNZBFile(rec.ID, name, f.Size, link); err != nil {
-						log.Printf("nzb: reconciliation: recording file for %s: %v", rec.ID, err)
-					}
-				}
-
-				svc.matchWebDAVURLs(ctx, rec)
-				svc.finish(rec, nil)
-
-				if libraryID != nil && svc.onComplete != nil {
-					if used := svc.onComplete(rec); !used {
-						svc.deleteFromTorBox(rec.ID, rec.ProviderRef)
-					}
-				}
-				log.Printf("nzb: reconciliation: created record %s for orphaned torbox download %d (library=%v)", rec.ID, dl.ID, libraryID)
+			} else {
+				// TorBox has a completed download Vorn knows nothing
+				// about — auto-import it.
+				svc.importOrphanedDownload(ctx, &dl, server, ref)
 			}
 		case dl.Failed():
 			if existing != nil && existing.Status != "error" {
 				svc.finish(existing, fmt.Errorf("torbox: download failed remotely: %s", dl.DownloadState))
 			}
+		default:
+			// Download is still in progress — update progress for any
+			// local record that's tracking it.
+			if existing != nil && existing.Status == "repairing" {
+				if err := svc.store.UpdateNZBProgress(existing.ID, 10000, int64(dl.Progress*10000), "repairing"); err != nil {
+					log.Printf("nzb: sync: updating progress for %s: %v", existing.ID, err)
+				}
+			}
 		}
 	}
+
+	// Auto-delete: any local record with a provider_ref that wasn't in the
+	// remote list has been deleted/expired from TorBox. Mark it removed so
+	// it doesn't linger in the admin list forever.
+	for ref, d := range byRef {
+		if !seenRemote[ref] && d.Status == "completed" && d.Promoted {
+			log.Printf("nzb: sync: %s (%s) no longer on torbox — marking removed", d.ID, d.Name)
+			if err := svc.store.RemoveNZBDownload(d.ID); err != nil {
+				log.Printf("nzb: sync: removing expired %s: %v", d.ID, err)
+			}
+		}
+	}
+}
+
+// catchUpDownload handles a download that exists both locally and on
+// TorBox, and TorBox says it's done: record files, request CDN stream URLs,
+// match WebDAV, finish, and promote. Extracted from syncFromTorBox to keep
+// the main loop readable.
+func (svc *Service) catchUpDownload(ctx context.Context, existing *store.NZBDownload, dl *debrid.TBUsenetInfo, server *store.UsenetServer) {
+	if existing.LibraryID == nil {
+		if parsed := scanner.ParseFilename(existing.Name); parsed.Kind == "movie" || parsed.Kind == "episode" {
+			libs, _ := svc.store.ListLibraries()
+			for _, lib := range libs {
+				if parsed.Kind == "movie" && lib.Type == "movie" {
+					existing.LibraryID = &lib.ID
+					break
+				}
+				if parsed.Kind == "episode" && lib.Type == "series" {
+					existing.LibraryID = &lib.ID
+					break
+				}
+			}
+			if existing.LibraryID != nil {
+				if err := svc.store.SetNZBDownloadLibrary(existing.ID, *existing.LibraryID); err != nil {
+					log.Printf("nzb: sync: setting library for %s: %v", existing.ID, err)
+				}
+			}
+		}
+	}
+
+	log.Printf("nzb: sync: %s (%s) catching up (status=%s promoted=%v)", existing.ID, existing.Name, existing.Status, existing.Promoted)
+
+	// Skip files already recorded — on a repeat sweep, AddNZBFile would
+	// otherwise create duplicates.
+	existingFiles, _ := svc.store.ListNZBFiles(existing.ID)
+	existingByName := make(map[string]bool, len(existingFiles))
+	for _, ef := range existingFiles {
+		existingByName[ef.Name] = true
+	}
+
+	for _, f := range dl.Files {
+		name := f.Name
+		if name == "" {
+			name = f.ShortName
+		}
+		if existingByName[name] {
+			continue
+		}
+		link, err := svc.torboxClient.RequestUsenetDownloadLink(ctx, server.APIKey, dl.ID, f.ID)
+		if err != nil {
+			log.Printf("nzb: sync: requesting download link for %s: %v", existing.ID, err)
+			link = ""
+		}
+		if _, err := svc.store.AddNZBFile(existing.ID, name, f.Size, link); err != nil {
+			log.Printf("nzb: sync: recording file for %s: %v", existing.ID, err)
+		}
+		// Mark as seen so subsequent files in the same sweep don't
+		// duplicate either (the same file can appear twice in the API
+		// response under different IDs, rare but observed).
+		existingByName[name] = true
+	}
+	files, _ := svc.store.ListNZBFiles(existing.ID)
+	if len(files) > 0 {
+		svc.matchWebDAVURLs(ctx, existing)
+		svc.finish(existing, nil)
+		if svc.onComplete != nil {
+			svc.onComplete(existing)
+		}
+	}
+}
+
+// importOrphanedDownload handles a download that exists on TorBox but not
+// in Vorn's DB: creates a local record, auto-assigns a library by filename
+// parsing, requests CDN stream URLs, matches WebDAV, and promotes.
+// Extracted from syncFromTorBox to keep the main loop readable.
+func (svc *Service) importOrphanedDownload(ctx context.Context, dl *debrid.TBUsenetInfo, server *store.UsenetServer, ref string) {
+	name := dl.Files[0].Name
+	if name == "" && len(dl.Files) > 0 {
+		name = dl.Files[0].ShortName
+	}
+	if name == "" {
+		name = fmt.Sprintf("usenet-%d", dl.ID)
+	}
+
+	var libraryID *string
+	if parsed := scanner.ParseFilename(name); parsed.Kind == "movie" || parsed.Kind == "episode" {
+		libs, _ := svc.store.ListLibraries()
+		for _, lib := range libs {
+			if parsed.Kind == "movie" && lib.Type == "movie" {
+				lid := lib.ID
+				libraryID = &lid
+				break
+			}
+			if parsed.Kind == "episode" && lib.Type == "series" {
+				lid := lib.ID
+				libraryID = &lid
+				break
+			}
+		}
+	}
+
+	rec, err := svc.store.CreateNZBDownload(store.CreateNZBDownloadInput{
+		Name:      name,
+		LibraryID: libraryID,
+	})
+	if err != nil {
+		log.Printf("nzb: sync: creating record for %d: %v", dl.ID, err)
+		return
+	}
+	if err := svc.store.SetNZBDownloadProviderRef(rec.ID, ref); err != nil {
+		log.Printf("nzb: sync: setting provider ref for %s: %v", rec.ID, err)
+	}
+
+	for _, f := range dl.Files {
+		fn := f.Name
+		if fn == "" {
+			fn = f.ShortName
+		}
+		link, err := svc.torboxClient.RequestUsenetDownloadLink(ctx, server.APIKey, dl.ID, f.ID)
+		if err != nil {
+			log.Printf("nzb: sync: requesting download link for %s: %v", rec.ID, err)
+			link = ""
+		}
+		if _, err := svc.store.AddNZBFile(rec.ID, fn, f.Size, link); err != nil {
+			log.Printf("nzb: sync: recording file for %s: %v", rec.ID, err)
+		}
+	}
+
+	svc.matchWebDAVURLs(ctx, rec)
+	svc.finish(rec, nil)
+
+	if libraryID != nil && svc.onComplete != nil {
+		if used := svc.onComplete(rec); !used {
+			svc.deleteFromTorBox(rec.ID, rec.ProviderRef)
+		}
+	}
+	log.Printf("nzb: sync: created record %s for orphaned torbox download %d (library=%v)", rec.ID, dl.ID, libraryID)
 }
 
 func (svc *Service) pickServer() (*store.UsenetServer, error) {
