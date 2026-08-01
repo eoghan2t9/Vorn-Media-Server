@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"runtime"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -69,35 +70,49 @@ func (svc *Service) StartLibraryScan(library *store.Library) (*store.ScanJob, er
 	webdavFolders, _ := svc.store.ListWebDAVFoldersByLibrary(library.ID)
 
 	go svc.run(job, library.Type, func(ctx context.Context, found *atomic.Int64) {
-		// Local filesystem walk.
-		workers := runtime.NumCPU() * 4
-		WalkConcurrent(library.Folders, workers, isMediaFile, func(f DiscoveredFile) {
-			found.Add(1)
-			if err := svc.queue.Push(ctx, job.ID, QueuedFile{Path: f.Path, SizeBytes: f.SizeBytes, ModifiedAt: f.ModifiedAt}); err != nil {
-				log.Printf("scanner: pushing discovered file: %v", err)
-			}
-		})
+		var wg sync.WaitGroup
 
-		// WebDAV discovery, in parallel with local walk since both feed the
-		// same staging queue.
+		// Local filesystem walk in its own goroutine.
+		if len(library.Folders) > 0 {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				workers := runtime.NumCPU() * 4
+				WalkConcurrent(library.Folders, workers, isMediaFile, func(f DiscoveredFile) {
+					found.Add(1)
+					if err := svc.queue.Push(ctx, job.ID, QueuedFile{Path: f.Path, SizeBytes: f.SizeBytes, ModifiedAt: f.ModifiedAt}); err != nil {
+						log.Printf("scanner: pushing discovered file: %v", err)
+					}
+				})
+			}()
+		}
+
+		// WebDAV discovery runs concurrently with local walk -- each feeds
+		// the same staging queue.
 		for _, wf := range webdavFolders {
 			if !wf.Enabled {
 				continue
 			}
-			// Refresh the WebDAV index first so newly added files appear
-			// without waiting for the server's own 15-minute refresh cycle.
-			if err := webdav.Refresh(ctx, wf.URL, wf.APIKey); err != nil {
-				log.Printf("scanner: refreshing webdav index for %s: %v", wf.URL, err)
-			}
-			if err := webdav.Walk(ctx, wf.URL, wf.APIKey, func(f webdav.DiscoveredFile) {
-				found.Add(1)
-				if err := svc.queue.Push(ctx, job.ID, QueuedFile{Path: f.Path, SizeBytes: f.SizeBytes, ModifiedAt: f.ModifiedAt}); err != nil {
-					log.Printf("scanner: pushing discovered webdav file: %v", err)
+			wg.Add(1)
+			go func(wf store.WebDAVFolder) {
+				defer wg.Done()
+				// Refresh the WebDAV index first so newly added files appear
+				// without waiting for the server's own 15-minute refresh cycle.
+				if err := webdav.Refresh(ctx, wf.URL, wf.APIKey); err != nil {
+					log.Printf("scanner: refreshing webdav index for %s: %v", wf.URL, err)
 				}
-			}); err != nil {
-				log.Printf("scanner: walking webdav %s: %v", wf.URL, err)
-			}
+				if err := webdav.Walk(ctx, wf.URL, wf.APIKey, func(f webdav.DiscoveredFile) {
+					found.Add(1)
+					if err := svc.queue.Push(ctx, job.ID, QueuedFile{Path: f.Path, SizeBytes: f.SizeBytes, ModifiedAt: f.ModifiedAt}); err != nil {
+						log.Printf("scanner: pushing discovered webdav file: %v", err)
+					}
+				}); err != nil {
+					log.Printf("scanner: walking webdav %s: %v", wf.URL, err)
+				}
+			}(*wf)
 		}
+
+		wg.Wait()
 	})
 	return job, nil
 }

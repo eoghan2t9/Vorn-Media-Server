@@ -95,14 +95,15 @@ func walk(ctx context.Context, rootURL, dirURL, apiKey string, onFile func(Disco
 
 	for _, e := range entries {
 		if e.isCollection {
-			// Skip the directory's own self-reference (the PROPFIND response
-			// always includes the queried URL itself as the first entry, with
-			// isCollection=true).
-			if strings.TrimRight(e.href, "/") == strings.TrimRight(dirURL, "/") {
+			// Resolve relative hrefs against the current directory URL first,
+			// then skip the directory's own self-reference (the PROPFIND
+			// response always includes the queried URL itself as the first
+			// entry, with isCollection=true). Resolving before comparing
+			// handles both absolute and relative href forms correctly.
+			childURL := resolveURL(dirURL, e.href)
+			if strings.TrimRight(childURL, "/") == strings.TrimRight(dirURL, "/") {
 				continue
 			}
-			// Resolve relative hrefs against the current directory URL.
-			childURL := resolveURL(dirURL, e.href)
 			if err := walk(ctx, rootURL, childURL, apiKey, onFile, depth); err != nil {
 				return err
 			}
@@ -196,15 +197,40 @@ func propfind(ctx context.Context, dirURL, apiKey string) ([]propfindEntry, erro
 	return entries, nil
 }
 
-// resolveURL resolves href (which may be relative or absolute) against
-// baseDir (the directory URL we PROPFIND'd).
+// resolveURL resolves href against baseDir (the directory URL we PROPFIND'd).
+// href can be an absolute URL (returned as-is), a server-absolute path
+// (starts with "/" -- resolved against the origin of baseDir), or a relative
+// path (appended to baseDir).
 func resolveURL(baseDir, href string) string {
 	if strings.HasPrefix(href, "http://") || strings.HasPrefix(href, "https://") {
 		return href
 	}
+	if strings.HasPrefix(href, "/") {
+		// Server-absolute path: resolve against the origin, not the
+		// current directory. e.g. baseDir="http://host/Movies/" and
+		// href="/Shows/" becomes "http://host/Shows/".
+		return serverOrigin(baseDir) + href
+	}
+	// Relative path: append to baseDir.
 	baseDir = strings.TrimRight(baseDir, "/")
 	href = strings.TrimLeft(href, "/")
 	return baseDir + "/" + href
+}
+
+// serverOrigin returns the scheme+host portion of rawURL (everything up to
+// the first single slash after "://"). e.g. "http://host/dir" returns
+// "http://host".
+func serverOrigin(rawURL string) string {
+	idx := strings.Index(rawURL, "://")
+	if idx < 0 {
+		return rawURL
+	}
+	rest := rawURL[idx+3:]
+	slash := strings.Index(rest, "/")
+	if slash < 0 {
+		return rawURL
+	}
+	return rawURL[:idx+3+slash]
 }
 
 // videoExtensions mirrors scanner.videoExtensions -- only these extensions
