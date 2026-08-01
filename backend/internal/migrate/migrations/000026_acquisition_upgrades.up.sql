@@ -1,6 +1,6 @@
 CREATE TABLE acquisition_upgrades (
     id          SERIAL PRIMARY KEY,
-    item_id     TEXT NOT NULL REFERENCES media_items(id) ON DELETE CASCADE,
+    item_id     TEXT NOT NULL,
     title       TEXT NOT NULL,
     old_release TEXT NOT NULL DEFAULT '',
     new_release TEXT NOT NULL,
