@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -131,15 +132,22 @@ func (svc *Service) matchWebDAVURLs(ctx context.Context, rec *store.NZBDownload)
 		return
 	}
 
-	// Build a size→file map for matching — only video files are
-	// relevant (non-video files are skipped by promotion anyway).
-	bySize := make(map[int64]*store.NZBFile, len(files))
+	// Build a composite (size, extension) → file map for matching.
+	// Size alone can collide between completely different files;
+	// adding the file extension (.mkv, .mp4, etc.) eliminates that class
+	// of false match while still being a key both the API response (nzb_file.
+	// Name) and the WebDAV listing (DiscoveredFile.Path) share.
+	type matchKey struct {
+		size int64
+		ext  string
+	}
+	byKey := make(map[matchKey]*store.NZBFile, len(files))
 	for _, f := range files {
 		if scanner.IsVideoFile(f.Name) && f.WebDAVURL == "" {
-			bySize[f.SizeBytes] = f
+			byKey[matchKey{f.SizeBytes, filepath.Ext(f.Name)}] = f
 		}
 	}
-	if len(bySize) == 0 {
+	if len(byKey) == 0 {
 		return
 	}
 
@@ -155,19 +163,20 @@ func (svc *Service) matchWebDAVURLs(ctx context.Context, rec *store.NZBDownload)
 			log.Printf("nzb: refreshing webdav index for %s: %v", folder.URL, err)
 		}
 		if err := webdav.Walk(matchCtx, folder.URL, folder.APIKey, func(f webdav.DiscoveredFile) {
-			if nf, ok := bySize[f.SizeBytes]; ok {
+			key := matchKey{f.SizeBytes, filepath.Ext(f.Path)}
+			if nf, ok := byKey[key]; ok {
 				if err := svc.store.SetNZBFileWebDAVURL(nf.ID, f.Path); err != nil {
 					log.Printf("nzb: storing webdav url for %s: %v", nf.ID, err)
 					return
 				}
-				delete(bySize, f.SizeBytes) // only match once
+				delete(byKey, key) // only match once
 			}
 		}); err != nil {
 			log.Printf("nzb: matching webdav urls for %s against %s: %v", rec.ID, folder.URL, err)
 		}
 		cancel()
 
-		if len(bySize) == 0 {
+		if len(byKey) == 0 {
 			break // all matched
 		}
 	}

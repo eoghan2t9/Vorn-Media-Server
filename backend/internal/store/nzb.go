@@ -3,6 +3,8 @@ package store
 import (
 	"database/sql"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 )
 
@@ -234,30 +236,45 @@ func (s *Store) SetNZBFileWebDAVURL(fileID, webdavURL string) error {
 }
 
 // FindNZBFileBySize returns the NZB file with the given size (most recent
-// first) -- optionally scoped to libraryID, which prevents a WebDAV file in
-// one library from being matched against an NZB download for a completely
-// different library whose file happens to have the same byte size. When
-// libraryID is empty, the query matches across all libraries (used when
-// caller doesn't have library context). Returns ErrNotFound if no match
-// exists.
-func (s *Store) FindNZBFileBySize(libraryID string, sizeBytes int64) (*NZBFile, error) {
-	f := &NZBFile{}
-	var err error
+// first) -- optionally scoped to libraryID and/or extension. libraryID
+// prevents cross-library false matches; extension (e.g. ".mkv") reduces
+// same-size collision risk when two completely different files happen to
+// have identical byte sizes. Both are optional: empty string means "don't
+// filter on that dimension." Returns ErrNotFound if no match exists.
+func (s *Store) FindNZBFileBySize(libraryID string, sizeBytes int64, extension string) (*NZBFile, error) {
+	// Build the query dynamically instead of maintaining 4 copy-pasted
+	// branches — fewer places for the Scan columns to drift.
+	var (
+		clauses []string
+		args    []any
+		argIdx  = 1
+	)
+	fromClause := "FROM nzb_files nf"
 	if libraryID != "" {
-		err = s.db.QueryRow(
-			`SELECT nf.id, nf.nzb_download_id, nf.name, nf.size_bytes, nf.stream_url, coalesce(nf.webdav_url, '')
-			 FROM nzb_files nf
-			 JOIN nzb_downloads nd ON nd.id = nf.nzb_download_id
-			 WHERE nf.size_bytes = $1 AND nd.library_id = $2
-			 ORDER BY nf.id DESC LIMIT 1`,
-			sizeBytes, libraryID,
-		).Scan(&f.ID, &f.NZBDownloadID, &f.Name, &f.SizeBytes, &f.StreamURL, &f.WebDAVURL)
-	} else {
-		err = s.db.QueryRow(
-			`SELECT id, nzb_download_id, name, size_bytes, stream_url, coalesce(webdav_url, '') FROM nzb_files WHERE size_bytes = $1 ORDER BY id DESC LIMIT 1`,
-			sizeBytes,
-		).Scan(&f.ID, &f.NZBDownloadID, &f.Name, &f.SizeBytes, &f.StreamURL, &f.WebDAVURL)
+		fromClause += " JOIN nzb_downloads nd ON nd.id = nf.nzb_download_id"
 	}
+	args = append(args, sizeBytes)
+	clauses = append(clauses, fmt.Sprintf("nf.size_bytes = $%d", argIdx))
+	argIdx++
+	if libraryID != "" {
+		args = append(args, libraryID)
+		clauses = append(clauses, fmt.Sprintf("nd.library_id = $%d", argIdx))
+		argIdx++
+	}
+	if extension != "" {
+		args = append(args, strings.ToLower(extension))
+		clauses = append(clauses, fmt.Sprintf("lower(nf.name) LIKE '%%' || $%d", argIdx))
+		argIdx++
+	}
+
+	query := fmt.Sprintf(
+		`SELECT nf.id, nf.nzb_download_id, nf.name, nf.size_bytes, nf.stream_url, coalesce(nf.webdav_url, '')
+		 %s WHERE %s ORDER BY nf.id DESC LIMIT 1`,
+		fromClause, strings.Join(clauses, " AND "),
+	)
+
+	f := &NZBFile{}
+	err := s.db.QueryRow(query, args...).Scan(&f.ID, &f.NZBDownloadID, &f.Name, &f.SizeBytes, &f.StreamURL, &f.WebDAVURL)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}

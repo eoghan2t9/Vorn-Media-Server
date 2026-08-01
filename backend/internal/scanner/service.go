@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -274,15 +275,27 @@ func (svc *Service) flushBatch(ctx context.Context, job *store.ScanJob, libraryT
 	return len(files), nil
 }
 
+// nzbFileBySizeLookup is the subset of *store.Store that resolveWebDAVName
+// needs — factored as an interface so tests can inject a fake without a
+// real database.
+type nzbFileBySizeLookup interface {
+	FindNZBFileBySize(libraryID string, sizeBytes int64, extension string) (*store.NZBFile, error)
+}
+
 // resolveWebDAVName checks whether path is a WebDAV URL whose file has a
 // random hash name (as TorBox serves NZB-downloaded files); if an nzb_file
 // with the same size exists in libraryID, its real Name is returned for
 // parsing instead of the hash. Otherwise path is returned unchanged.
-func resolveWebDAVName(st *store.Store, libraryID, path string, sizeBytes int64) string {
+func resolveWebDAVName(st nzbFileBySizeLookup, libraryID, path string, sizeBytes int64) string {
 	if !strings.HasPrefix(path, "http") {
 		return path
 	}
-	nf, err := st.FindNZBFileBySize(libraryID, sizeBytes)
+	// Extract the file extension from the WebDAV path to use as an
+	// additional matching dimension alongside size — two differently-sized
+	// files can't collide, but two same-sized files with different
+	// extensions (e.g. .mkv vs .mp4) definitely shouldn't match.
+	ext := filepath.Ext(path)
+	nf, err := st.FindNZBFileBySize(libraryID, sizeBytes, ext)
 	if err != nil {
 		return path
 	}
