@@ -381,6 +381,10 @@ func (i *tbUsenetInfo) failed() bool {
 	return strings.Contains(s, "failed") || strings.Contains(s, "invalid") || strings.Contains(s, "error")
 }
 
+// Failed reports whether this usenet download has reached a terminal
+// failure state on TorBox's side, exported for nzb.Service's reconciliation.
+func (i *tbUsenetInfo) Failed() bool { return i.failed() }
+
 // WaitForUsenetCache polls GET /usenet/mylist until TorBox finishes
 // downloading, repairing, and finalizing usenetID's file listing,
 // invoking progress (0..1) as it goes so callers can mirror it into their
@@ -488,6 +492,30 @@ func (c *TorBoxClient) RequestUsenetDownloadLink(ctx context.Context, apiKey str
 		return "", fmt.Errorf("torbox: %s", resp.Detail)
 	}
 	return resp.Data, nil
+}
+
+// ListUsenetDownloads returns every usenet download on the account (GET
+// /usenet/mylist without an id filter), for startup reconciliation when
+// Vorn has been restarted and lost track of in-flight downloads. The
+// bypass_cache parameter skips TorBox's own 60-second CDN cache so the
+// response reflects the server's actual current state.
+func (c *TorBoxClient) ListUsenetDownloads(ctx context.Context, apiKey string) ([]tbUsenetInfo, error) {
+	var resp tbEnvelope[json.RawMessage]
+	if err := c.do(ctx, http.MethodGet, "/usenet/mylist?bypass_cache=true", apiKey, "", nil, &resp); err != nil {
+		return nil, err
+	}
+	if !resp.Success {
+		return nil, fmt.Errorf("torbox: %s", resp.Detail)
+	}
+	raw := bytes.TrimSpace(resp.Data)
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil, nil
+	}
+	var items []tbUsenetInfo
+	if err := json.Unmarshal(raw, &items); err != nil {
+		return nil, fmt.Errorf("torbox: decoding usenet list: %w", err)
+	}
+	return items, nil
 }
 
 type tbUserData struct {

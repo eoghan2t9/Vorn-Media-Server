@@ -160,6 +160,130 @@ func (svc *Service) CheckCachedURLs(ctx context.Context, urls []string) (map[str
 	return out, nil
 }
 
+// ReconcileFromTorBox queries TorBox for every existing usenet download and
+// ensures Vorn's nzb_downloads/nzb_files rows reflect reality. Called once
+// at startup (and after every reconfigure that rebuilds the NZB service),
+// it catches downloads that completed while the process was down, or whose
+// in-memory polling goroutines were lost across a restart — without this,
+// those downloads stay on TorBox forever consuming quota/storage while Vorn
+// has no record of them at all.
+func (svc *Service) ReconcileFromTorBox(ctx context.Context) {
+	server, err := svc.pickServer()
+	if err != nil {
+		return
+	}
+
+	remote, err := svc.torboxClient.ListUsenetDownloads(ctx, server.APIKey)
+	if err != nil {
+		log.Printf("nzb: reconciling from torbox: listing usenet downloads: %v", err)
+		return
+	}
+	if len(remote) == 0 {
+		return
+	}
+
+	log.Printf("nzb: reconciling %d usenet download(s) from torbox", len(remote))
+
+	// Build a provider_ref → nzb_download lookup from Vorn's own records.
+	local, _ := svc.store.ListNZBDownloads()
+	byRef := make(map[string]*store.NZBDownload, len(local))
+	for _, d := range local {
+		if d.ProviderRef != "" {
+			byRef[d.ProviderRef] = d
+		}
+	}
+
+	for _, dl := range remote {
+		ref := strconv.Itoa(dl.ID)
+		existing := byRef[ref]
+
+		// If Vorn already has this download and it's finished (completed or
+		// errored on TorBox's side), ensure Vorn's own status agrees and
+		// that it was marked promoted. A download that Vorn still thinks is
+		// "repairing" after a restart definitely finished while the process
+		// was down — promote it now.
+		switch {
+		case dl.DownloadFinished && dl.DownloadPresent && !dl.Failed():
+			if existing != nil {
+				if existing.Status == "repairing" || (existing.Status == "completed" && !existing.Promoted) {
+					// This download finished while Vorn was offline (status
+					// still "repairing"), or it completed but was never
+					// promoted (e.g. the old IsProbableHash filter blocked
+					// it). Either way, ensure files are recorded, CDN stream
+					// URLs are fetched (same as runTorBox), WebDAV URLs are
+					// matched, and promotion runs.
+					log.Printf("nzb: reconciliation: %s (%s) catching up (status=%s promoted=%v)", existing.ID, existing.Name, existing.Status, existing.Promoted)
+					for _, f := range dl.Files {
+						name := f.Name
+						if name == "" {
+							name = f.ShortName
+						}
+						link, err := svc.torboxClient.RequestUsenetDownloadLink(ctx, server.APIKey, dl.ID, f.ID)
+						if err != nil {
+							log.Printf("nzb: reconciliation: requesting download link for %s: %v", existing.ID, err)
+							// Still record the file even without a CDN URL —
+							// WebDAV matching below may still find it.
+							link = ""
+						}
+						if _, err := svc.store.AddNZBFile(existing.ID, name, f.Size, link); err != nil {
+							log.Printf("nzb: reconciliation: recording file for %s: %v", existing.ID, err)
+						}
+					}
+				files, _ := svc.store.ListNZBFiles(existing.ID)
+					if len(files) > 0 {
+						svc.matchWebDAVURLs(ctx, existing)
+						svc.finish(existing, nil)
+						if svc.onComplete != nil {
+							svc.onComplete(existing)
+						}
+					}
+				}
+			} else if existing == nil {
+				// TorBox has a completed download Vorn knows nothing about —
+				// create a record and promote it so the files aren't stranded.
+				name := dl.Files[0].Name
+				if name == "" && len(dl.Files) > 0 {
+					name = dl.Files[0].ShortName
+				}
+				if name == "" {
+					name = fmt.Sprintf("usenet-%d", dl.ID)
+				}
+				rec, err := svc.store.CreateNZBDownload(store.CreateNZBDownloadInput{
+					Name: name,
+				})
+				if err != nil {
+					log.Printf("nzb: reconciliation: creating record for %d: %v", dl.ID, err)
+					continue
+				}
+				if err := svc.store.SetNZBDownloadProviderRef(rec.ID, ref); err != nil {
+					log.Printf("nzb: reconciliation: setting provider ref for %s: %v", rec.ID, err)
+				}
+				for _, f := range dl.Files {
+					name := f.Name
+					if name == "" {
+						name = f.ShortName
+					}
+					if _, err := svc.store.AddNZBFile(rec.ID, name, f.Size, ""); err != nil {
+						log.Printf("nzb: reconciliation: recording file for %s: %v", rec.ID, err)
+					}
+				}
+				// These orphaned downloads have no library association —
+				// promoteStreamFiles needs one for PromoteCompleted, so this
+				// is best-effort: the files appear in the admin NZB list and
+				// the admin can assign them to a library or delete them.
+				// The stream URLs aren't fetched (no CDN links requested),
+				// but the file list is there and visible.
+				svc.finish(rec, nil)
+				log.Printf("nzb: reconciliation: created record %s for orphaned torbox download %d", rec.ID, dl.ID)
+			}
+		case dl.Failed():
+			if existing != nil && existing.Status != "error" {
+				svc.finish(existing, fmt.Errorf("torbox: download failed remotely: %s", dl.DownloadState))
+			}
+		}
+	}
+}
+
 func (svc *Service) pickServer() (*store.UsenetServer, error) {
 	servers, err := svc.store.ListUsenetServers()
 	if err != nil {

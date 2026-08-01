@@ -252,7 +252,13 @@ func (s *Server) reconfigure() error {
 
 	nzbChanged := false
 	if nzbEnabled && s.nzbSvc.Load() == nil {
-		s.nzbSvc.Store(nzb.NewService(s.store, s.debridSvc.TorBoxLimiter()))
+		ns := nzb.NewService(s.store, s.debridSvc.TorBoxLimiter())
+		s.nzbSvc.Store(ns)
+		// Reconcile TorBox state on startup: any download that completed
+		// while the process was offline gets caught up now instead of
+		// sitting on TorBox forever consuming quota with Vorn none the
+		// wiser. Best-effort — logged but never fatal.
+		go ns.ReconcileFromTorBox(context.Background())
 		nzbChanged = true
 	} else if !nzbEnabled {
 		if old := s.nzbSvc.Swap(nil); old != nil {
