@@ -1,11 +1,14 @@
 import { useEffect, useState, type ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 import {
   fetchSystemStats,
   fetchTranscodeCapabilities,
   listCurrentlyWatching,
   listLibraries,
+  listUpgrades,
   listUsers,
   restartServer,
+  type AcquisitionUpgrade,
   type SystemStats,
 } from '../api/client'
 import { ConfirmDialog } from '../components/ConfirmDialog'
@@ -80,6 +83,7 @@ export function AdminHome() {
   const [libraryCount, setLibraryCount] = useState<number | null>(null)
   const [watchingCount, setWatchingCount] = useState<number | null>(null)
   const [sysStats, setSysStats] = useState<SystemStats | null>(null)
+  const [upgrades, setUpgrades] = useState<AcquisitionUpgrade[]>([])
 
   const [restarting, setRestarting] = useState(false)
   const [restartConfirmOpen, setRestartConfirmOpen] = useState(false)
@@ -98,6 +102,9 @@ export function AdminHome() {
     listCurrentlyWatching()
       .then((w) => setWatchingCount(w.length))
       .catch(() => setWatchingCount(null))
+    listUpgrades()
+      .then((u) => setUpgrades(u.slice(0, 5)))
+      .catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -197,6 +204,39 @@ export function AdminHome() {
           Some stats aren't available on this host's OS — CPU/memory/disk/network reporting varies by platform, and
           this instance is running on one where not everything can be read.
         </p>
+      )}
+
+      {upgrades.length > 0 && (
+        <div className="vorn-panel">
+          <div className="vorn-panel-header">
+            <h2>Recent quality upgrades</h2>
+          </div>
+          <div className="vorn-table-wrap">
+          <table className="vorn-table">
+            <thead>
+              <tr>
+                <th>Title</th>
+                <th>New release</th>
+                <th>Source</th>
+                <th>When</th>
+              </tr>
+            </thead>
+            <tbody>
+              {upgrades.map((u) => (
+                <tr key={u.id}>
+                  <td>{u.title}</td>
+                  <td>{u.newRelease}</td>
+                  <td>{u.source}</td>
+                  <td className="vorn-muted">{new Date(u.createdAt).toLocaleString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          </div>
+          <p className="vorn-panel-subtitle" style={{ margin: '0.75rem 0 0' }}>
+            <Link to="/admin/about">View all upgrades</Link>
+          </p>
+        </div>
       )}
 
       <div className="vorn-panel">
