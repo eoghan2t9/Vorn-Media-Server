@@ -563,6 +563,8 @@ export interface NZBDownload {
 }
 export const listNZBDownloads = () => request<NZBDownload[]>('/api/nzb')
 
+export const triggerNZBSync = () => request<NZBDownload[]>('/api/nzb/sync', { method: 'POST' })
+
 export const addNZBFile = async (file: File, opts?: { libraryId?: string }) => {
   const params = new URLSearchParams()
   if (opts?.libraryId) params.set('libraryId', opts.libraryId)

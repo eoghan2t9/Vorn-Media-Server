@@ -307,7 +307,7 @@ func TestTorBoxClient_UsenetInfo_BareObjectShape(t *testing.T) {
 	c := NewTorBoxClient(NewLimiter(1_000_000))
 	c.baseURL = srv.URL
 
-	item, err := c.usenetInfo(context.Background(), "test-key", 42)
+	item, err := c.UsenetInfo(context.Background(), "test-key", 42)
 	if err != nil {
 		t.Fatalf("usenetInfo: %v", err)
 	}

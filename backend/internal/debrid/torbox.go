@@ -465,7 +465,7 @@ func (i *TBUsenetInfo) Failed() bool { return i.failed() }
 func (c *TorBoxClient) WaitForUsenetCache(ctx context.Context, apiKey string, usenetID int, progress func(float64)) ([]TBFile, error) {
 	deadline := time.Now().Add(tbPollTimeout)
 	for {
-		item, err := c.usenetInfo(ctx, apiKey, usenetID)
+		item, err := c.UsenetInfo(ctx, apiKey, usenetID)
 		if err != nil {
 			var transient *tbTransientError
 			var ce *ClassifiedError
@@ -508,13 +508,14 @@ func (c *TorBoxClient) WaitForUsenetCache(ctx context.Context, apiKey string, us
 	}
 }
 
-// usenetInfo fetches a single usenet download's status. Unlike
+// UsenetInfo fetches a single usenet download's status. Unlike
 // /torrents/mylist (which always wraps its result in a JSON array, even
 // when filtered down to one id), /usenet/mylist?id=X was observed in
 // production returning data as a bare JSON object rather than a
 // single-element array -- so data is decoded as json.RawMessage and
 // unmarshaled as whichever shape it actually is, rather than assuming one.
-func (c *TorBoxClient) usenetInfo(ctx context.Context, apiKey string, usenetID int) (*TBUsenetInfo, error) {
+// Exported for nzb.Service's tryImmediateCompletion.
+func (c *TorBoxClient) UsenetInfo(ctx context.Context, apiKey string, usenetID int) (*TBUsenetInfo, error) {
 	path := "/usenet/mylist?bypass_cache=true&id=" + url.QueryEscape(strconv.Itoa(usenetID))
 	var resp tbEnvelope[json.RawMessage]
 	if err := c.do(ctx, http.MethodGet, path, apiKey, "", nil, &resp); err != nil {

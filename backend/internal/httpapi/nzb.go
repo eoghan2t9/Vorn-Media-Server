@@ -557,6 +557,29 @@ func (s *Server) handleNZBEvents(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleTriggerNZBSync fires a one-shot syncFromTorBox sweep from the admin
+// UI's "Recheck TorBox" button — catches completions immediately without
+// waiting for the next background sync tick.
+func (s *Server) handleTriggerNZBSync(w http.ResponseWriter, r *http.Request) {
+	if s.nzbSvc.Load() == nil {
+		writeError(w, http.StatusServiceUnavailable, nzbServiceUnavailable)
+		return
+	}
+	s.nzbSvc.Load().TriggerSync()
+	// Return the updated download list so the frontend can refresh in
+	// the same round-trip instead of waiting for SSE/polling.
+	downloads, err := s.nzbSvc.Load().List()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "listing nzb downloads")
+		return
+	}
+	resp := make([]nzbDownloadResponse, 0, len(downloads))
+	for _, n := range downloads {
+		resp = append(resp, toNZBDownloadResponse(n))
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
 func (s *Server) handleDeleteNZBIndexer(w http.ResponseWriter, r *http.Request) {
 	if s.nzbSvc.Load() == nil {
 		writeError(w, http.StatusServiceUnavailable, nzbServiceUnavailable)

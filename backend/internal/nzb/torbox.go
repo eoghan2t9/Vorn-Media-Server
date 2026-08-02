@@ -59,10 +59,12 @@ func (svc *Service) runTorBox(parentCtx context.Context, rec *store.NZBDownload,
 	if err := svc.store.SetNZBDownloadProviderRef(rec.ID, strconv.Itoa(usenetID)+":"+webdavHash); err != nil {
 		log.Printf("nzb: recording provider ref for %s: %v", rec.ID, err)
 	}
-	// The rest — waiting for TorBox to finish caching, recording file
-	// entries, matching WebDAV URLs, and promoting — is handled by the
-	// continuous background poller (syncFromTorBox) which catches every
-	// download on each sweep, no per-download goroutine needed.
+	// Quick post-submit poll: if TorBox already has this NZB cached
+	// (which CreateUsenetDownload returns immediately for), the
+	// download completes within a second or two — check once now
+	// instead of waiting for the next 30s sync sweep. This catches
+	// the vast majority of cached-NZB completions instantly.
+	svc.tryImmediateCompletion(ctx, rec, server, usenetID)
 }
 
 const matchWebDAVTimeout = 30 * time.Second

@@ -455,6 +455,7 @@ func NewRouter(deps Deps) http.Handler {
 	mux.HandleFunc("POST /api/nzb", s.withAdmin(s.handleAddNZB))
 	mux.HandleFunc("DELETE /api/nzb/{id}", s.withAdmin(s.handleRemoveNZB))
 	mux.HandleFunc("GET /api/nzb/events", s.withAdmin(s.handleNZBEvents))
+	mux.HandleFunc("POST /api/nzb/sync", s.withAdmin(s.handleTriggerNZBSync))
 	mux.HandleFunc("GET /api/nzb/search", s.withAdmin(s.handleNZBSearch))
 	mux.HandleFunc("POST /api/nzb/from-url", s.withAdmin(s.handleAddNZBFromURL))
 	mux.HandleFunc("GET /api/nzb-indexers", s.withAdmin(s.handleListNZBIndexers))

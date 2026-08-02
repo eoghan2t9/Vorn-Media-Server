@@ -384,6 +384,22 @@ func (svc *Service) broadcast() {
 // Close stops the background sync goroutine. Safe to call multiple times;
 // after Close returns, the sync goroutine has stopped and no further sync
 // sweeps will run.
+// Close stops the background sync goroutine. Safe to call multiple times;
+// after Close returns, the sync goroutine has stopped and no further sync
+// sweeps will run.
+
+// TriggerSync fires an immediate one-shot syncFromTorBox sweep (in the
+// caller's goroutine — not in the background poller) and returns when it
+// completes. Used by the admin UI's "Recheck TorBox" button to catch
+// completions without waiting for the next background tick.
+func (svc *Service) TriggerSync() {
+	// Use the running sync's context (not a fresh one) so it's still bounded
+	// by the same lifecycle — closing the service also cancels this.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	svc.runSync(ctx)
+}
+
 func (svc *Service) Close() {
 	svc.syncMu.Lock()
 	defer svc.syncMu.Unlock()
@@ -598,6 +614,38 @@ func (svc *Service) catchUpDownload(ctx context.Context, existing *store.NZBDown
 		svc.broadcast()
 	}
 }
+
+// tryImmediateCompletion polls TorBox once for a just-created usenet
+// download — if it's already complete (the common case for cached NZBs),
+// record files, request download links, match WebDAV, and promote
+// immediately instead of waiting for the next sync sweep (up to 30s).
+// Best-effort: any failure is silently ignored; the regular sync will
+// catch it on the next tick.
+func (svc *Service) tryImmediateCompletion(ctx context.Context, rec *store.NZBDownload, server *store.UsenetServer, usenetID int) {
+	// Give TorBox a moment to process — cached content still needs a
+	// sub-second server-side resolution before files are available.
+	select {
+	case <-time.After(500 * time.Millisecond):
+	case <-ctx.Done():
+		return
+	}
+
+	dl, err := svc.torboxClient.UsenetInfo(ctx, server.APIKey, usenetID)
+	if err != nil {
+		return
+	}
+	if dl == nil || !isDownloadComplete(dl) || dl.Failed() {
+		return
+	}
+
+	log.Printf("nzb: immediate completion for %s (%s) — download already cached", rec.ID, rec.Name)
+
+	// Mirror catchUpDownload: record files, request CDN links, match
+	// WebDAV, finish, promote.
+	svc.catchUpDownload(ctx, rec, dl, server)
+}
+
+
 
 // importOrphanedDownload handles a download that exists on TorBox but not
 // in Vorn's DB: creates a local record, auto-assigns a library by filename

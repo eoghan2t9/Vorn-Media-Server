@@ -15,6 +15,7 @@ import {
   searchNZB,
   testNZBIndexer,
   testUsenetServer,
+  triggerNZBSync,
   updateNZBIndexer,
   updateUsenetServer,
   type Library,
@@ -90,6 +91,7 @@ export function AdminNzb() {
   const [results, setResults] = useState<NZBSearchResult[] | null>(null)
   const [searching, setSearching] = useState(false)
   const [downloadingResult, setDownloadingResult] = useState<string | null>(null)
+  const [syncing, setSyncing] = useState(false)
 
   const fallbackRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -148,6 +150,19 @@ export function AdminNzb() {
       await refreshDownloads()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to remove nzb download')
+    }
+  }
+
+  async function handleSync() {
+    setSyncing(true)
+    setError(null)
+    try {
+      const updated = await triggerNZBSync()
+      setDownloads(updated)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to sync with TorBox')
+    } finally {
+      setSyncing(false)
     }
   }
 
@@ -324,6 +339,8 @@ export function AdminNzb() {
       <div className="vorn-panel">
         <div className="vorn-panel-header">
           <h2>Downloads</h2>
+          <button type="button" onClick={handleSync} disabled={syncing} className="vorn-btn-secondary">
+            {syncing ? 'Syncing…' : 'Recheck TorBox'}</button>
         </div>
         <div className="vorn-table-wrap">
         <table className="vorn-table">
