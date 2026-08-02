@@ -900,6 +900,19 @@ func (s *Service) raceNZBCandidates(item *store.MediaItem, ranked []ScoredNZBRel
 	raceCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// Give the shared TorBox limiter a moment to breathe after the cache
+	// check — prioritizeCachedNZB may have issued several API calls (up
+	// to ~4 batches of 25 hashes each), and the background sync sweep
+	// is often in-flight at the same time. A short pause here separates
+	// the cache-check burst from the NZB submission burst so TorBox
+	// sees a steady trickle instead of one giant spike.
+	select {
+	case <-time.After(2 * time.Second):
+	case <-raceCtx.Done():
+		return false
+	}
+	defer cancel()
+
 	var launched []string
 	for i, candidate := range ranked {
 		// Skip candidates whose download URL recently failed — avoids

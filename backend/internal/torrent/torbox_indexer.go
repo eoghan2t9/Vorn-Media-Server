@@ -12,8 +12,14 @@ import (
 // torBoxSearchBaseURL is TorBox's own torrent-search API -- a distinct
 // service from api.torbox.app (debrid/usenet), confirmed against TorBox's
 // published Prowlarr custom-indexer definition
-// (github.com/dreulavelle/Prowlarr-Indexers, Custom/torbox.yml). A var, not
-// a const, so tests can point it at an httptest server.
+// (github.com/dreulavelle/Prowlarr-Indexers, Custom/torbox.yml).
+//
+// NOTE: As of Aug 2026, search-api.torbox.app does not resolve (NXDOMAIN
+// even via 8.8.8.8). The main api.torbox.app domain also returns 404 for
+// the /torrents/imdb_id: path. TorBox may have decommissioned their search
+// API or moved it. The error is handled gracefully (logged, not fatal),
+// and the plain-text Prowlarr/Torznab indexer search still works.
+// A var, not a const, so tests can point it at an httptest server.
 var torBoxSearchBaseURL = "https://search-api.torbox.app"
 
 // torBoxValidationIMDbID (Fight Club) is what TorBox's own reference

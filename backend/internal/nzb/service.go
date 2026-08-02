@@ -19,6 +19,19 @@ import (
 const providerDeleteTimeout = 30 * time.Second
 const defaultBackgroundSyncInterval = 30 * time.Second
 
+// cacheCheckBatchSize caps how many hashes a single cache-check request
+// sends at once. A single call with ~100 hashes (a worst-case ranked list
+// after two undeduped searches combined) balloons the GET URL beyond what
+// some CDN/proxy layers tolerate and, more importantly, appears to count
+// as more than a single "request" against TorBox's rate limit — splitting
+// into batches of 25 with a small inter-batch delay keeps each request
+// manageable and spreads them across the rate window instead of burning
+// it all in one giant burst.
+const (
+	cacheCheckBatchSize  = 25
+	cacheCheckBatchDelay = 500 * time.Millisecond
+)
+
 // NZBDownloadEvent is published to SSE subscribers whenever a download
 // completes (via catchUpDownload or importOrphanedDownload). The event is
 // minimal — the client fetches full state via the list endpoint, same as
@@ -223,28 +236,56 @@ func (svc *Service) CheckCachedURLs(ctx context.Context, urls []string) (map[str
 	svc.iaMu.Unlock()
 
 	if len(missing) > 0 {
-		cachedHashes, err := svc.torboxClient.CheckCachedUsenet(ctx, server.APIKey, missing)
-		if err != nil {
-			return nil, err
-		}
-
-		// Cache results (both positive and negative) and populate output.
-		svc.iaMu.Lock()
+		// Batch the missing hashes so a single cache-check call never
+		// sends ~100 hashes at once (which balloons the GET URL and
+		// burns TorBox's rate limit in one giant burst). Each batch
+		// gets its own API call, with a small inter-batch delay to
+		// spread them across the rate window.
 		expiresAt := now.Add(instantAvailTTL)
-		for _, h := range missing {
-			if info, ok := cachedHashes[h]; ok {
-				svc.instantAvailCache[h] = &instantAvailEntry{info: info, expiresAt: expiresAt}
-				if u, ok2 := hashToURL[h]; ok2 {
-					out[u] = info
+		for start := 0; start < len(missing); start += cacheCheckBatchSize {
+			end := start + cacheCheckBatchSize
+			if end > len(missing) {
+				end = len(missing)
+			}
+			batch := missing[start:end]
+
+			cachedHashes, err := svc.torboxClient.CheckCachedUsenet(ctx, server.APIKey, batch)
+			if err != nil {
+				log.Printf("nzb: cache check batch %d-%d failed: %v", start, end-1, err)
+				// Don't return on batch failure — later batches might
+				// still succeed, and the caller falls back to quality-
+				// score ordering for any unchecked candidates.
+				continue
+			}
+
+			// Cache results (both positive and negative) and populate output.
+			svc.iaMu.Lock()
+			for _, h := range batch {
+				if info, ok := cachedHashes[h]; ok {
+					svc.instantAvailCache[h] = &instantAvailEntry{info: info, expiresAt: expiresAt}
+					if u, ok2 := hashToURL[h]; ok2 {
+						out[u] = info
+					}
+				} else {
+					// Negative cache — remember the "not cached" result.
+					if svc.instantAvailCache[h] == nil || svc.instantAvailCache[h].info != nil {
+						svc.instantAvailCache[h] = &instantAvailEntry{info: nil, expiresAt: expiresAt}
+					}
 				}
-			} else {
-				// Negative cache — remember the "not cached" result.
-				if svc.instantAvailCache[h] == nil || svc.instantAvailCache[h].info != nil {
-					svc.instantAvailCache[h] = &instantAvailEntry{info: nil, expiresAt: expiresAt}
+			}
+			svc.iaMu.Unlock()
+
+			// Small delay between batches so the shared limiter has
+			// room to breathe between these calls and any concurrent
+			// sync sweep or NZB submission.
+			if end < len(missing) {
+				select {
+				case <-time.After(cacheCheckBatchDelay):
+				case <-ctx.Done():
+					break
 				}
 			}
 		}
-		svc.iaMu.Unlock()
 	}
 	return out, nil
 }
