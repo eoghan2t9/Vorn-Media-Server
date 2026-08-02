@@ -136,7 +136,29 @@ func (c *TorBoxClient) controlDownload(ctx context.Context, apiKey, path, idFiel
 // returning a hash -> cached map for whichever of hashes TorBox already has
 // cached from a prior torrent add.
 func (c *TorBoxClient) CheckCached(ctx context.Context, apiKey string, hashes []string) (map[string]bool, error) {
-	return c.checkCached(ctx, apiKey, "/torrents/checkcached", hashes)
+	return c.checkCached(ctx, apiKey, "/torrents/checkcached", hashes, false)
+}
+
+// NZBCachedFile is a single file's metadata returned by TorBox's
+// /usenet/checkcached when listFiles=true — mirrors AIOStreams'
+// instant-availability response shape.
+type NZBCachedFile struct {
+	ID        int    `json:"id"`
+	Name      string `json:"name"`
+	ShortName string `json:"short_name"`
+	Size      int64  `json:"size"`
+	MimeType  string `json:"mimetype"`
+}
+
+// NZBInstantAvailInfo is the per-hash result from CheckCachedUsenet when
+// listFiles=true — a cached NZB comes back with its total size AND the full
+// file list, so callers can judge content quality (file count, total size)
+// and match by filename without a second API call.
+type NZBInstantAvailInfo struct {
+	Hash   string
+	Cached bool
+	Size   int64
+	Files  []NZBCachedFile
 }
 
 // CheckCachedUsenet mirrors CheckCached but against GET /usenet/checkcached
@@ -146,23 +168,83 @@ func (c *TorBoxClient) CheckCached(ctx context.Context, apiKey string, hashes []
 // stable identifier available before ever fetching/parsing the NZB itself.
 // Callers (nzb.Service.CheckCachedURLs) compute that hash; this just checks
 // it against TorBox.
-func (c *TorBoxClient) CheckCachedUsenet(ctx context.Context, apiKey string, urlHashes []string) (map[string]bool, error) {
-	return c.checkCached(ctx, apiKey, "/usenet/checkcached", urlHashes)
+//
+// Now sends listFiles=true (mirroring AIOStreams) so cached results include
+// file names/sizes — callers can score based on total size and file count
+// without a separate API call, and promotion can skip re-probing files
+// whose metadata is already known.
+func (c *TorBoxClient) CheckCachedUsenet(ctx context.Context, apiKey string, urlHashes []string) (map[string]*NZBInstantAvailInfo, error) {
+	return c.checkCachedUsenet(ctx, apiKey, "/usenet/checkcached", urlHashes)
 }
 
-// tbCachedInfo is checkCached's response entry shape -- inferred from a
-// third-party client rather than confirmed against a live account (like
-// the rest of this file's newer additions), so the exact query parameters
-// and this shape should be watched once exercised for real.
+// checkCachedUsenet is checkCached but always sends listFiles=true and
+// returns the richer NZBInstantAvailInfo shape.
+func (c *TorBoxClient) checkCachedUsenet(ctx context.Context, apiKey, path string, hashes []string) (map[string]*NZBInstantAvailInfo, error) {
+	if len(hashes) == 0 {
+		return map[string]*NZBInstantAvailInfo{}, nil
+	}
+	q := url.Values{
+		"hash":      {strings.Join(hashes, ",")},
+		"format":    {"list"},
+		"listFiles": {"true"},
+	}
+	var resp tbEnvelope[[]tbCachedUsenetItem]
+	if err := c.do(ctx, http.MethodGet, path+"?"+q.Encode(), apiKey, "", nil, &resp); err != nil {
+		return nil, err
+	}
+	if !resp.Success {
+		return nil, fmt.Errorf("torbox: %s", resp.Detail)
+	}
+	out := make(map[string]*NZBInstantAvailInfo, len(resp.Data))
+	for _, item := range resp.Data {
+		files := make([]NZBCachedFile, 0, len(item.Files))
+		for _, f := range item.Files {
+			files = append(files, NZBCachedFile{
+				ID:        f.ID,
+				Name:      f.Name,
+				ShortName: f.ShortName,
+				Size:      f.Size,
+				MimeType:  f.MimeType,
+			})
+		}
+		out[strings.ToLower(item.Hash)] = &NZBInstantAvailInfo{
+			Hash:   item.Hash,
+			Cached: true,
+			Size:   item.Size,
+			Files:  files,
+		}
+	}
+	return out, nil
+}
+
+// tbCachedUsenetItem is the response entry shape when listFiles=true —
+// confirmed against AIOStreams' production response parsing.
+type tbCachedUsenetItem struct {
+	Hash  string `json:"hash"`
+	Size  int64  `json:"size"`
+	Files []struct {
+		ID        int    `json:"id"`
+		Name      string `json:"name"`
+		ShortName string `json:"short_name"`
+		Size      int64  `json:"size"`
+		MimeType  string `json:"mimetype"`
+	} `json:"files"`
+}
+
+// tbCachedInfo is the old shape (no listFiles) — kept for CheckCached
+// which still uses the torrent endpoint.
 type tbCachedInfo struct {
 	Hash string `json:"hash"`
 }
 
-func (c *TorBoxClient) checkCached(ctx context.Context, apiKey, path string, hashes []string) (map[string]bool, error) {
+func (c *TorBoxClient) checkCached(ctx context.Context, apiKey, path string, hashes []string, listFiles bool) (map[string]bool, error) {
 	if len(hashes) == 0 {
 		return map[string]bool{}, nil
 	}
 	q := url.Values{"hash": {strings.Join(hashes, ",")}, "format": {"list"}}
+	if listFiles {
+		q.Set("listFiles", "true")
+	}
 	var resp tbEnvelope[[]tbCachedInfo]
 	if err := c.do(ctx, http.MethodGet, path+"?"+q.Encode(), apiKey, "", nil, &resp); err != nil {
 		return nil, err

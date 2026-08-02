@@ -353,12 +353,15 @@ func TestTorBoxClient_CheckCached(t *testing.T) {
 }
 
 func TestTorBoxClient_CheckCachedUsenet(t *testing.T) {
-	var gotPath string
+	var gotPath, gotQuery string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
-		json.NewEncoder(w).Encode(tbEnvelope[[]tbCachedInfo]{
+		gotQuery = r.URL.RawQuery
+		// Return the new listFiles=true response shape — tbCachedUsenetItem
+		// has hash, size, and files fields.
+		json.NewEncoder(w).Encode(tbEnvelope[[]tbCachedUsenetItem]{
 			Success: true,
-			Data:    []tbCachedInfo{{Hash: "urlhash1"}},
+			Data:    []tbCachedUsenetItem{{Hash: "urlhash1", Size: 1500000000}},
 		})
 	}))
 	defer srv.Close()
@@ -373,7 +376,13 @@ func TestTorBoxClient_CheckCachedUsenet(t *testing.T) {
 	if gotPath != "/usenet/checkcached" {
 		t.Fatalf("unexpected path: %s", gotPath)
 	}
-	if !result["urlhash1"] || result["urlhash2"] {
-		t.Fatalf("unexpected result: %+v", result)
+	if !strings.Contains(gotQuery, "listFiles=true") {
+		t.Fatalf("expected listFiles=true in query, got %q", gotQuery)
+	}
+	if result["urlhash1"] == nil || !result["urlhash1"].Cached {
+		t.Fatalf("expected urlhash1 to be cached, got %+v", result["urlhash1"])
+	}
+	if result["urlhash2"] != nil {
+		t.Fatalf("expected urlhash2 to not be present, got %+v", result["urlhash2"])
 	}
 }

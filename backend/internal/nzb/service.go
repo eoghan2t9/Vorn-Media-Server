@@ -50,7 +50,7 @@ type Service struct {
 	// different goroutines.
 	syncCancel context.CancelFunc
 	syncMu     sync.Mutex
-	// syncRunning prevents overlapping syncFromTorBox sweeps — if the
+	// syncRunning prevents overlapping syncFromTorBox sweeps -- if the
 	// previous sweep is still running when the ticker fires, the new tick
 	// is skipped.
 	syncRunning sync.Mutex
@@ -58,7 +58,29 @@ type Service struct {
 	// ping when a download completes. Guarded by subMu.
 	subscribers map[chan NZBDownloadEvent]struct{}
 	subMu       sync.Mutex
+	// instantAvailCache avoids redundant TorBox cache-check API calls for
+	// the same NZB URL hash within a short window -- keyed on the MD5 hash
+	// TorBox uses for its own cache check. Guarded by iaMu; nil value means
+	// "checked and not cached" (explicit negative cache).
+	instantAvailCache map[string]*instantAvailEntry
+	iaMu              sync.Mutex
+	// failureCache skips re-submitting NZBs whose download URLs recently
+	// failed (bad NZB file, server error, permanent failure) -- avoids
+	// wasting TorBox quota on known-bad content. Guarded by fcMu.
+	failureCache map[string]time.Time
+	fcMu         sync.Mutex
 }
+
+type instantAvailEntry struct {
+	info      *debrid.NZBInstantAvailInfo
+	expiresAt time.Time
+}
+
+const (
+	instantAvailTTL  = 5 * time.Minute
+	failureCacheTTL  = 30 * time.Minute
+	failureCacheSize = 500 // max entries before oldest are evicted
+)
 
 // NewService takes torboxLimiter (see debrid.Service.TorBoxLimiter) rather
 // than constructing its own, so NZB's TorBox usenet-caching client shares
@@ -66,9 +88,11 @@ type Service struct {
 // client and torrent.Service's TorBox indexer search.
 func NewService(st *store.Store, torboxLimiter *debrid.Limiter) *Service {
 	svc := &Service{
-		store:        st,
-		torboxClient: debrid.NewTorBoxClient(torboxLimiter),
-		subscribers:  make(map[chan NZBDownloadEvent]struct{}),
+		store:             st,
+		torboxClient:      debrid.NewTorBoxClient(torboxLimiter),
+		subscribers:       make(map[chan NZBDownloadEvent]struct{}),
+		instantAvailCache: make(map[string]*instantAvailEntry),
+		failureCache:      make(map[string]time.Time),
 	}
 	svc.onComplete = func(n *store.NZBDownload) bool {
 		if n.MediaItemID == nil {
@@ -160,10 +184,14 @@ func (svc *Service) TestTorBoxAccount(ctx context.Context, apiKey string) error 
 // for callers deciding which candidate is worth racing (see
 // acquisition.Service.prioritizeCachedNZB). Returns an empty map (never an
 // error the caller must special-case) if no usenet server is configured.
-func (svc *Service) CheckCachedURLs(ctx context.Context, urls []string) (map[string]bool, error) {
+//
+// Now returns map[string]*debrid.NZBInstantAvailInfo instead of plain bool
+// so callers can see file count/size without a second API call. Results are
+// cached (instantAvailCache) to avoid redundant API calls within the TTL.
+func (svc *Service) CheckCachedURLs(ctx context.Context, urls []string) (map[string]*debrid.NZBInstantAvailInfo, error) {
 	server, err := svc.pickServer()
 	if err != nil {
-		return map[string]bool{}, nil
+		return map[string]*debrid.NZBInstantAvailInfo{}, nil
 	}
 
 	hashToURL := make(map[string]string, len(urls))
@@ -174,17 +202,95 @@ func (svc *Service) CheckCachedURLs(ctx context.Context, urls []string) (map[str
 		hashes = append(hashes, h)
 	}
 
-	cachedHashes, err := svc.torboxClient.CheckCachedUsenet(ctx, server.APIKey, hashes)
-	if err != nil {
-		return nil, err
-	}
-	out := make(map[string]bool, len(cachedHashes))
-	for h := range cachedHashes {
-		if u, ok := hashToURL[h]; ok {
-			out[u] = true
+	// Check local cache first — avoids hitting TorBox for hashes we've
+	// already looked up recently (whether they were cached or not).
+	now := time.Now()
+	var missing []string
+	out := make(map[string]*debrid.NZBInstantAvailInfo, len(hashes))
+	svc.iaMu.Lock()
+	for _, h := range hashes {
+		if entry, ok := svc.instantAvailCache[h]; ok && entry.expiresAt.After(now) {
+			if entry.info != nil {
+				if u, ok2 := hashToURL[h]; ok2 {
+					out[u] = entry.info
+				}
+			}
+			// nil entry = negative cache (checked, not cached) — skip
+		} else {
+			missing = append(missing, h)
 		}
 	}
+	svc.iaMu.Unlock()
+
+	if len(missing) > 0 {
+		cachedHashes, err := svc.torboxClient.CheckCachedUsenet(ctx, server.APIKey, missing)
+		if err != nil {
+			return nil, err
+		}
+
+		// Cache results (both positive and negative) and populate output.
+		svc.iaMu.Lock()
+		expiresAt := now.Add(instantAvailTTL)
+		for _, h := range missing {
+			if info, ok := cachedHashes[h]; ok {
+				svc.instantAvailCache[h] = &instantAvailEntry{info: info, expiresAt: expiresAt}
+				if u, ok2 := hashToURL[h]; ok2 {
+					out[u] = info
+				}
+			} else {
+				// Negative cache — remember the "not cached" result.
+				if svc.instantAvailCache[h] == nil || svc.instantAvailCache[h].info != nil {
+					svc.instantAvailCache[h] = &instantAvailEntry{info: nil, expiresAt: expiresAt}
+				}
+			}
+		}
+		svc.iaMu.Unlock()
+	}
 	return out, nil
+}
+
+// isNZBFailureCached checks whether this URL hash has a recent failure
+// cached (so callers can skip re-submitting known-bad content).
+func (svc *Service) isNZBFailureCached(u string) bool {
+	h := fmt.Sprintf("%x", md5.Sum([]byte(u)))
+	svc.fcMu.Lock()
+	defer svc.fcMu.Unlock()
+	t, ok := svc.failureCache[h]
+	return ok && time.Now().Before(t)
+}
+
+// IsURLFailed is the public version of isNZBFailureCached — callers in the
+// acquisition package use it to skip candidates whose download URLs recently
+// failed.
+func (svc *Service) IsURLFailed(u string) bool {
+	return svc.isNZBFailureCached(u)
+}
+
+// recordNZBFailure records a URL hash as having failed, so future attempts
+// skip it for failureCacheTTL. Evicts oldest entries when over the cap.
+func (svc *Service) recordNZBFailure(u string) {
+	h := fmt.Sprintf("%x", md5.Sum([]byte(u)))
+	svc.fcMu.Lock()
+	defer svc.fcMu.Unlock()
+	svc.failureCache[h] = time.Now().Add(failureCacheTTL)
+	// Evict oldest entries when over the cap to prevent unbounded growth.
+	if len(svc.failureCache) > failureCacheSize {
+		var oldestK string
+		var oldestV time.Time
+		for k, v := range svc.failureCache {
+			if oldestK == "" || v.Before(oldestV) {
+				oldestK = k
+				oldestV = v
+			}
+		}
+		delete(svc.failureCache, oldestK)
+	}
+}
+
+// RecordURLFailure is the public version of recordNZBFailure — callers in
+// the acquisition package use it to mark download URLs as having failed.
+func (svc *Service) RecordURLFailure(u string) {
+	svc.recordNZBFailure(u)
 }
 
 // StartBackgroundSync starts a continuous background goroutine that
@@ -299,6 +405,19 @@ func (svc *Service) runSync(ctx context.Context) {
 	svc.syncFromTorBox(ctx)
 }
 
+// isDownloadComplete checks whether a TorBox usenet download has finished
+// in a way that makes its files available for streaming. Mirrors AIOStreams'
+// status computation: downloadFinished + downloadPresent covers the normal
+// case, and a downloadState starting with "direct unpack: completed" catches
+// the transient post-download state where TorBox has finished downloading
+// but hasn't yet set downloadPresent — files ARE ready in this state.
+func isDownloadComplete(dl *debrid.TBUsenetInfo) bool {
+	if dl.DownloadFinished && dl.DownloadPresent {
+		return true
+	}
+	return strings.HasPrefix(strings.ToLower(dl.DownloadState), "direct unpack: completed")
+}
+
 // syncFromTorBox (formerly ReconcileFromTorBox) is the heart of the
 // continuous polling approach. Called on startup and every
 // backgroundSyncInterval thereafter, it fetches every usenet download on
@@ -368,7 +487,7 @@ func (svc *Service) syncFromTorBox(ctx context.Context) {
 		existing := byRef[ref]
 
 		switch {
-		case dl.DownloadFinished && dl.DownloadPresent && !dl.Failed():
+		case isDownloadComplete(&dl) && !dl.Failed():
 			if existing != nil {
 				if existing.Status == "repairing" || (existing.Status == "completed" && !existing.Promoted) {
 					svc.catchUpDownload(ctx, existing, &dl, server)
@@ -438,7 +557,7 @@ func (svc *Service) catchUpDownload(ctx context.Context, existing *store.NZBDown
 		}
 	}
 
-	log.Printf("nzb: sync: %s (%s) catching up (status=%s promoted=%v)", existing.ID, existing.Name, existing.Status, existing.Promoted)
+	log.Printf("nzb: sync: %s (%s) catching up (status=%s promoted=%v download_state=%s)", existing.ID, existing.Name, existing.Status, existing.Promoted, dl.DownloadState)
 
 	// Skip files already recorded — on a repeat sweep, AddNZBFile would
 	// otherwise create duplicates.

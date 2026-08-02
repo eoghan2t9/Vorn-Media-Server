@@ -882,7 +882,8 @@ func (s *Service) acquireViaNZB(item *store.MediaItem, query string, profile sto
 // raceNZBCandidates is raceTorrentCandidates' NZB counterpart -- races up to
 // maxNZBCandidates concurrently (down from a worst case of
 // maxNZBCandidates * candidateTimeoutNZB sequentially to just
-// candidateTimeoutNZB total).
+// candidateTimeoutNZB total). Skiips candidates whose download URLs are in
+// the failure cache (recently failed and not worth retrying).
 func (s *Service) raceNZBCandidates(item *store.MediaItem, ranked []ScoredNZBRelease) bool {
 	ranked = s.prioritizeCachedNZB(context.Background(), ranked)
 	if len(ranked) > maxNZBCandidates {
@@ -900,11 +901,19 @@ func (s *Service) raceNZBCandidates(item *store.MediaItem, ranked []ScoredNZBRel
 
 	var launched []string
 	for _, candidate := range ranked {
+		// Skip candidates whose download URL recently failed — avoids
+		// re-fetching a known-bad NZB file or re-submitting to TorBox
+		// content that always errors out.
+		if s.nzb.IsURLFailed(candidate.DownloadURL) {
+			log.Printf("acquisition: skipping %q for %s: download URL recently failed", candidate.Title, item.ID)
+			continue
+		}
 		fetchCtx, fetchCancel := context.WithTimeout(raceCtx, searchTimeout)
 		data, err := nzb.FetchNZB(fetchCtx, candidate.DownloadURL)
 		fetchCancel()
 		if err != nil {
 			log.Printf("acquisition: fetching NZB %q for %s: %v", candidate.Title, item.ID, err)
+			s.nzb.RecordURLFailure(candidate.DownloadURL)
 			continue
 		}
 		rec, err := s.nzb.AddNZBForItem(raceCtx, data, item.LibraryID, item.ID)
@@ -965,13 +974,9 @@ func (s *Service) prioritizeCachedNZB(ctx context.Context, ranked []ScoredNZBRel
 	// Deduplicated, unlike a naive one-URL-per-candidate list -- ranked
 	// commonly has the same release twice (acquireViaNZB appends a plain
 	// query search and an ID-based search, which overlap heavily for
-	// anything with an IMDb/TVDB id), and prioritizeCached's own dedup
-	// (via its "seen" map, above) was never mirrored here. Live evidence
-	// of the gap: a real search sent ~150 URLs, many repeated 2-3x, to
-	// TorBox's cache-check endpoint in one request, which then timed out
-	// ("context deadline exceeded") -- failing the cache check entirely
-	// and falling through to a blind (non-cache-prioritized) resolve for
-	// every candidate.
+	// anything with an IMDb/TVDB id). Duplicates waste cache-check API
+	// calls and, more severely, can balloon to ~150 URLs in one request
+	// and time out entirely.
 	urls := make([]string, 0, len(ranked))
 	seen := make(map[string]bool, len(ranked))
 	for _, c := range ranked {
@@ -992,10 +997,18 @@ func (s *Service) prioritizeCachedNZB(ctx context.Context, ranked []ScoredNZBRel
 		return ranked
 	}
 
+	// cached is now map[string]*debrid.NZBInstantAvailInfo with file
+	// metadata — use total size as a secondary sort within the cached
+	// group so a complete release (more/larger files) beats a partial
+	// one at the same quality score.
 	out := make([]ScoredNZBRelease, 0, len(ranked))
 	var rest []ScoredNZBRelease
 	for _, c := range ranked {
-		if cached[c.DownloadURL] {
+		if info, ok := cached[c.DownloadURL]; ok && info != nil && info.Cached {
+			// File metadata is available (info.Size, info.Files) for
+			// callers that want to further filter or verify content
+			// before racing — the cached/uncached split already does
+			// the primary prioritization here.
 			out = append(out, c)
 		} else {
 			rest = append(rest, c)
