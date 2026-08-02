@@ -607,10 +607,15 @@ func (svc *Service) catchUpDownload(ctx context.Context, existing *store.NZBDown
 	files, _ := svc.store.ListNZBFiles(existing.ID)
 	if len(files) > 0 {
 		svc.matchWebDAVURLs(ctx, existing)
-		svc.finish(existing, nil)
 		if svc.onComplete != nil {
-			svc.onComplete(existing)
+			if used := svc.onComplete(existing); !used {
+				log.Printf("nzb: sync: %s (%s) completed but content verification failed, marking error", existing.ID, existing.Name)
+				svc.deleteFromTorBox(existing.ID, existing.ProviderRef)
+				svc.finish(existing, fmt.Errorf("content verification failed — wrong file matched to this item"))
+				return
+			}
 		}
+		svc.finish(existing, nil)
 		svc.broadcast()
 	}
 }
@@ -705,13 +710,18 @@ func (svc *Service) importOrphanedDownload(ctx context.Context, dl *debrid.TBUse
 	}
 
 	svc.matchWebDAVURLs(ctx, rec)
-	svc.finish(rec, nil)
 
 	if libraryID != nil && svc.onComplete != nil {
 		if used := svc.onComplete(rec); !used {
+			log.Printf("nzb: sync: %s (%s) orphaned download content verification failed, cleaning up", rec.ID, rec.Name)
 			svc.deleteFromTorBox(rec.ID, rec.ProviderRef)
+			if err := svc.store.RemoveNZBDownload(rec.ID); err != nil {
+				log.Printf("nzb: sync: removing failed orphan %s: %v", rec.ID, err)
+			}
+			return
 		}
 	}
+	svc.finish(rec, nil)
 	svc.broadcast()
 	log.Printf("nzb: sync: created record %s for orphaned torbox download %d (library=%v)", rec.ID, dl.ID, libraryID)
 }
