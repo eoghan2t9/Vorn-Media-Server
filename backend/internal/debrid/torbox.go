@@ -111,19 +111,17 @@ func (c *TorBoxClient) DeleteUsenetDownload(ctx context.Context, apiKey string, 
 }
 
 func (c *TorBoxClient) controlDownload(ctx context.Context, apiKey, path, idField, id string) error {
-	var body bytes.Buffer
-	w := multipart.NewWriter(&body)
-	if err := w.WriteField(idField, id); err != nil {
-		return err
+	// TorBox's /usenet/controlusenetdownload and /torrents/controltorrent
+	// expect application/x-www-form-urlencoded, not multipart — confirmed
+	// live: sending multipart returns 422 "Input should be a valid
+	// dictionary or object" with the raw multipart body echoed back.
+	form := url.Values{
+		idField:     {id},
+		"operation": {"delete"},
 	}
-	if err := w.WriteField("operation", "delete"); err != nil {
-		return err
-	}
-	if err := w.Close(); err != nil {
-		return err
-	}
+	body := strings.NewReader(form.Encode())
 	var resp tbEnvelope[json.RawMessage]
-	if err := c.do(ctx, http.MethodPost, path, apiKey, w.FormDataContentType(), &body, &resp); err != nil {
+	if err := c.do(ctx, http.MethodPost, path, apiKey, "application/x-www-form-urlencoded", body, &resp); err != nil {
 		return err
 	}
 	if !resp.Success {

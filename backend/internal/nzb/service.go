@@ -512,7 +512,26 @@ func (svc *Service) syncFromTorBox(ctx context.Context) {
 				svc.importOrphanedDownload(ctx, &dl, server, ref)
 			}
 		case dl.Failed():
-			if existing != nil && existing.Status != "error" {
+			// "Duplicate NZB" is TorBox rejecting a repeat submission of the
+			// same NZB file — not a real failure. This happens when two
+			// different media items race the same candidate (dedupeNZBByURL
+			// only deduplicates within a single acquireViaNZB call, not
+			// across items), or when the same URL appears in both the plain-
+			// query and IMDb/TVDB-id search results. Clean up and move on.
+			if strings.Contains(strings.ToLower(dl.DownloadState), "duplicate") {
+				if existing != nil {
+					log.Printf("nzb: sync: %s (%s) is a duplicate on torbox — cleaning up", existing.ID, existing.Name)
+					svc.deleteFromTorBox(existing.ID, existing.ProviderRef)
+					if err := svc.store.RemoveNZBDownload(existing.ID); err != nil {
+						log.Printf("nzb: sync: removing duplicate %s: %v", existing.ID, err)
+					}
+				} else {
+					// Orphaned duplicate (TorBox has it, Vorn never recorded it) —
+					// just delete from TorBox directly to reclaim quota.
+					log.Printf("nzb: sync: orphaned duplicate usenet %d on torbox — deleting", dl.ID)
+					svc.deleteFromTorBox("", strconv.Itoa(dl.ID))
+				}
+			} else if existing != nil && existing.Status != "error" {
 				svc.finish(existing, fmt.Errorf("torbox: download failed remotely: %s", dl.DownloadState))
 			}
 		default:

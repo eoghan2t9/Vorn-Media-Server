@@ -32,6 +32,14 @@ func (svc *Service) runTorBox(parentCtx context.Context, rec *store.NZBDownload,
 
 	usenetID, webdavHash, err := client.CreateUsenetDownload(ctx, server.APIKey, data, rec.Name)
 	if err != nil {
+		// "Duplicate NZB" means TorBox already has this exact NZB —
+		// likely submitted by another racing candidate for a different
+		// media item. Not a real failure; just clean up.
+		if strings.Contains(strings.ToLower(err.Error()), "duplicate") {
+			log.Printf("nzb: duplicate NZB for %s (%s) — already on torbox, cleaning up", rec.ID, rec.Name)
+			svc.finish(rec, fmt.Errorf("torbox: %w", err))
+			return
+		}
 		// Retry once on transient errors (rate limiting, temporary
 		// server unavailability) — a single 429 or 503 from TorBox
 		// shouldn't kill an otherwise viable candidate, especially
