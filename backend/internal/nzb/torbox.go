@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math/rand"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -47,8 +48,12 @@ func (svc *Service) runTorBox(parentCtx context.Context, rec *store.NZBDownload,
 		// NZB means one less chance of any stream at all.
 		if isTransientError(err) {
 			log.Printf("nzb: transient error creating usenet download for %s, retrying: %v", rec.ID, err)
+			// Jittered retry delay (2-8s) so multiple concurrent downloads
+			// that all hit a shared 429 don't synchronize their retries —
+			// a flat 2s delay creates a second coordinated burst.
+			jitter := 2*time.Second + time.Duration(rand.Int63n(int64(6*time.Second)))
 			select {
-			case <-time.After(2 * time.Second):
+			case <-time.After(jitter):
 			case <-ctx.Done():
 				svc.finish(rec, fmt.Errorf("torbox: %w", err))
 				return

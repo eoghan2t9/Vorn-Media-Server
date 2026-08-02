@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math/rand"
 	"regexp"
 	"strconv"
 	"strings"
@@ -900,7 +901,7 @@ func (s *Service) raceNZBCandidates(item *store.MediaItem, ranked []ScoredNZBRel
 	defer cancel()
 
 	var launched []string
-	for _, candidate := range ranked {
+	for i, candidate := range ranked {
 		// Skip candidates whose download URL recently failed — avoids
 		// re-fetching a known-bad NZB file or re-submitting to TorBox
 		// content that always errors out.
@@ -922,6 +923,20 @@ func (s *Service) raceNZBCandidates(item *store.MediaItem, ranked []ScoredNZBRel
 			continue
 		}
 		launched = append(launched, rec.ID)
+		// Stagger submissions (500ms-1.5s jittered delay between
+		// candidates) so multiple NZB downloads don't all fire
+		// through the limiter at once — TorBox's rate limit is
+		// 300/min but the limiter is shared with concurrent sync
+		// sweeps and cache checks, and a burst of back-to-back
+		// submissions crowds out those critical operations.
+		if i < len(ranked)-1 {
+			jitter := 500*time.Millisecond + time.Duration(rand.Int63n(int64(time.Second)))
+			select {
+			case <-time.After(jitter):
+			case <-raceCtx.Done():
+				break
+			}
+		}
 	}
 	if len(launched) == 0 {
 		return false
