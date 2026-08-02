@@ -167,9 +167,17 @@ func TestTorBoxClient_Delete(t *testing.T) {
 	var deletedID, deletedOp string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost && r.URL.Path == "/torrents/controltorrent" {
-			r.ParseMultipartForm(1 << 20)
-			deletedID = r.FormValue("torrent_id")
-			deletedOp = r.FormValue("operation")
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			if v, ok := payload["torrent_id"].(string); ok {
+				deletedID = v
+			}
+			if v, ok := payload["operation"].(string); ok {
+				deletedOp = v
+			}
 			json.NewEncoder(w).Encode(tbEnvelope[json.RawMessage]{Success: true})
 			return
 		}
@@ -192,12 +200,21 @@ func TestTorBoxClient_Delete(t *testing.T) {
 }
 
 func TestTorBoxClient_DeleteUsenetDownload(t *testing.T) {
-	var deletedID, deletedOp string
+	var deletedID float64
+	var deletedOp string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost && r.URL.Path == "/usenet/controlusenetdownload" {
-			r.ParseMultipartForm(1 << 20)
-			deletedID = r.FormValue("usenet_id")
-			deletedOp = r.FormValue("operation")
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			if v, ok := payload["usenet_id"].(float64); ok {
+				deletedID = v
+			}
+			if v, ok := payload["operation"].(string); ok {
+				deletedOp = v
+			}
 			json.NewEncoder(w).Encode(tbEnvelope[json.RawMessage]{Success: true})
 			return
 		}
@@ -211,8 +228,8 @@ func TestTorBoxClient_DeleteUsenetDownload(t *testing.T) {
 	if err := c.DeleteUsenetDownload(context.Background(), "test-key", 99); err != nil {
 		t.Fatalf("DeleteUsenetDownload: %v", err)
 	}
-	if deletedID != "99" || deletedOp != "delete" {
-		t.Fatalf("expected usenet_id=99 operation=delete, got id=%q op=%q", deletedID, deletedOp)
+	if deletedID != 99 || deletedOp != "delete" {
+		t.Fatalf("expected usenet_id=99 operation=delete, got id=%v op=%q", deletedID, deletedOp)
 	}
 	if err := c.DeleteUsenetDownload(context.Background(), "test-key", 0); err != nil {
 		t.Fatalf("DeleteUsenetDownload with id 0 should be a no-op, got: %v", err)

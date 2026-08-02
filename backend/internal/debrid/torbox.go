@@ -112,16 +112,24 @@ func (c *TorBoxClient) DeleteUsenetDownload(ctx context.Context, apiKey string, 
 
 func (c *TorBoxClient) controlDownload(ctx context.Context, apiKey, path, idField, id string) error {
 	// TorBox's /usenet/controlusenetdownload and /torrents/controltorrent
-	// expect application/x-www-form-urlencoded, not multipart — confirmed
-	// live: sending multipart returns 422 "Input should be a valid
-	// dictionary or object" with the raw multipart body echoed back.
-	form := url.Values{
-		idField:     {id},
-		"operation": {"delete"},
+	// expect JSON — confirmed live: multipart returns 422, URL-encoded
+	// also returns 422 "Input should be a valid dictionary or object".
+	// The TorBox API wants {"usenet_id": 123, "operation": "delete"}.
+	payload := map[string]any{
+		idField:     id,
+		"operation": "delete",
 	}
-	body := strings.NewReader(form.Encode())
+	// For torrents, torrent_id is a string (the info-hash); for usenet,
+	// usenet_id is an int. Parse the string id as int for numeric fields.
+	if numID, err := strconv.Atoi(id); err == nil && idField == "usenet_id" {
+		payload[idField] = numID
+	}
+	jsonBody, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
 	var resp tbEnvelope[json.RawMessage]
-	if err := c.do(ctx, http.MethodPost, path, apiKey, "application/x-www-form-urlencoded", body, &resp); err != nil {
+	if err := c.do(ctx, http.MethodPost, path, apiKey, "application/json", bytes.NewReader(jsonBody), &resp); err != nil {
 		return err
 	}
 	if !resp.Success {
