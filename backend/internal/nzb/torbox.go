@@ -32,8 +32,25 @@ func (svc *Service) runTorBox(parentCtx context.Context, rec *store.NZBDownload,
 
 	usenetID, webdavHash, err := client.CreateUsenetDownload(ctx, server.APIKey, data, rec.Name)
 	if err != nil {
-		svc.finish(rec, fmt.Errorf("torbox: %w", err))
-		return
+		// Retry once on transient errors (rate limiting, temporary
+		// server unavailability) — a single 429 or 503 from TorBox
+		// shouldn't kill an otherwise viable candidate, especially
+		// when the parallel torrent tier is also racing and a failed
+		// NZB means one less chance of any stream at all.
+		if isTransientError(err) {
+			log.Printf("nzb: transient error creating usenet download for %s, retrying: %v", rec.ID, err)
+			select {
+			case <-time.After(2 * time.Second):
+			case <-ctx.Done():
+				svc.finish(rec, fmt.Errorf("torbox: %w", err))
+				return
+			}
+			usenetID, webdavHash, err = client.CreateUsenetDownload(ctx, server.APIKey, data, rec.Name)
+		}
+		if err != nil {
+			svc.finish(rec, fmt.Errorf("torbox: %w", err))
+			return
+		}
 	}
 	// Store both the usenet ID (for delete/control operations) and the
 	// WebDAV hash (for walking the exact directory where cached files
@@ -133,4 +150,24 @@ func webdavHashFromProviderRef(ref string) string {
 		return ref[idx+1:]
 	}
 	return ""
+}
+
+// isTransientError reports whether err is likely to be a transient
+// server-side issue (rate limiting, temporary unavailability) that a
+// single retry after a short delay has a good chance of clearing,
+// rather than a permanent failure (bad API key, invalid request, etc).
+func isTransientError(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := err.Error()
+	// TorBox returns HTTP 429 for rate limiting and 502/503/504 for
+	// temporary server issues — all worth one retry.
+	return strings.Contains(s, "429") ||
+		strings.Contains(s, "502") ||
+		strings.Contains(s, "503") ||
+		strings.Contains(s, "504") ||
+		strings.Contains(s, "rate limit") ||
+		strings.Contains(s, "connection reset") ||
+		strings.Contains(s, "temporarily unavailable")
 }

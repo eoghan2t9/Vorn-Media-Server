@@ -362,7 +362,19 @@ func proxyRemoteStream(w http.ResponseWriter, r *http.Request, cdnURL string, au
 		authFunc(req)
 	}
 
-	client := &http.Client{Timeout: 0}
+	// No request-level timeout (a single stream can play for hours), but
+	// ResponseHeaderTimeout bounds how long we'll wait for headers so a
+	// hung CDN doesn't block forever — the browser retries the same URL
+	// on the next read failure, same as any transient network blip.
+	// Clone the default transport to keep connection pooling, proxy
+	// support, and TLS settings while adding our own timeouts.
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.ResponseHeaderTimeout = 30 * time.Second
+	transport.IdleConnTimeout = 90 * time.Second
+	client := &http.Client{
+		Timeout:   0, // no request-level cap
+		Transport: transport,
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, "fetching stream from provider")

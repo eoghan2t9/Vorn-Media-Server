@@ -94,19 +94,28 @@ func PromoteToExistingItem(st *store.Store, mediaItem *store.MediaItem, item *st
 		return false
 	}
 
-	best := largestVideoFile(files)
-	if best == nil {
+	candidates := topVideoFiles(files, 2)
+	if len(candidates) == 0 {
 		return false
 	}
 
-	if mediaItem.RuntimeMinutes != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), verifyProbeTimeout)
-		verifyErr := transcode.VerifyRuntime(ctx, best.StreamURL, *mediaItem.RuntimeMinutes)
-		cancel()
-		if verifyErr != nil {
-			log.Printf("debrid: content verification failed for %s: %v", mediaItem.ID, verifyErr)
-			return false
+	var best *store.DebridFile
+	for _, candidate := range candidates {
+		if mediaItem.RuntimeMinutes != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), verifyProbeTimeout)
+			verifyErr := transcode.VerifyRuntime(ctx, candidate.StreamURL, *mediaItem.RuntimeMinutes)
+			cancel()
+			if verifyErr != nil {
+				log.Printf("debrid: content verification failed for %s (file %s): %v — trying next candidate", mediaItem.ID, candidate.Name, verifyErr)
+				continue
+			}
 		}
+		best = candidate
+		break
+	}
+	if best == nil {
+		log.Printf("debrid: content verification failed for all %d video files for %s", len(candidates), mediaItem.ID)
+		return false
 	}
 
 	claimed, err := st.ClaimMediaItemForDebridItem(mediaItem.ID, item.ID)
@@ -223,6 +232,8 @@ func PromoteSeasonPackToExistingItems(st *store.Store, seasonItem *store.MediaIt
 	return promoted > 0
 }
 
+// largestVideoFile returns the single largest video file in files, or nil
+// if there are none. Used by callers that want exactly one best pick.
 func largestVideoFile(files []*store.DebridFile) *store.DebridFile {
 	var best *store.DebridFile
 	for _, f := range files {
@@ -234,6 +245,28 @@ func largestVideoFile(files []*store.DebridFile) *store.DebridFile {
 		}
 	}
 	return best
+}
+
+// topVideoFiles returns the N largest video files sorted descending by
+// size, so a caller failing content verification against the top pick can
+// fall back to the next one instead of wasting the entire candidate.
+func topVideoFiles(files []*store.DebridFile, n int) []*store.DebridFile {
+	var video []*store.DebridFile
+	for _, f := range files {
+		if scanner.IsVideoFile(f.Name) {
+			video = append(video, f)
+		}
+	}
+	// Sort descending by size (simple insertion sort — n ≤ 3 in practice).
+	for i := 1; i < len(video); i++ {
+		for j := i; j > 0 && video[j].SizeBytes > video[j-1].SizeBytes; j-- {
+			video[j], video[j-1] = video[j-1], video[j]
+		}
+	}
+	if len(video) > n {
+		return video[:n]
+	}
+	return video
 }
 
 func yearPtr(y int) *int {

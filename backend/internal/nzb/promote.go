@@ -168,15 +168,26 @@ func PromoteToExistingItem(st *store.Store, mediaItem *store.MediaItem, rec *sto
 		log.Printf("nzb: listing files for %s: %v", rec.ID, err)
 		return false
 	}
-	best := largestVideoNZBFile(files)
-	if best == nil {
+	candidates := topVideoNZBFiles(files, 2)
+	if len(candidates) == 0 {
 		return false
 	}
 	// Prefer the stable WebDAV URL (matched by size after TorBox caching)
 	// over the expiring CDN stream URL — for both content verification and
 	// the final media_item Path.
-	verifyPath := bestPathForPromotion(best)
-	if !verifyRuntime(mediaItem.ID, verifyPath, mediaItem) {
+	var best *store.NZBFile
+	var verifyPath string
+	for _, candidate := range candidates {
+		vp := bestPathForPromotion(candidate)
+		if verifyRuntime(mediaItem.ID, vp, mediaItem) {
+			best = candidate
+			verifyPath = vp
+			break
+		}
+		log.Printf("nzb: content verification failed for %s (file %s) — trying next candidate", mediaItem.ID, candidate.Name)
+	}
+	if best == nil {
+		log.Printf("nzb: content verification failed for all %d video files for %s", len(candidates), mediaItem.ID)
 		return false
 	}
 	claimed, err := st.ClaimMediaItemForNZBDownload(mediaItem.ID, rec.ID)
@@ -208,6 +219,27 @@ func largestVideoNZBFile(files []*store.NZBFile) *store.NZBFile {
 		}
 	}
 	return best
+}
+
+// topVideoNZBFiles returns the N largest video files sorted descending by
+// size, so a caller failing content verification against the top pick can
+// fall back to the next one instead of wasting the entire candidate.
+func topVideoNZBFiles(files []*store.NZBFile, n int) []*store.NZBFile {
+	var video []*store.NZBFile
+	for _, f := range files {
+		if scanner.IsVideoFile(f.Name) {
+			video = append(video, f)
+		}
+	}
+	for i := 1; i < len(video); i++ {
+		for j := i; j > 0 && video[j].SizeBytes > video[j-1].SizeBytes; j-- {
+			video[j], video[j-1] = video[j-1], video[j]
+		}
+	}
+	if len(video) > n {
+		return video[:n]
+	}
+	return video
 }
 
 // PromoteSeasonPackToExistingItems mirrors
