@@ -658,12 +658,12 @@ func (s *Service) acquireViaTorrent(item *store.MediaItem, query string, profile
 		ranked = ranked[:maxCandidates]
 	}
 
-	account, err := s.pickDebridAccount()
+	accounts, err := s.listEnabledDebridAccounts()
 	if err != nil {
 		return err
 	}
 
-	if s.raceTorrentCandidates(item, account, ranked) {
+	if s.raceTorrentCandidates(item, accounts, ranked) {
 		title := item.Title
 		if di, err := s.winningDebridItem(item.ID); err == nil && di != nil {
 			title = di.Name
@@ -674,7 +674,25 @@ func (s *Service) acquireViaTorrent(item *store.MediaItem, query string, profile
 	return errors.New("no torrent candidate could be resolved")
 }
 
-// raceTorrentCandidates launches resolve attempts for up to raceSize of the
+// raceTorrentCandidates tries accounts one at a time (in order -- see
+// listEnabledDebridAccounts), racing the same ranked candidates against each
+// until one of them resolves. This is a fallback, not a bigger race: an
+// account with nothing cached (or that simply fails every candidate) doesn't
+// take down the whole torrent tier if a later account would have resolved
+// the exact same releases fine. Trying accounts sequentially rather than
+// blasting every account's candidates concurrently also avoids multiplying
+// load against each provider's rate limits (TorBox in particular has needed
+// real care here -- see the jittered-retry/staggered-submission history).
+func (s *Service) raceTorrentCandidates(item *store.MediaItem, accounts []*store.DebridAccount, ranked []ScoredRelease) bool {
+	for _, account := range accounts {
+		if s.raceOneAccount(item, account, ranked) {
+			return true
+		}
+	}
+	return false
+}
+
+// raceOneAccount launches resolve attempts for up to raceSize of the
 // best-scored candidates concurrently (instead of one at a time), so a
 // merely-slow candidate doesn't block trying the others. It returns as soon
 // as item is claimed by whichever one actually resolves first (see
@@ -682,9 +700,9 @@ func (s *Service) acquireViaTorrent(item *store.MediaItem, query string, profile
 // every return path stops every other still-racing candidate within one
 // HTTP round-trip instead of letting them run to their own internal
 // timeout for nothing.
-func (s *Service) raceTorrentCandidates(item *store.MediaItem, account *store.DebridAccount, ranked []ScoredRelease) bool {
+func (s *Service) raceOneAccount(item *store.MediaItem, account *store.DebridAccount, ranked []ScoredRelease) bool {
 	start := time.Now()
-	log.Printf("acquisition: racing %d torrent candidates for %s", len(ranked), item.ID)
+	log.Printf("acquisition: trying account %s (%s) for %s, racing %d torrent candidates", account.ID, account.Provider, item.ID, len(ranked))
 
 	ranked = s.prioritizeCached(context.Background(), account, ranked)
 	if len(ranked) > raceSize {
@@ -1237,13 +1255,13 @@ func (s *Service) trySeasonPackViaTorrent(ctx context.Context, season, series *s
 		return false
 	}
 
-	account, err := s.pickDebridAccount()
+	accounts, err := s.listEnabledDebridAccounts()
 	if err != nil {
 		log.Printf("acquisition: %v", err)
 		return false
 	}
 
-	if s.raceTorrentCandidates(season, account, ranked) {
+	if s.raceTorrentCandidates(season, accounts, ranked) {
 		s.notifySend("acquired", map[string]any{
 			"itemId": season.ID, "title": fmt.Sprintf("%s Season %d", series.Title, seasonNumber),
 		})
@@ -1311,17 +1329,25 @@ func (s *Service) trySeasonPackViaNZB(ctx context.Context, season, series *store
 	return false
 }
 
-func (s *Service) pickDebridAccount() (*store.DebridAccount, error) {
+// listEnabledDebridAccounts returns every enabled debrid account, in the
+// order they were added (ListDebridAccounts' own ORDER BY created_at) --
+// that order is the fallback priority raceTorrentCandidates tries them in,
+// so whichever account a user added first is tried first.
+func (s *Service) listEnabledDebridAccounts() ([]*store.DebridAccount, error) {
 	accounts, err := s.store.ListDebridAccounts()
 	if err != nil {
 		return nil, err
 	}
+	var enabled []*store.DebridAccount
 	for _, a := range accounts {
 		if a.Enabled {
-			return a, nil
+			enabled = append(enabled, a)
 		}
 	}
-	return nil, errors.New("no enabled debrid account configured")
+	if len(enabled) == 0 {
+		return nil, errors.New("no enabled debrid account configured")
+	}
+	return enabled, nil
 }
 
 // fail records a failed acquisition attempt. onFailureStatus == "owned"

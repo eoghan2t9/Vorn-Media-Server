@@ -229,11 +229,11 @@ func (s *Service) checkUpgrade(ctx context.Context, item *store.MediaItem) error
 		if len(ranked) > 0 {
 			best := ranked[0]
 			if newTier, known := resolutionTier(best.Resolution); known && newTier > currentTier {
-				account, err := s.pickDebridAccount()
+				accounts, err := s.listEnabledDebridAccounts()
 				if err != nil {
 					return err
 				}
-				if s.raceTorrentCandidates(item, account, []ScoredRelease{best}) {
+				if s.raceTorrentCandidates(item, accounts, []ScoredRelease{best}) {
 					s.notifySend("upgraded", map[string]any{"itemId": item.ID, "title": item.Title, "release": best.Title})
 					_ = s.store.RecordUpgrade(item.ID, item.Title, item.CurrentReleaseTitle, best.Title, "torrent")
 					return nil
