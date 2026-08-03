@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import {
   ApiError,
   addMagnet,
@@ -23,6 +23,7 @@ import { FileDropzone, type FileDropzoneHandle } from '../components/FileDropzon
 import { Pagination } from '../components/Pagination'
 import { Select } from '../components/Select'
 import { usePagination } from '../components/usePagination'
+import './AdminHome.css'
 import './AdminUsers.css'
 
 function formatBytes(n: number) {
@@ -305,6 +306,11 @@ export function AdminTorrents() {
                 <td>{t.sequential ? 'yes' : 'no'}</td>
                 <td>
                   <div className="vorn-button-group">
+                    {(t.status === 'downloading' || t.status === 'seeding' || t.status === 'completed') && (
+                      <Link to={`/admin/torrents/${t.id}/stream`} className="vorn-link-button-plain">
+                        Stream
+                      </Link>
+                    )}
                     <button type="button" className="vorn-btn-danger" onClick={() => handleRemove(t.id, false)}>
                       Remove
                     </button>

@@ -444,6 +444,7 @@ func NewRouter(deps Deps) http.Handler {
 	mux.HandleFunc("POST /api/torrents", s.withAdmin(s.handleAddMagnet))
 	mux.HandleFunc("POST /api/torrents/file", s.withAdmin(s.handleAddTorrentFile))
 	mux.HandleFunc("DELETE /api/torrents/{id}", s.withAdmin(s.handleRemoveTorrent))
+	mux.HandleFunc("GET /api/torrents/{id}/stream", s.withAdmin(s.handleTorrentStream))
 	mux.HandleFunc("GET /api/torrents/search", s.withAdmin(s.handleTorrentSearch))
 	mux.HandleFunc("GET /api/torrent-indexers", s.withAdmin(s.handleListTorrentIndexers))
 	mux.HandleFunc("POST /api/torrent-indexers", s.withAdmin(s.handleCreateTorrentIndexer))

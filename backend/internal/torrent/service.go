@@ -2,6 +2,8 @@ package torrent
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -13,10 +15,23 @@ import (
 	"github.com/anacrolix/torrent/metainfo"
 
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/debrid"
+	"github.com/eoghan2t9/vorn-media-server/backend/internal/scanner"
 	"github.com/eoghan2t9/vorn-media-server/backend/internal/store"
 )
 
 const progressPollInterval = 2 * time.Second
+
+// streamReadahead bounds how far ahead of a streaming reader's current
+// position anacrolix prioritizes downloading -- deliberately small (unlike
+// drainInOrder's whole-file readahead), so a player seeking around doesn't
+// leave the whole torrent marked high-priority.
+const streamReadahead = 8 << 20 // 8MB
+
+// ErrTorrentNotStreamable covers every reason StreamFile can't serve a
+// torrent yet: not an active download (already removed/completed and
+// dropped from svc.active), metadata not fetched yet, or no video file
+// found among its contents.
+var ErrTorrentNotStreamable = errors.New("torrent: not ready to stream")
 
 // Service manages the lifecycle of BitTorrent downloads: adding magnets or
 // .torrent files, persisting progress into Postgres, and promoting
@@ -229,4 +244,49 @@ func (svc *Service) Remove(id string, deleteFiles bool) error {
 		}
 	}
 	return svc.store.RemoveTorrent(id)
+}
+
+// StreamFile returns a reader over the largest video file in an active
+// torrent, for serving to a player while the download is still in progress
+// -- see httpapi.handleTorrentStream, the only caller. The returned Reader
+// blocks on Read until the requested bytes have actually been downloaded
+// (anacrolix's Reader interface), so the caller can serve it straight to an
+// http.ResponseWriter without waiting for completion. ctx bounds those
+// blocking reads -- callers should pass the HTTP request's context so a
+// client disconnect (or the player seeking away) stops the wait immediately
+// instead of leaking a goroutine parked on an unfulfilled piece.
+func (svc *Service) StreamFile(ctx context.Context, torrentID string) (lt.Reader, int64, string, error) {
+	rec, err := svc.store.GetTorrent(torrentID)
+	if err != nil {
+		return nil, 0, "", err
+	}
+
+	svc.mu.Lock()
+	t, ok := svc.active[rec.InfoHash]
+	svc.mu.Unlock()
+	if !ok {
+		return nil, 0, "", ErrTorrentNotStreamable
+	}
+	if t.Info() == nil {
+		return nil, 0, "", ErrTorrentNotStreamable
+	}
+
+	var best *lt.File
+	for _, f := range t.Files() {
+		if !scanner.IsVideoFile(f.Path()) {
+			continue
+		}
+		if best == nil || f.Length() > best.Length() {
+			best = f
+		}
+	}
+	if best == nil {
+		return nil, 0, "", ErrTorrentNotStreamable
+	}
+
+	r := best.NewReader()
+	r.SetContext(ctx)
+	r.SetResponsive()
+	r.SetReadahead(streamReadahead)
+	return r, best.Length(), best.Path(), nil
 }
