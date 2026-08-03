@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"encoding/base64"
 	"errors"
 	"time"
 )
@@ -99,6 +100,26 @@ func (s *Store) GetWebDAVFolderByURL(candidate string) (*WebDAVFolder, error) {
 		return nil, err
 	}
 	return nil, ErrNotFound
+}
+
+// WebDAVProbeHeaders returns the HTTP headers a caller needs to
+// authenticate a request (ffprobe, or any other direct GET) against path if
+// it's a WebDAV-backed URL, or nil if it isn't (a plain debrid/NZB CDN URL,
+// which already embeds its own auth in the URL and needs nothing extra).
+// Same "torbox" Basic Auth username convention as
+// httpapi.handleDirectStream's proxy uses for the same URLs -- centralized
+// here so every other caller that probes a stored media_item/scan path
+// (transcode.Probe and friends) doesn't have to duplicate the WebDAV-folder
+// lookup and header construction, which had silently only ever been done in
+// the streaming-proxy path and nowhere else, making every ffprobe call
+// against a WebDAV URL fail with 401.
+func (s *Store) WebDAVProbeHeaders(path string) map[string]string {
+	wf, err := s.GetWebDAVFolderByURL(path)
+	if err != nil {
+		return nil
+	}
+	token := base64.StdEncoding.EncodeToString([]byte("torbox:" + wf.APIKey))
+	return map[string]string{"Authorization": "Basic " + token}
 }
 
 func (s *Store) GetWebDAVFolder(id string) (*WebDAVFolder, error) {

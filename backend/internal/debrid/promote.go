@@ -103,7 +103,11 @@ func PromoteToExistingItem(st *store.Store, mediaItem *store.MediaItem, item *st
 	for _, candidate := range candidates {
 		if mediaItem.RuntimeMinutes != nil {
 			ctx, cancel := context.WithTimeout(context.Background(), verifyProbeTimeout)
-			verifyErr := transcode.VerifyRuntime(ctx, candidate.StreamURL, *mediaItem.RuntimeMinutes)
+			// nil headers -- a debrid provider's StreamURL always embeds its
+			// own auth token/signature in the URL itself, unlike a WebDAV
+			// URL (see store.WebDAVProbeHeaders, used by the NZB/scanner
+			// promotion paths, which do go through WebDAV).
+			verifyErr := transcode.VerifyRuntime(ctx, candidate.StreamURL, *mediaItem.RuntimeMinutes, nil)
 			cancel()
 			if verifyErr != nil {
 				log.Printf("debrid: content verification failed for %s (file %s): %v — trying next candidate", mediaItem.ID, candidate.Name, verifyErr)
@@ -195,7 +199,7 @@ func PromoteSeasonPackToExistingItems(st *store.Store, seasonItem *store.MediaIt
 		}
 		if ep.RuntimeMinutes != nil {
 			ctx, cancel := context.WithTimeout(context.Background(), verifyProbeTimeout)
-			verifyErr := transcode.VerifyRuntime(ctx, f.StreamURL, *ep.RuntimeMinutes)
+			verifyErr := transcode.VerifyRuntime(ctx, f.StreamURL, *ep.RuntimeMinutes, nil) // see PromoteToExistingItem's nil-headers comment
 			cancel()
 			if verifyErr != nil {
 				log.Printf("debrid: content verification failed for episode %s: %v", ep.ID, verifyErr)

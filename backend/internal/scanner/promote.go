@@ -211,5 +211,5 @@ const scanFileProbeTimeout = 25 * time.Second
 func (svc *Service) verifyScanFileDuration(kind, path string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), scanFileProbeTimeout)
 	defer cancel()
-	return transcode.VerifyContentDuration(ctx, path, kind)
+	return transcode.VerifyContentDuration(ctx, path, kind, svc.store.WebDAVProbeHeaders(path))
 }

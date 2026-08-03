@@ -26,12 +26,12 @@ const runtimeToleranceFraction = 0.30
 // resolved to unrelated content, off by 3x in duration from the requested
 // movie) -- duration is intrinsic to the media itself and can't be spoofed
 // by a misleading name the way a filename or subject line can.
-func VerifyRuntime(ctx context.Context, path string, expectedMinutes int) error {
+func VerifyRuntime(ctx context.Context, path string, expectedMinutes int, headers map[string]string) error {
 	if expectedMinutes <= 0 {
 		return nil // no expected runtime known -- nothing to verify against
 	}
 
-	info, err := Probe(ctx, path)
+	info, err := Probe(ctx, path, headers)
 	if err != nil {
 		return fmt.Errorf("probing resolved media: %w", err)
 	}
@@ -69,7 +69,7 @@ const (
 // as a feature film, a 30-second sample labeled as an episode) on every
 // promotion path, not just the on-demand-acquisition path that has TMDb
 // metadata available.
-func VerifyContentDuration(ctx context.Context, path, kind string) error {
+func VerifyContentDuration(ctx context.Context, path, kind string, headers map[string]string) error {
 	var minDuration float64
 	switch kind {
 	case "movie":
@@ -80,7 +80,7 @@ func VerifyContentDuration(ctx context.Context, path, kind string) error {
 		return nil // music/audiobook — no minimum-duration check
 	}
 
-	info, err := Probe(ctx, path)
+	info, err := Probe(ctx, path, headers)
 	if err != nil {
 		return fmt.Errorf("probing %s: %w", kind, err)
 	}

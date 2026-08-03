@@ -184,7 +184,7 @@ func (s *Server) handlePlayItem(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
 
-	info, err := transcode.ProbeWithRetry(ctx, *item.Path)
+	info, err := transcode.ProbeWithRetry(ctx, *item.Path, s.store.WebDAVProbeHeaders(*item.Path))
 	if err != nil {
 		// A debrid-backed item's path is a provider CDN URL, not a local
 		// file -- those commonly expire between viewing sessions, so a

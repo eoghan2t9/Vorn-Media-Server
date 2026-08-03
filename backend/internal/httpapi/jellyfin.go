@@ -340,7 +340,7 @@ func (s *Server) handleJfPlaybackInfo(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
-	if info, err := transcode.Probe(ctx, *item.Path); err == nil {
+	if info, err := transcode.Probe(ctx, *item.Path, s.store.WebDAVProbeHeaders(*item.Path)); err == nil {
 		ticks := jellyfin.SecondsToTicks(info.DurationSeconds)
 		source.RunTimeTicks = &ticks
 		source.MediaStreams = []jellyfin.MediaStream{
@@ -391,7 +391,7 @@ func (s *Server) jfUpdateProgress(w http.ResponseWriter, r *http.Request) {
 	if duration == 0 {
 		if item, err := s.store.GetMediaItem(req.ItemId); err == nil && item.Path != nil {
 			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-			if info, err := transcode.Probe(ctx, *item.Path); err == nil {
+			if info, err := transcode.Probe(ctx, *item.Path, s.store.WebDAVProbeHeaders(*item.Path)); err == nil {
 				duration = info.DurationSeconds
 			}
 			cancel()

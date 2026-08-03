@@ -23,19 +23,20 @@ const verifyProbeTimeout = 25 * time.Second
 // false on any failure. Always probes the file — even when TMDb data isn't
 // available yet, the minimum-duration floor (10 min movies, 2 min episodes)
 // catches obviously wrong content.
-func verifyRuntime(logPrefix, path string, item *store.MediaItem) bool {
+func verifyRuntime(st *store.Store, logPrefix, path string, item *store.MediaItem) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), verifyProbeTimeout)
 	defer cancel()
+	headers := st.WebDAVProbeHeaders(path)
 
 	// Always check minimum duration — catches obviously wrong content
 	// even when TMDb data hasn't been backfilled yet.
-	if err := transcode.VerifyContentDuration(ctx, path, item.Kind); err != nil {
+	if err := transcode.VerifyContentDuration(ctx, path, item.Kind, headers); err != nil {
 		log.Printf("nzb: content verification failed for %s: %v", logPrefix, err)
 		return false
 	}
 
 	if item.RuntimeMinutes != nil && *item.RuntimeMinutes > 0 {
-		if err := transcode.VerifyRuntime(ctx, path, *item.RuntimeMinutes); err != nil {
+		if err := transcode.VerifyRuntime(ctx, path, *item.RuntimeMinutes, headers); err != nil {
 			log.Printf("nzb: content verification failed for %s: %v", logPrefix, err)
 			return false
 		}
@@ -91,7 +92,7 @@ func promoteStreamFiles(st *store.Store, libraryID string, files []*store.NZBFil
 		// has no TMDb data to compare against, but a minimum-duration
 		// check catches obviously wrong content (porno, samples, etc.)
 		// even when the filename looks legitimate.
-		if err := verifyContentDuration(path, parsed.Kind); err != nil {
+		if err := verifyContentDuration(st, path, parsed.Kind); err != nil {
 			log.Printf("nzb: rejecting %s: %v", f.Name, err)
 			continue
 		}
@@ -126,10 +127,10 @@ func promoteStreamFiles(st *store.Store, libraryID string, files []*store.NZBFil
 // short for its parsed kind. Factored out of promoteStreamFiles so it can
 // be called from a single probe + reuse its result across both the minimum
 // check and the caller's own promotion logic without probing twice.
-func verifyContentDuration(path, kind string) error {
+func verifyContentDuration(st *store.Store, path, kind string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), verifyProbeTimeout)
 	defer cancel()
-	return transcode.VerifyContentDuration(ctx, path, kind)
+	return transcode.VerifyContentDuration(ctx, path, kind, st.WebDAVProbeHeaders(path))
 }
 
 func yearPtr(y int) *int {
@@ -179,7 +180,7 @@ func PromoteToExistingItem(st *store.Store, mediaItem *store.MediaItem, rec *sto
 	var verifyPath string
 	for _, candidate := range candidates {
 		vp := bestPathForPromotion(candidate)
-		if verifyRuntime(mediaItem.ID, vp, mediaItem) {
+		if verifyRuntime(st, mediaItem.ID, vp, mediaItem) {
 			best = candidate
 			verifyPath = vp
 			break
@@ -300,7 +301,7 @@ func PromoteSeasonPackToExistingItems(st *store.Store, seasonItem *store.MediaIt
 		if !ok {
 			continue // pack contains an episode not in Vorn's synced tree (e.g. a special) -- ignore it
 		}
-		if !verifyRuntime(ep.ID, f.path, ep) {
+		if !verifyRuntime(st, ep.ID, f.path, ep) {
 			continue // treated like an unmatched file -- skip this episode, not the whole pack
 		}
 		claimed, err := st.ClaimMediaItemForNZBDownload(ep.ID, rec.ID)

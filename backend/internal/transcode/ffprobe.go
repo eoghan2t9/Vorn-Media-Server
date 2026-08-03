@@ -83,10 +83,32 @@ type ffprobeOutput struct {
 	Chapters []ffprobeChapter `json:"chapters"`
 }
 
+// buildHeaderArg formats headers as ffprobe's -headers flag expects: one
+// "Name: value" pair per line, CRLF-terminated (including the last one).
+// Empty/nil headers returns "" so callers can skip the flag entirely.
+func buildHeaderArg(headers map[string]string) string {
+	if len(headers) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for k, v := range headers {
+		b.WriteString(k)
+		b.WriteString(": ")
+		b.WriteString(v)
+		b.WriteString("\r\n")
+	}
+	return b.String()
+}
+
 // Probe runs ffprobe against path and extracts the fields Vorn's playback
-// decision (direct play vs. transcode) and player need.
-func Probe(ctx context.Context, path string) (*MediaInfo, error) {
-	cmd := exec.CommandContext(ctx, "ffprobe",
+// decision (direct play vs. transcode) and player need. headers is nil for
+// a local file or a self-authenticating URL (a debrid/NZB CDN link already
+// has its token embedded); a WebDAV-backed URL needs Basic Auth passed
+// explicitly here since ffprobe has no other way to know it (see
+// store.WebDAVProbeHeaders, which every caller of Probe/ProbeWithRetry
+// resolves this from).
+func Probe(ctx context.Context, path string, headers map[string]string) (*MediaInfo, error) {
+	args := []string{
 		// "-v error" (not the original "quiet") so a real failure's reason
 		// -- a genuinely dead/unreachable link vs. ffprobe timing out mid-
 		// analysis vs. a content-level parse error -- actually shows up in
@@ -102,8 +124,12 @@ func Probe(ctx context.Context, path string) (*MediaInfo, error) {
 		"-show_format",
 		"-show_streams",
 		"-show_chapters",
-		path,
-	)
+	}
+	if h := buildHeaderArg(headers); h != "" {
+		args = append(args, "-headers", h)
+	}
+	args = append(args, path)
+	cmd := exec.CommandContext(ctx, "ffprobe", args...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -145,11 +171,11 @@ const (
 // roughly 2*probeAttemptTimeout+probeRetryDelay of headroom to avoid the
 // second attempt getting cut short by their own deadline instead of ever
 // running.
-func ProbeWithRetry(ctx context.Context, path string) (*MediaInfo, error) {
+func ProbeWithRetry(ctx context.Context, path string, headers map[string]string) (*MediaInfo, error) {
 	attempt := func() (*MediaInfo, error) {
 		attemptCtx, cancel := context.WithTimeout(ctx, probeAttemptTimeout)
 		defer cancel()
-		return Probe(attemptCtx, path)
+		return Probe(attemptCtx, path, headers)
 	}
 
 	info, err := attempt()

@@ -181,7 +181,7 @@ func (m *MonitorScheduler) refreshDeadLinks(ctx context.Context) {
 		}
 		probeStart := time.Now()
 		probeCtx, cancel := context.WithTimeout(ctx, linkProbeTimeout)
-		_, err := transcode.ProbeWithRetry(probeCtx, *item.Path)
+		_, err := transcode.ProbeWithRetry(probeCtx, *item.Path, m.store.WebDAVProbeHeaders(*item.Path))
 		cancel()
 		if err == nil {
 			continue
@@ -193,18 +193,36 @@ func (m *MonitorScheduler) refreshDeadLinks(ctx context.Context) {
 	}
 }
 
+// revertUpgradeAttempt undoes the one side effect a failed upgrade race
+// leaves behind: raceOneAccount/raceNZBCandidates always set
+// acquisition_status to "acquiring" before racing (so the atomic claim's
+// "acquisition_status != 'owned'" guard allows a win), but on a losing
+// race checkUpgrade previously just fell through and left it there --
+// wedging an item with a perfectly good, untouched path into "acquiring"
+// forever, since handlePlayItem checks status before path and only
+// "placeholder"/"error" states ever re-trigger a fresh Acquire. Confirmed
+// live: an owned movie whose upgrade candidate failed to resolve stayed
+// stuck reporting "Preparing your stream…" on every play attempt, 33+
+// hours later, with a valid path sitting unused the whole time.
+func (s *Service) revertUpgradeAttempt(itemID string) {
+	if err := s.store.SetMediaItemAcquisitionStatus(itemID, "owned"); err != nil {
+		log.Printf("acquisition: reverting failed upgrade attempt for %s: %v", itemID, err)
+	}
+}
+
 // checkUpgrade compares the current best available release for item
 // against what it's already playing (parsed from CurrentReleaseTitle) and,
 // if strictly better by resolution, resolves it through the same
 // atomic-claim promotion path Acquire's candidates use (racing a
 // single-element slice) -- a failed upgrade attempt can never touch item's
-// existing path, since promotion only ever writes on a successful claim.
-// Torrent is tried first (checked
-// only if s.torrent is configured); NZB is checked independently after,
-// even if torrent already found something, in case the NZB tier's best
-// candidate happens to itself be an upgrade over the (possibly still
-// torrent-current) release -- either successful upgrade returns
-// immediately rather than trying both.
+// existing path, since promotion only ever writes on a successful claim
+// (see revertUpgradeAttempt for the one other side effect a failed race
+// leaves behind, which this function must always clean up). Torrent is
+// tried first (checked only if s.torrent is configured); NZB is checked
+// independently after, even if torrent already found something, in case
+// the NZB tier's best candidate happens to itself be an upgrade over the
+// (possibly still torrent-current) release -- either successful upgrade
+// returns immediately rather than trying both.
 func (s *Service) checkUpgrade(ctx context.Context, item *store.MediaItem) error {
 	s.ensureExpectedRuntime(ctx, item)
 
@@ -238,6 +256,7 @@ func (s *Service) checkUpgrade(ctx context.Context, item *store.MediaItem) error
 					_ = s.store.RecordUpgrade(item.ID, item.Title, item.CurrentReleaseTitle, best.Title, "torrent")
 					return nil
 				}
+				s.revertUpgradeAttempt(item.ID)
 			}
 		}
 	}
@@ -256,6 +275,8 @@ func (s *Service) checkUpgrade(ctx context.Context, item *store.MediaItem) error
 				if s.raceNZBCandidates(item, []ScoredNZBRelease{best}) {
 					s.notifySend("upgraded", map[string]any{"itemId": item.ID, "title": item.Title, "release": best.Title})
 					_ = s.store.RecordUpgrade(item.ID, item.Title, item.CurrentReleaseTitle, best.Title, "nzb")
+				} else {
+					s.revertUpgradeAttempt(item.ID)
 				}
 			}
 		}

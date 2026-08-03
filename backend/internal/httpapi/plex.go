@@ -224,7 +224,7 @@ func (s *Server) handlePlexMetadataItem(w http.ResponseWriter, r *http.Request) 
 	var media []plex.Media
 	if item.Path != nil {
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-		info, probeErr := transcode.Probe(ctx, *item.Path)
+		info, probeErr := transcode.Probe(ctx, *item.Path, s.store.WebDAVProbeHeaders(*item.Path))
 		cancel()
 		if probeErr == nil {
 			durationSeconds = info.DurationSeconds
