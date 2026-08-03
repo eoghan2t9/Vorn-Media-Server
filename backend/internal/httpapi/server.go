@@ -148,6 +148,7 @@ func NewServer(deps Deps) *Server {
 	if err := s.reconfigure(); err != nil {
 		log.Printf("httpapi: initial reconfigure: %v", err)
 	}
+	go s.sweepIndexerCapabilities()
 	return s
 }
 

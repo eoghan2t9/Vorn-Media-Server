@@ -64,13 +64,52 @@ type newznabError struct {
 	Description string   `xml:"description,attr"`
 }
 
+// IndexerCapabilities reports whether an indexer's t=caps document
+// advertises support for id-based search -- the only kind of search Vorn's
+// acquisition system actually uses (see resolveImdbSearchParams in
+// acquisition/service.go), so an indexer supporting neither is useless to
+// Vorn even if free-text search works fine.
+type IndexerCapabilities struct {
+	SupportsImdb bool
+	SupportsTvdb bool
+}
+
+// newznabCaps models the subset of the Newznab capabilities document
+// (t=caps) that matters for IndexerCapabilities: whether imdbid/tvdbid
+// appear in either search mode's supportedParams attribute.
+type newznabCaps struct {
+	Searching struct {
+		MovieSearch struct {
+			SupportedParams string `xml:"supportedParams,attr"`
+		} `xml:"movie-search"`
+		TVSearch struct {
+			SupportedParams string `xml:"supportedParams,attr"`
+		} `xml:"tv-search"`
+	} `xml:"searching"`
+}
+
+func parseIndexerCapabilities(body []byte) IndexerCapabilities {
+	var caps newznabCaps
+	if xml.Unmarshal(body, &caps) != nil {
+		return IndexerCapabilities{}
+	}
+	params := caps.Searching.MovieSearch.SupportedParams + "," + caps.Searching.TVSearch.SupportedParams
+	return IndexerCapabilities{
+		SupportsImdb: strings.Contains(params, "imdbid"),
+		SupportsTvdb: strings.Contains(params, "tvdbid"),
+	}
+}
+
 // TestIndexer verifies a Newznab indexer's base URL and API key by
 // requesting its capabilities document (t=caps) -- the standard way to
-// check connectivity/auth without running a real search.
-func TestIndexer(ctx context.Context, baseURL, apiKey string) error {
+// check connectivity/auth without running a real search -- and reports
+// which id-based search params (imdbid/tvdbid) it actually supports, so
+// callers can gate on Vorn only ever using id-based search
+// (resolveImdbSearchParams).
+func TestIndexer(ctx context.Context, baseURL, apiKey string) (*IndexerCapabilities, error) {
 	u, err := url.Parse(strings.TrimRight(baseURL, "/") + "/api")
 	if err != nil {
-		return fmt.Errorf("nzb: parsing indexer URL: %w", err)
+		return nil, fmt.Errorf("nzb: parsing indexer URL: %w", err)
 	}
 	q := u.Query()
 	q.Set("t", "caps")
@@ -81,27 +120,28 @@ func TestIndexer(ctx context.Context, baseURL, apiKey string) error {
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("nzb: contacting indexer: %w", err)
+		return nil, fmt.Errorf("nzb: contacting indexer: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return fmt.Errorf("nzb: reading indexer response: %w", err)
+		return nil, fmt.Errorf("nzb: reading indexer response: %w", err)
 	}
 
 	var newznabErr newznabError
 	if xml.Unmarshal(body, &newznabErr) == nil && newznabErr.Description != "" {
-		return fmt.Errorf("nzb: indexer rejected request: %s", newznabErr.Description)
+		return nil, fmt.Errorf("nzb: indexer rejected request: %s", newznabErr.Description)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("nzb: indexer returned status %d", resp.StatusCode)
+		return nil, fmt.Errorf("nzb: indexer returned status %d", resp.StatusCode)
 	}
-	return nil
+	caps := parseIndexerCapabilities(body)
+	return &caps, nil
 }
 
 // SearchIndexer queries a single Newznab-compatible indexer for a title.

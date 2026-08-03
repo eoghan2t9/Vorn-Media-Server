@@ -2,6 +2,8 @@ package torrent
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log"
 	"sync"
 
@@ -68,7 +70,12 @@ func (svc *Service) SearchByIMDb(ctx context.Context, imdbID, tvdbID string, sea
 		results []SearchResult
 	)
 	for _, idx := range indexers {
-		if !idx.Enabled {
+		// Defense in depth alongside the Enabled filter itself: AddIndexer
+		// and the startup capability sweep both keep an id-search-incapable
+		// indexer disabled, but this guards the window before a fresh sweep
+		// runs, or an admin manually re-enabling one Vorn already knows
+		// can't serve this kind of search.
+		if !idx.Enabled || (!idx.SupportsImdbSearch && !idx.SupportsTvdbSearch) {
 			continue
 		}
 		wg.Add(1)
@@ -100,8 +107,25 @@ func (svc *Service) SearchByIMDb(ctx context.Context, imdbID, tvdbID string, sea
 	return results, nil
 }
 
-func (svc *Service) AddIndexer(name, baseURL, apiKey, provider string) (*store.TorrentIndexer, error) {
-	return svc.store.CreateTorrentIndexer(name, baseURL, apiKey, provider)
+// AddIndexer registers a new indexer, rejecting it unless it supports the
+// only kind of search Vorn's acquisition system actually uses -- id-based
+// (imdbid/tvdbid) search, see resolveImdbSearchParams in
+// acquisition/service.go. A torbox-provider indexer is exempt from the
+// caps check: it speaks TorBox's own IMDb-ID-driven search API directly,
+// not Torznab, so it always supports id search by construction.
+func (svc *Service) AddIndexer(ctx context.Context, name, baseURL, apiKey, provider string) (*store.TorrentIndexer, error) {
+	supportsImdb, supportsTvdb := true, true
+	if provider != "torbox" {
+		caps, err := TestIndexer(ctx, baseURL, apiKey)
+		if err != nil {
+			return nil, fmt.Errorf("torrent: testing indexer: %w", err)
+		}
+		if !caps.SupportsImdb && !caps.SupportsTvdb {
+			return nil, errors.New("torrent: indexer supports neither IMDb nor TVDB id search, which Vorn's acquisition requires")
+		}
+		supportsImdb, supportsTvdb = caps.SupportsImdb, caps.SupportsTvdb
+	}
+	return svc.store.CreateTorrentIndexer(name, baseURL, apiKey, provider, supportsImdb, supportsTvdb)
 }
 
 func (svc *Service) ListIndexers() ([]*store.TorrentIndexer, error) {

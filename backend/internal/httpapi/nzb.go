@@ -219,6 +219,12 @@ type testUsenetServerRequest struct {
 type testResultResponse struct {
 	OK    bool   `json:"ok"`
 	Error string `json:"error,omitempty"`
+	// SupportsImdbSearch/SupportsTvdbSearch are only meaningful for a
+	// Torznab/Newznab indexer test (unset/false for a TorBox-provider
+	// torrent indexer or a plain usenet-server test, neither of which go
+	// through a caps document at all).
+	SupportsImdbSearch bool `json:"supportsImdbSearch,omitempty"`
+	SupportsTvdbSearch bool `json:"supportsTvdbSearch,omitempty"`
 }
 
 // handleTestUsenetServer verifies a TorBox API key using whatever's
@@ -403,20 +409,26 @@ func (s *Server) handleAddNZBFromURL(w http.ResponseWriter, r *http.Request) {
 }
 
 type nzbIndexerResponse struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	BaseURL   string `json:"baseUrl"`
-	Enabled   bool   `json:"enabled"`
-	CreatedAt string `json:"createdAt"`
+	ID                 string `json:"id"`
+	Name               string `json:"name"`
+	BaseURL            string `json:"baseUrl"`
+	Enabled            bool   `json:"enabled"`
+	CreatedAt          string `json:"createdAt"`
+	SupportsImdbSearch bool   `json:"supportsImdbSearch"`
+	SupportsTvdbSearch bool   `json:"supportsTvdbSearch"`
+	DisabledReason     string `json:"disabledReason,omitempty"`
 }
 
 func toNZBIndexerResponse(idx *store.NZBIndexer) nzbIndexerResponse {
 	return nzbIndexerResponse{
-		ID:        idx.ID,
-		Name:      idx.Name,
-		BaseURL:   idx.BaseURL,
-		Enabled:   idx.Enabled,
-		CreatedAt: idx.CreatedAt.Format(time.RFC3339),
+		ID:                 idx.ID,
+		Name:               idx.Name,
+		BaseURL:            idx.BaseURL,
+		Enabled:            idx.Enabled,
+		CreatedAt:          idx.CreatedAt.Format(time.RFC3339),
+		SupportsImdbSearch: idx.SupportsImdbSearch,
+		SupportsTvdbSearch: idx.SupportsTvdbSearch,
+		DisabledReason:     idx.DisabledReason,
 	}
 }
 
@@ -457,9 +469,9 @@ func (s *Server) handleCreateNZBIndexer(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "name and baseUrl are required")
 		return
 	}
-	idx, err := s.nzbSvc.Load().AddIndexer(req.Name, req.BaseURL, req.APIKey)
+	idx, err := s.nzbSvc.Load().AddIndexer(r.Context(), req.Name, req.BaseURL, req.APIKey)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "creating indexer")
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusCreated, toNZBIndexerResponse(idx))
@@ -487,11 +499,12 @@ func (s *Server) handleTestNZBIndexer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "baseUrl is required")
 		return
 	}
-	if err := nzb.TestIndexer(r.Context(), req.BaseURL, req.APIKey); err != nil {
+	caps, err := nzb.TestIndexer(r.Context(), req.BaseURL, req.APIKey)
+	if err != nil {
 		writeJSON(w, http.StatusOK, testResultResponse{OK: false, Error: err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, testResultResponse{OK: true})
+	writeJSON(w, http.StatusOK, testResultResponse{OK: true, SupportsImdbSearch: caps.SupportsImdb, SupportsTvdbSearch: caps.SupportsTvdb})
 }
 
 func (s *Server) handleUpdateNZBIndexer(w http.ResponseWriter, r *http.Request) {

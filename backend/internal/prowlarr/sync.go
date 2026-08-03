@@ -89,14 +89,14 @@ func (s *SyncService) tick(ctx context.Context, apiKey string) {
 	}
 
 	if s.torrent != nil {
-		s.syncTorrent(indexers, apiKey)
+		s.syncTorrent(ctx, indexers, apiKey)
 	}
 	if s.nzb != nil {
-		s.syncNZB(indexers, apiKey)
+		s.syncNZB(ctx, indexers, apiKey)
 	}
 }
 
-func (s *SyncService) syncTorrent(indexers []Indexer, apiKey string) {
+func (s *SyncService) syncTorrent(ctx context.Context, indexers []Indexer, apiKey string) {
 	existing, err := s.torrent.ListIndexers()
 	if err != nil {
 		log.Printf("prowlarr sync: listing existing torrent indexers: %v", err)
@@ -115,7 +115,7 @@ func (s *SyncService) syncTorrent(indexers []Indexer, apiKey string) {
 		if existingNames[name] {
 			continue
 		}
-		if _, err := s.torrent.AddIndexer(name, IndexerProxyURL(s.baseURL, idx.ID), apiKey, "torznab"); err != nil {
+		if _, err := s.torrent.AddIndexer(ctx, name, IndexerProxyURL(s.baseURL, idx.ID), apiKey, "torznab"); err != nil {
 			log.Printf("prowlarr sync: adding torrent indexer %q: %v", name, err)
 			continue
 		}
@@ -123,7 +123,7 @@ func (s *SyncService) syncTorrent(indexers []Indexer, apiKey string) {
 	}
 }
 
-func (s *SyncService) syncNZB(indexers []Indexer, apiKey string) {
+func (s *SyncService) syncNZB(ctx context.Context, indexers []Indexer, apiKey string) {
 	existing, err := s.nzb.ListIndexers()
 	if err != nil {
 		log.Printf("prowlarr sync: listing existing NZB indexers: %v", err)
@@ -142,7 +142,7 @@ func (s *SyncService) syncNZB(indexers []Indexer, apiKey string) {
 		if existingNames[name] {
 			continue
 		}
-		if _, err := s.nzb.AddIndexer(name, IndexerProxyURL(s.baseURL, idx.ID), apiKey); err != nil {
+		if _, err := s.nzb.AddIndexer(ctx, name, IndexerProxyURL(s.baseURL, idx.ID), apiKey); err != nil {
 			log.Printf("prowlarr sync: adding NZB indexer %q: %v", name, err)
 			continue
 		}

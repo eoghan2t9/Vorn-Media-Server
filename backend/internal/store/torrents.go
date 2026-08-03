@@ -142,16 +142,32 @@ type TorrentIndexer struct {
 	Provider  string
 	Enabled   bool
 	CreatedAt time.Time
+	// SupportsImdbSearch/SupportsTvdbSearch record whether this indexer's
+	// t=caps document advertised imdbid/tvdbid support (always true for
+	// provider == "torbox", which isn't a Torznab endpoint at all) --
+	// SearchByIMDb skips indexers with neither set, since Vorn's
+	// acquisition system only ever searches by id (resolveImdbSearchParams
+	// in acquisition/service.go), never free text.
+	SupportsImdbSearch bool
+	SupportsTvdbSearch bool
+	// DisabledReason explains why Enabled was flipped off automatically
+	// (e.g. by the startup capability sweep) -- empty for an indexer an
+	// admin disabled by hand, or one that's still enabled.
+	DisabledReason string
 }
 
-func (s *Store) CreateTorrentIndexer(name, baseURL, apiKey, provider string) (*TorrentIndexer, error) {
+func (s *Store) CreateTorrentIndexer(name, baseURL, apiKey, provider string, supportsImdb, supportsTvdb bool) (*TorrentIndexer, error) {
 	if provider == "" {
 		provider = "torznab"
 	}
-	idx := &TorrentIndexer{Name: name, BaseURL: baseURL, APIKey: apiKey, Provider: provider, Enabled: true}
+	idx := &TorrentIndexer{
+		Name: name, BaseURL: baseURL, APIKey: apiKey, Provider: provider, Enabled: true,
+		SupportsImdbSearch: supportsImdb, SupportsTvdbSearch: supportsTvdb,
+	}
 	err := s.db.QueryRow(
-		`INSERT INTO torrent_indexers (name, base_url, api_key, provider) VALUES ($1, $2, $3, $4) RETURNING id, created_at`,
-		name, baseURL, apiKey, provider,
+		`INSERT INTO torrent_indexers (name, base_url, api_key, provider, supports_imdb_search, supports_tvdb_search)
+		 VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, created_at`,
+		name, baseURL, apiKey, provider, supportsImdb, supportsTvdb,
 	).Scan(&idx.ID, &idx.CreatedAt)
 	return idx, err
 }
@@ -162,18 +178,22 @@ func (s *Store) CreateTorrentIndexer(name, baseURL, apiKey, provider string) (*T
 // them to resend in the first place. A non-nil empty APIKey explicitly
 // clears it.
 type UpdateTorrentIndexerInput struct {
-	Name     *string
-	BaseURL  *string
-	APIKey   *string
-	Provider *string
-	Enabled  *bool
+	Name               *string
+	BaseURL            *string
+	APIKey             *string
+	Provider           *string
+	Enabled            *bool
+	SupportsImdbSearch *bool
+	SupportsTvdbSearch *bool
+	DisabledReason     *string
 }
 
 func (s *Store) UpdateTorrentIndexer(id string, in UpdateTorrentIndexerInput) (*TorrentIndexer, error) {
 	idx := &TorrentIndexer{}
 	err := s.db.QueryRow(
-		`SELECT id, name, base_url, api_key, provider, enabled, created_at FROM torrent_indexers WHERE id = $1`, id,
-	).Scan(&idx.ID, &idx.Name, &idx.BaseURL, &idx.APIKey, &idx.Provider, &idx.Enabled, &idx.CreatedAt)
+		`SELECT id, name, base_url, api_key, provider, enabled, created_at, supports_imdb_search, supports_tvdb_search, disabled_reason
+		 FROM torrent_indexers WHERE id = $1`, id,
+	).Scan(&idx.ID, &idx.Name, &idx.BaseURL, &idx.APIKey, &idx.Provider, &idx.Enabled, &idx.CreatedAt, &idx.SupportsImdbSearch, &idx.SupportsTvdbSearch, &idx.DisabledReason)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -195,9 +215,19 @@ func (s *Store) UpdateTorrentIndexer(id string, in UpdateTorrentIndexerInput) (*
 	if in.Enabled != nil {
 		idx.Enabled = *in.Enabled
 	}
+	if in.SupportsImdbSearch != nil {
+		idx.SupportsImdbSearch = *in.SupportsImdbSearch
+	}
+	if in.SupportsTvdbSearch != nil {
+		idx.SupportsTvdbSearch = *in.SupportsTvdbSearch
+	}
+	if in.DisabledReason != nil {
+		idx.DisabledReason = *in.DisabledReason
+	}
 	if _, err := s.db.Exec(
-		`UPDATE torrent_indexers SET name = $1, base_url = $2, api_key = $3, provider = $4, enabled = $5 WHERE id = $6`,
-		idx.Name, idx.BaseURL, idx.APIKey, idx.Provider, idx.Enabled, id,
+		`UPDATE torrent_indexers SET name = $1, base_url = $2, api_key = $3, provider = $4, enabled = $5,
+		 supports_imdb_search = $6, supports_tvdb_search = $7, disabled_reason = $8 WHERE id = $9`,
+		idx.Name, idx.BaseURL, idx.APIKey, idx.Provider, idx.Enabled, idx.SupportsImdbSearch, idx.SupportsTvdbSearch, idx.DisabledReason, id,
 	); err != nil {
 		return nil, err
 	}
@@ -205,7 +235,7 @@ func (s *Store) UpdateTorrentIndexer(id string, in UpdateTorrentIndexerInput) (*
 }
 
 func (s *Store) ListTorrentIndexers() ([]*TorrentIndexer, error) {
-	rows, err := s.db.Query(`SELECT id, name, base_url, api_key, provider, enabled, created_at FROM torrent_indexers ORDER BY created_at`)
+	rows, err := s.db.Query(`SELECT id, name, base_url, api_key, provider, enabled, created_at, supports_imdb_search, supports_tvdb_search, disabled_reason FROM torrent_indexers ORDER BY created_at`)
 	if err != nil {
 		return nil, err
 	}
@@ -214,7 +244,7 @@ func (s *Store) ListTorrentIndexers() ([]*TorrentIndexer, error) {
 	var out []*TorrentIndexer
 	for rows.Next() {
 		idx := &TorrentIndexer{}
-		if err := rows.Scan(&idx.ID, &idx.Name, &idx.BaseURL, &idx.APIKey, &idx.Provider, &idx.Enabled, &idx.CreatedAt); err != nil {
+		if err := rows.Scan(&idx.ID, &idx.Name, &idx.BaseURL, &idx.APIKey, &idx.Provider, &idx.Enabled, &idx.CreatedAt, &idx.SupportsImdbSearch, &idx.SupportsTvdbSearch, &idx.DisabledReason); err != nil {
 			return nil, err
 		}
 		out = append(out, idx)

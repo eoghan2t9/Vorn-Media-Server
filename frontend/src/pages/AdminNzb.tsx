@@ -80,7 +80,12 @@ export function AdminNzb() {
   const [indexerBaseUrl, setIndexerBaseUrl] = useState('')
   const [indexerApiKey, setIndexerApiKey] = useState('')
   const [testingIndexer, setTestingIndexer] = useState(false)
-  const [indexerTestResult, setIndexerTestResult] = useState<{ ok: boolean; message: string } | null>(null)
+  const [indexerTestResult, setIndexerTestResult] = useState<{
+    ok: boolean
+    message: string
+    supportsImdbSearch?: boolean
+    supportsTvdbSearch?: boolean
+  } | null>(null)
   // Set while editing an existing indexer (row's Edit button) instead of
   // adding a new one -- reuses the same form, just routed to the update API
   // on submit. Password/API key fields stay blank in this mode (the list
@@ -249,7 +254,14 @@ export function AdminNzb() {
     setIndexerName(idx.name)
     setIndexerBaseUrl(idx.baseUrl)
     setIndexerApiKey('')
-    setIndexerTestResult(null)
+    // Seed from this indexer's already-known capability rather than forcing
+    // a re-test on every edit -- see AdminTorrents.tsx's identical handling
+    // for the reasoning.
+    setIndexerTestResult(
+      !idx.supportsImdbSearch && !idx.supportsTvdbSearch
+        ? null
+        : { ok: true, message: 'Using previously confirmed capability.', supportsImdbSearch: idx.supportsImdbSearch, supportsTvdbSearch: idx.supportsTvdbSearch },
+    )
   }
 
   async function handleAddIndexer(e: FormEvent) {
@@ -278,9 +290,21 @@ export function AdminNzb() {
     setTestingIndexer(true)
     try {
       const result = await testNZBIndexer({ baseUrl: indexerBaseUrl, apiKey: indexerApiKey || undefined })
-      setIndexerTestResult(
-        result.ok ? { ok: true, message: 'Indexer responded successfully.' } : { ok: false, message: result.error ?? 'Test failed.' },
-      )
+      if (!result.ok) {
+        setIndexerTestResult({ ok: false, message: result.error ?? 'Test failed.' })
+      } else if (!result.supportsImdbSearch && !result.supportsTvdbSearch) {
+        setIndexerTestResult({
+          ok: false,
+          message: 'This indexer supports neither IMDb nor TVDB id search, which Vorn requires -- it cannot be used.',
+        })
+      } else {
+        setIndexerTestResult({
+          ok: true,
+          message: 'Indexer responded successfully.',
+          supportsImdbSearch: result.supportsImdbSearch,
+          supportsTvdbSearch: result.supportsTvdbSearch,
+        })
+      }
     } catch (err) {
       setIndexerTestResult({ ok: false, message: err instanceof ApiError ? err.message : 'Failed to test indexer' })
     } finally {
@@ -461,6 +485,8 @@ export function AdminNzb() {
             <tr>
               <th>Name</th>
               <th>Base URL</th>
+              <th>ID search</th>
+              <th>Status</th>
               <th></th>
             </tr>
           </thead>
@@ -469,6 +495,10 @@ export function AdminNzb() {
               <tr key={idx.id}>
                 <td>{idx.name}</td>
                 <td>{idx.baseUrl}</td>
+                <td>
+                  {[idx.supportsImdbSearch && 'IMDb', idx.supportsTvdbSearch && 'TVDB'].filter(Boolean).join(', ') || 'none'}
+                </td>
+                <td>{idx.enabled ? 'Enabled' : `Disabled${idx.disabledReason ? `: ${idx.disabledReason}` : ''}`}</td>
                 <td>
                   <div className="vorn-button-group">
                     <button type="button" onClick={() => handleEditIndexer(idx)}>
@@ -495,25 +525,41 @@ export function AdminNzb() {
           <input
             placeholder="Newznab base URL"
             value={indexerBaseUrl}
-            onChange={(e) => setIndexerBaseUrl(e.target.value)}
+            onChange={(e) => {
+              setIndexerBaseUrl(e.target.value)
+              setIndexerTestResult(null)
+            }}
             style={{ minWidth: '16rem' }}
             required
           />
           <input
             placeholder={editingIndexerId ? 'API key (leave blank to keep current)' : 'API key'}
             value={indexerApiKey}
-            onChange={(e) => setIndexerApiKey(e.target.value)}
+            onChange={(e) => {
+              setIndexerApiKey(e.target.value)
+              setIndexerTestResult(null)
+            }}
           />
           <button type="button" onClick={handleTestIndexer} disabled={testingIndexer || !indexerBaseUrl}>
             {testingIndexer ? 'Testing…' : 'Test'}
           </button>
-          <button type="submit">{editingIndexerId ? 'Save indexer' : 'Add indexer'}</button>
+          <button
+            type="submit"
+            disabled={!(indexerTestResult?.ok && (indexerTestResult.supportsImdbSearch || indexerTestResult.supportsTvdbSearch))}
+          >
+            {editingIndexerId ? 'Save indexer' : 'Add indexer'}
+          </button>
           {editingIndexerId && (
             <button type="button" onClick={resetIndexerForm}>
               Cancel
             </button>
           )}
         </form>
+        {!(indexerTestResult?.ok && (indexerTestResult.supportsImdbSearch || indexerTestResult.supportsTvdbSearch)) && (
+          <p className="vorn-panel-subtitle" style={{ margin: '0.6rem 0 0' }}>
+            Vorn only searches indexers by IMDb/TVDB id -- run Test and confirm it supports one of them before saving.
+          </p>
+        )}
         {indexerTestResult && (
           <p className={indexerTestResult.ok ? 'vorn-test-result-ok' : 'vorn-form-error'} style={{ marginTop: '0.6rem' }}>
             {indexerTestResult.message}

@@ -532,6 +532,9 @@ export interface TorrentIndexer {
   provider: TorrentIndexerProvider
   enabled: boolean
   createdAt: string
+  supportsImdbSearch: boolean
+  supportsTvdbSearch: boolean
+  disabledReason?: string
 }
 export const listTorrentIndexers = () => request<TorrentIndexer[]>('/api/torrent-indexers')
 
@@ -599,6 +602,9 @@ export interface NZBIndexer {
   baseUrl: string
   enabled: boolean
   createdAt: string
+  supportsImdbSearch: boolean
+  supportsTvdbSearch: boolean
+  disabledReason?: string
 }
 export const listNZBIndexers = () => request<NZBIndexer[]>('/api/nzb-indexers')
 
@@ -642,6 +648,12 @@ export const deleteUsenetServer = (id: string) =>
 export interface TestConnectionResult {
   ok: boolean
   error?: string
+  // Only meaningful for a Torznab/Newznab indexer test (see
+  // testTorrentIndexer/testNZBIndexer) -- absent for a TorBox-provider
+  // torrent indexer or a plain usenet-server test, neither of which go
+  // through a caps document at all.
+  supportsImdbSearch?: boolean
+  supportsTvdbSearch?: boolean
 }
 
 export interface TestUsenetServerInput {

@@ -2,6 +2,8 @@ package nzb
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log"
 	"sync"
 
@@ -67,7 +69,9 @@ func (svc *Service) SearchByIMDb(ctx context.Context, imdbID, tvdbID string, sea
 		results []SearchResult
 	)
 	for _, idx := range indexers {
-		if !idx.Enabled {
+		// Defense in depth alongside the Enabled filter itself -- see
+		// torrent.Service.SearchByIMDb's identical guard for the reasoning.
+		if !idx.Enabled || (!idx.SupportsImdbSearch && !idx.SupportsTvdbSearch) {
 			continue
 		}
 		wg.Add(1)
@@ -87,8 +91,19 @@ func (svc *Service) SearchByIMDb(ctx context.Context, imdbID, tvdbID string, sea
 	return results, nil
 }
 
-func (svc *Service) AddIndexer(name, baseURL, apiKey string) (*store.NZBIndexer, error) {
-	return svc.store.CreateNZBIndexer(name, baseURL, apiKey)
+// AddIndexer registers a new Newznab indexer, rejecting it unless it
+// supports the only kind of search Vorn's acquisition system actually uses
+// -- id-based (imdbid/tvdbid) search, see resolveImdbSearchParams in
+// acquisition/service.go.
+func (svc *Service) AddIndexer(ctx context.Context, name, baseURL, apiKey string) (*store.NZBIndexer, error) {
+	caps, err := TestIndexer(ctx, baseURL, apiKey)
+	if err != nil {
+		return nil, fmt.Errorf("nzb: testing indexer: %w", err)
+	}
+	if !caps.SupportsImdb && !caps.SupportsTvdb {
+		return nil, errors.New("nzb: indexer supports neither IMDb nor TVDB id search, which Vorn's acquisition requires")
+	}
+	return svc.store.CreateNZBIndexer(name, baseURL, apiKey, caps.SupportsImdb, caps.SupportsTvdb)
 }
 
 func (svc *Service) ListIndexers() ([]*store.NZBIndexer, error) {

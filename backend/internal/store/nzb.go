@@ -381,19 +381,29 @@ type NZBIndexer struct {
 	APIKey    string
 	Enabled   bool
 	CreatedAt time.Time
+	// SupportsImdbSearch/SupportsTvdbSearch/DisabledReason -- see
+	// TorrentIndexer's identical fields for the reasoning (same Newznab/
+	// Torznab capability model).
+	SupportsImdbSearch bool
+	SupportsTvdbSearch bool
+	DisabledReason     string
 }
 
-func (s *Store) CreateNZBIndexer(name, baseURL, apiKey string) (*NZBIndexer, error) {
-	idx := &NZBIndexer{Name: name, BaseURL: baseURL, APIKey: apiKey, Enabled: true}
+func (s *Store) CreateNZBIndexer(name, baseURL, apiKey string, supportsImdb, supportsTvdb bool) (*NZBIndexer, error) {
+	idx := &NZBIndexer{
+		Name: name, BaseURL: baseURL, APIKey: apiKey, Enabled: true,
+		SupportsImdbSearch: supportsImdb, SupportsTvdbSearch: supportsTvdb,
+	}
 	err := s.db.QueryRow(
-		`INSERT INTO nzb_indexers (name, base_url, api_key) VALUES ($1, $2, $3) RETURNING id, created_at`,
-		name, baseURL, apiKey,
+		`INSERT INTO nzb_indexers (name, base_url, api_key, supports_imdb_search, supports_tvdb_search)
+		 VALUES ($1, $2, $3, $4, $5) RETURNING id, created_at`,
+		name, baseURL, apiKey, supportsImdb, supportsTvdb,
 	).Scan(&idx.ID, &idx.CreatedAt)
 	return idx, err
 }
 
 func (s *Store) ListNZBIndexers() ([]*NZBIndexer, error) {
-	rows, err := s.db.Query(`SELECT id, name, base_url, api_key, enabled, created_at FROM nzb_indexers ORDER BY created_at`)
+	rows, err := s.db.Query(`SELECT id, name, base_url, api_key, enabled, created_at, supports_imdb_search, supports_tvdb_search, disabled_reason FROM nzb_indexers ORDER BY created_at`)
 	if err != nil {
 		return nil, err
 	}
@@ -402,7 +412,7 @@ func (s *Store) ListNZBIndexers() ([]*NZBIndexer, error) {
 	var out []*NZBIndexer
 	for rows.Next() {
 		idx := &NZBIndexer{}
-		if err := rows.Scan(&idx.ID, &idx.Name, &idx.BaseURL, &idx.APIKey, &idx.Enabled, &idx.CreatedAt); err != nil {
+		if err := rows.Scan(&idx.ID, &idx.Name, &idx.BaseURL, &idx.APIKey, &idx.Enabled, &idx.CreatedAt, &idx.SupportsImdbSearch, &idx.SupportsTvdbSearch, &idx.DisabledReason); err != nil {
 			return nil, err
 		}
 		out = append(out, idx)
@@ -419,17 +429,21 @@ func (s *Store) DeleteNZBIndexer(id string) error {
 // unchanged" -- see UpdateTorrentIndexerInput for the reasoning. A non-nil
 // empty APIKey explicitly clears it.
 type UpdateNZBIndexerInput struct {
-	Name    *string
-	BaseURL *string
-	APIKey  *string
-	Enabled *bool
+	Name               *string
+	BaseURL            *string
+	APIKey             *string
+	Enabled            *bool
+	SupportsImdbSearch *bool
+	SupportsTvdbSearch *bool
+	DisabledReason     *string
 }
 
 func (s *Store) UpdateNZBIndexer(id string, in UpdateNZBIndexerInput) (*NZBIndexer, error) {
 	idx := &NZBIndexer{}
 	err := s.db.QueryRow(
-		`SELECT id, name, base_url, api_key, enabled, created_at FROM nzb_indexers WHERE id = $1`, id,
-	).Scan(&idx.ID, &idx.Name, &idx.BaseURL, &idx.APIKey, &idx.Enabled, &idx.CreatedAt)
+		`SELECT id, name, base_url, api_key, enabled, created_at, supports_imdb_search, supports_tvdb_search, disabled_reason
+		 FROM nzb_indexers WHERE id = $1`, id,
+	).Scan(&idx.ID, &idx.Name, &idx.BaseURL, &idx.APIKey, &idx.Enabled, &idx.CreatedAt, &idx.SupportsImdbSearch, &idx.SupportsTvdbSearch, &idx.DisabledReason)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -448,9 +462,19 @@ func (s *Store) UpdateNZBIndexer(id string, in UpdateNZBIndexerInput) (*NZBIndex
 	if in.Enabled != nil {
 		idx.Enabled = *in.Enabled
 	}
+	if in.SupportsImdbSearch != nil {
+		idx.SupportsImdbSearch = *in.SupportsImdbSearch
+	}
+	if in.SupportsTvdbSearch != nil {
+		idx.SupportsTvdbSearch = *in.SupportsTvdbSearch
+	}
+	if in.DisabledReason != nil {
+		idx.DisabledReason = *in.DisabledReason
+	}
 	if _, err := s.db.Exec(
-		`UPDATE nzb_indexers SET name = $1, base_url = $2, api_key = $3, enabled = $4 WHERE id = $5`,
-		idx.Name, idx.BaseURL, idx.APIKey, idx.Enabled, id,
+		`UPDATE nzb_indexers SET name = $1, base_url = $2, api_key = $3, enabled = $4,
+		 supports_imdb_search = $5, supports_tvdb_search = $6, disabled_reason = $7 WHERE id = $8`,
+		idx.Name, idx.BaseURL, idx.APIKey, idx.Enabled, idx.SupportsImdbSearch, idx.SupportsTvdbSearch, idx.DisabledReason, id,
 	); err != nil {
 		return nil, err
 	}

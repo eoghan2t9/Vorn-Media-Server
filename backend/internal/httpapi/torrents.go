@@ -217,22 +217,28 @@ func (s *Server) handleTorrentSearch(w http.ResponseWriter, r *http.Request) {
 }
 
 type torrentIndexerResponse struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	BaseURL   string `json:"baseUrl"`
-	Provider  string `json:"provider"`
-	Enabled   bool   `json:"enabled"`
-	CreatedAt string `json:"createdAt"`
+	ID                 string `json:"id"`
+	Name               string `json:"name"`
+	BaseURL            string `json:"baseUrl"`
+	Provider           string `json:"provider"`
+	Enabled            bool   `json:"enabled"`
+	CreatedAt          string `json:"createdAt"`
+	SupportsImdbSearch bool   `json:"supportsImdbSearch"`
+	SupportsTvdbSearch bool   `json:"supportsTvdbSearch"`
+	DisabledReason     string `json:"disabledReason,omitempty"`
 }
 
 func toTorrentIndexerResponse(idx *store.TorrentIndexer) torrentIndexerResponse {
 	return torrentIndexerResponse{
-		ID:        idx.ID,
-		Name:      idx.Name,
-		BaseURL:   idx.BaseURL,
-		Provider:  idx.Provider,
-		Enabled:   idx.Enabled,
-		CreatedAt: idx.CreatedAt.Format(time.RFC3339),
+		ID:                 idx.ID,
+		Name:               idx.Name,
+		BaseURL:            idx.BaseURL,
+		Provider:           idx.Provider,
+		Enabled:            idx.Enabled,
+		CreatedAt:          idx.CreatedAt.Format(time.RFC3339),
+		SupportsImdbSearch: idx.SupportsImdbSearch,
+		SupportsTvdbSearch: idx.SupportsTvdbSearch,
+		DisabledReason:     idx.DisabledReason,
 	}
 }
 
@@ -277,9 +283,9 @@ func (s *Server) handleCreateTorrentIndexer(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusBadRequest, "name and baseUrl are required")
 		return
 	}
-	idx, err := s.torrentSvc.Load().AddIndexer(req.Name, req.BaseURL, req.APIKey, req.Provider)
+	idx, err := s.torrentSvc.Load().AddIndexer(r.Context(), req.Name, req.BaseURL, req.APIKey, req.Provider)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "creating indexer")
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusCreated, toTorrentIndexerResponse(idx))
@@ -317,11 +323,12 @@ func (s *Server) handleTestTorrentIndexer(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "baseUrl is required")
 		return
 	}
-	if err := torrent.TestIndexer(r.Context(), req.BaseURL, req.APIKey); err != nil {
+	caps, err := torrent.TestIndexer(r.Context(), req.BaseURL, req.APIKey)
+	if err != nil {
 		writeJSON(w, http.StatusOK, testResultResponse{OK: false, Error: err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, testResultResponse{OK: true})
+	writeJSON(w, http.StatusOK, testResultResponse{OK: true, SupportsImdbSearch: caps.SupportsImdb, SupportsTvdbSearch: caps.SupportsTvdb})
 }
 
 // updateIndexerRequest fields are pointers so an omitted field leaves it
