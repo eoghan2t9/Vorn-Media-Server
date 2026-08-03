@@ -237,16 +237,10 @@ func (s *Server) reconfigure() error {
 	// a fresh instance, not just whether it's still enabled.
 	torrentChanged := false
 	if torrentEnabled && s.torrentSvc.Load() == nil {
-		ts, err := torrent.NewService(s.store, s.baseCfg.TorrentDownloadDir, s.baseCfg.TorrentPeerPort, s.debridSvc.TorBoxLimiter())
-		if err != nil {
-			log.Printf("httpapi: starting torrent service: %v", err)
-		} else {
-			s.torrentSvc.Store(ts)
-			torrentChanged = true
-		}
+		s.torrentSvc.Store(torrent.NewService(s.store, s.debridSvc.TorBoxLimiter()))
+		torrentChanged = true
 	} else if !torrentEnabled {
 		if old := s.torrentSvc.Swap(nil); old != nil {
-			old.Close()
 			torrentChanged = true
 		}
 	}
@@ -441,11 +435,8 @@ func NewRouter(deps Deps) http.Handler {
 	mux.HandleFunc("GET /api/artwork/{key}", s.withAuth(s.handleArtwork))
 	mux.HandleFunc("DELETE /api/stream/session/{sessionId}", s.withAuth(s.handleStopSession))
 
-	mux.HandleFunc("GET /api/torrents", s.withAdmin(s.handleListTorrents))
-	mux.HandleFunc("POST /api/torrents", s.withAdmin(s.handleAddMagnet))
-	mux.HandleFunc("POST /api/torrents/file", s.withAdmin(s.handleAddTorrentFile))
-	mux.HandleFunc("DELETE /api/torrents/{id}", s.withAdmin(s.handleRemoveTorrent))
-	mux.HandleFunc("GET /api/torrents/{id}/stream", s.withAdmin(s.handleTorrentStream))
+	mux.HandleFunc("POST /api/torrents/magnet-from-file", s.withAdmin(s.handleMagnetFromFile))
+	mux.HandleFunc("POST /api/torrents/magnet-from-url", s.withAdmin(s.handleMagnetFromURL))
 	mux.HandleFunc("GET /api/torrents/search", s.withAdmin(s.handleTorrentSearch))
 	mux.HandleFunc("GET /api/torrent-indexers", s.withAdmin(s.handleListTorrentIndexers))
 	mux.HandleFunc("POST /api/torrent-indexers", s.withAdmin(s.handleCreateTorrentIndexer))

@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -12,136 +13,73 @@ import (
 
 const torrentServiceUnavailable = "torrent acquisition is not configured (set VORN_TORRENT_ENABLED=true)"
 
-type torrentResponse struct {
-	ID          string  `json:"id"`
-	LibraryID   *string `json:"libraryId,omitempty"`
-	InfoHash    string  `json:"infoHash"`
-	Name        string  `json:"name"`
-	Sequential  bool    `json:"sequential"`
-	Status      string  `json:"status"`
-	BytesTotal  int64   `json:"bytesTotal"`
-	BytesDone   int64   `json:"bytesDone"`
-	Error       string  `json:"error,omitempty"`
-	AddedAt     string  `json:"addedAt"`
-	CompletedAt *string `json:"completedAt,omitempty"`
+type magnetResponse struct {
+	MagnetURI string `json:"magnetUri"`
 }
 
-func toTorrentResponse(t *store.Torrent) torrentResponse {
-	resp := torrentResponse{
-		ID:         t.ID,
-		LibraryID:  t.LibraryID,
-		InfoHash:   t.InfoHash,
-		Name:       t.Name,
-		Sequential: t.Sequential,
-		Status:     t.Status,
-		BytesTotal: t.BytesTotal,
-		BytesDone:  t.BytesDone,
-		Error:      t.Error,
-		AddedAt:    t.AddedAt.Format(time.RFC3339),
-	}
-	if t.CompletedAt != nil {
-		s := t.CompletedAt.Format(time.RFC3339)
-		resp.CompletedAt = &s
-	}
-	return resp
-}
-
-func (s *Server) handleListTorrents(w http.ResponseWriter, r *http.Request) {
-	if s.torrentSvc.Load() == nil {
-		writeJSON(w, http.StatusOK, []torrentResponse{})
-		return
-	}
-	torrents, err := s.torrentSvc.Load().List()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "listing torrents")
-		return
-	}
-	resp := make([]torrentResponse, 0, len(torrents))
-	for _, t := range torrents {
-		resp = append(resp, toTorrentResponse(t))
-	}
-	writeJSON(w, http.StatusOK, resp)
-}
-
-type addMagnetRequest struct {
-	MagnetURI  string  `json:"magnetUri"`
-	LibraryID  *string `json:"libraryId"`
-	Sequential bool    `json:"sequential"`
-}
-
-func (s *Server) handleAddMagnet(w http.ResponseWriter, r *http.Request) {
-	if s.torrentSvc.Load() == nil {
-		writeError(w, http.StatusServiceUnavailable, torrentServiceUnavailable)
-		return
-	}
-	var req addMagnetRequest
-	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-	if req.MagnetURI == "" {
-		writeError(w, http.StatusBadRequest, "magnetUri is required")
-		return
-	}
-	if req.LibraryID != nil {
-		if _, err := s.store.GetLibrary(*req.LibraryID); err != nil {
-			s.writeStoreErr(w, err, "loading library")
-			return
-		}
-	}
-
-	t, err := s.torrentSvc.Load().AddMagnet(req.MagnetURI, req.LibraryID, req.Sequential)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusAccepted, toTorrentResponse(t))
-}
-
-// handleAddTorrentFile accepts a raw .torrent file body. libraryId and
-// sequential are passed as query parameters since the body is the file
-// itself, not JSON.
-func (s *Server) handleAddTorrentFile(w http.ResponseWriter, r *http.Request) {
-	if s.torrentSvc.Load() == nil {
-		writeError(w, http.StatusServiceUnavailable, torrentServiceUnavailable)
-		return
-	}
+// handleMagnetFromFile accepts a raw .torrent file body and returns the
+// magnet URI extracted from it -- a pure conversion, no side effects, so
+// admins can upload a .torrent file and then resolve the resulting magnet
+// through a debrid provider (POST /api/debrid/links) exactly like a pasted
+// magnet link. Vorn never downloads the torrent itself.
+func (s *Server) handleMagnetFromFile(w http.ResponseWriter, r *http.Request) {
 	data, err := io.ReadAll(io.LimitReader(r.Body, 10<<20))
 	if err != nil || len(data) == 0 {
 		writeError(w, http.StatusBadRequest, "missing or unreadable torrent file body")
 		return
 	}
-
-	var libraryID *string
-	if id := r.URL.Query().Get("libraryId"); id != "" {
-		if _, err := s.store.GetLibrary(id); err != nil {
-			s.writeStoreErr(w, err, "loading library")
-			return
-		}
-		libraryID = &id
-	}
-	sequential := r.URL.Query().Get("sequential") == "true"
-
-	t, err := s.torrentSvc.Load().AddTorrentFile(data, libraryID, sequential)
+	magnetURI, err := torrent.MagnetFromTorrentBytes(data)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusAccepted, toTorrentResponse(t))
+	writeJSON(w, http.StatusOK, magnetResponse{MagnetURI: magnetURI})
 }
 
-func (s *Server) handleRemoveTorrent(w http.ResponseWriter, r *http.Request) {
-	if s.torrentSvc.Load() == nil {
-		writeError(w, http.StatusServiceUnavailable, torrentServiceUnavailable)
+type magnetFromURLRequest struct {
+	DownloadURL string `json:"downloadUrl"`
+}
+
+// handleMagnetFromURL is handleMagnetFromFile's counterpart for a search
+// result whose DownloadURL points at a .torrent file rather than being a
+// magnet URI already -- fetches it server-side (indexers generally don't
+// send permissive CORS headers) and converts it the same way.
+func (s *Server) handleMagnetFromURL(w http.ResponseWriter, r *http.Request) {
+	var req magnetFromURLRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	id := r.PathValue("id")
-	deleteFiles := r.URL.Query().Get("deleteFiles") == "true"
-	if err := s.torrentSvc.Load().Remove(id, deleteFiles); err != nil {
-		s.writeStoreErr(w, err, "removing torrent")
+	if req.DownloadURL == "" {
+		writeError(w, http.StatusBadRequest, "downloadUrl is required")
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	httpReq, err := http.NewRequestWithContext(r.Context(), http.MethodGet, req.DownloadURL, nil)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid downloadUrl")
+		return
+	}
+	resp, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "fetching torrent file")
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		writeError(w, http.StatusBadGateway, fmt.Sprintf("fetching torrent file returned status %d", resp.StatusCode))
+		return
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 10<<20))
+	if err != nil || len(data) == 0 {
+		writeError(w, http.StatusBadGateway, "empty or unreadable torrent file")
+		return
+	}
+	magnetURI, err := torrent.MagnetFromTorrentBytes(data)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, magnetResponse{MagnetURI: magnetURI})
 }
 
 type torrentSearchResult struct {

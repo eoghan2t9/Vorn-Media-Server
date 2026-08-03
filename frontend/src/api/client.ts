@@ -470,46 +470,25 @@ export interface CurrentlyWatchingEntry {
 }
 export const listCurrentlyWatching = () => request<CurrentlyWatchingEntry[]>('/api/admin/currently-watching')
 
-export interface Torrent {
-  id: string
-  libraryId?: string
-  infoHash: string
-  name: string
-  sequential: boolean
-  status: 'downloading' | 'seeding' | 'completed' | 'error' | 'removed'
-  bytesTotal: number
-  bytesDone: number
-  error?: string
-  addedAt: string
-  completedAt?: string
-}
-export const listTorrents = () => request<Torrent[]>('/api/torrents')
-
-export interface AddMagnetInput {
-  magnetUri: string
-  libraryId?: string
-  sequential?: boolean
-}
-export const addMagnet = (input: AddMagnetInput) =>
-  request<Torrent>('/api/torrents', { method: 'POST', body: JSON.stringify(input) })
-
-export const addTorrentFile = async (file: File, opts?: { libraryId?: string; sequential?: boolean }) => {
-  const params = new URLSearchParams()
-  if (opts?.libraryId) params.set('libraryId', opts.libraryId)
-  if (opts?.sequential) params.set('sequential', 'true')
-  const qs = params.toString()
-  const res = await fetch(`${API_BASE}/api/torrents/file${qs ? `?${qs}` : ''}`, {
+// Vorn never downloads torrent data itself -- a magnet or uploaded
+// .torrent file is always resolved through a debrid provider (see
+// addDebridLink), which fetches from the swarm on its own infrastructure.
+// magnetFromTorrentFile/magnetFromDownloadUrl are pure conversions (no
+// side effects) that extract a magnet URI so it can be passed to
+// addDebridLink exactly like a pasted magnet link.
+export const magnetFromTorrentFile = async (file: File): Promise<{ magnetUri: string }> => {
+  const res = await fetch(`${API_BASE}/api/torrents/magnet-from-file`, {
     method: 'POST',
     credentials: 'include',
     body: await file.arrayBuffer(),
   })
   const body = await res.json().catch(() => ({}))
   if (!res.ok) throw new ApiError(res.status, body.error ?? `request failed with ${res.status}`)
-  return body as Torrent
+  return body
 }
 
-export const removeTorrent = (id: string, deleteFiles = false) =>
-  request<void>(`/api/torrents/${id}?deleteFiles=${deleteFiles}`, { method: 'DELETE' })
+export const magnetFromDownloadUrl = (downloadUrl: string) =>
+  request<{ magnetUri: string }>('/api/torrents/magnet-from-url', { method: 'POST', body: JSON.stringify({ downloadUrl }) })
 
 export interface TorrentSearchResult {
   indexerName: string

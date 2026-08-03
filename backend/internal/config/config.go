@@ -18,8 +18,6 @@ type Config struct {
 	TranscodeOutputDir   string
 	TranscodeMaxSessions int
 	TorrentEnabled       bool
-	TorrentDownloadDir   string
-	TorrentPeerPort      int
 	NZBEnabled           bool
 	OpenSubtitlesAPIKey  string
 	OpenSubtitlesUser    string
@@ -50,8 +48,6 @@ func Load() Config {
 		TranscodeOutputDir:   getEnv("VORN_TRANSCODE_DIR", os.TempDir()+"/vorn-transcode"),
 		TranscodeMaxSessions: getIntEnv("VORN_TRANSCODE_MAX_SESSIONS", runtime.NumCPU()),
 		TorrentEnabled:       getBoolEnv("VORN_TORRENT_ENABLED", false),
-		TorrentDownloadDir:   getEnv("VORN_TORRENT_DOWNLOAD_DIR", "./data/downloads"),
-		TorrentPeerPort:      getIntEnv("VORN_TORRENT_PEER_PORT", 0),
 		NZBEnabled:           getBoolEnv("VORN_NZB_ENABLED", false),
 		OpenSubtitlesAPIKey:  getEnv("VORN_OPENSUBTITLES_API_KEY", ""),
 		OpenSubtitlesUser:    getEnv("VORN_OPENSUBTITLES_USERNAME", ""),

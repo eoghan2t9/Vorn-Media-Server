@@ -13,7 +13,6 @@ import { AdminUsers } from './pages/AdminUsers'
 import { AdminLibraries } from './pages/AdminLibraries'
 import { ItemDetail } from './pages/ItemDetail'
 import { WatchPage } from './pages/WatchPage'
-import { TorrentStreamPage } from './pages/TorrentStreamPage'
 import { AdminCurrentlyWatching } from './pages/AdminCurrentlyWatching'
 import { AdminTorrents } from './pages/AdminTorrents'
 import { AdminNzb } from './pages/AdminNzb'
@@ -78,7 +77,6 @@ function AppRoutes() {
         <Route path="/libraries/:id" element={<LibraryPage />} />
         <Route path="/items/:id" element={<ItemDetail />} />
         <Route path="/watch/:id" element={<WatchPage />} />
-        <Route path="/admin/torrents/:id/stream" element={<TorrentStreamPage />} />
         <Route path="/browse" element={<BrowsePage />} />
         <Route path="/requests" element={<Requests />} />
 

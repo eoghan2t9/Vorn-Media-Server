@@ -2,19 +2,19 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
   ApiError,
-  addMagnet,
-  addTorrentFile,
+  addDebridLink,
   createTorrentIndexer,
   deleteTorrentIndexer,
+  listDebridAccounts,
   listLibraries,
   listTorrentIndexers,
-  listTorrents,
-  removeTorrent,
+  magnetFromDownloadUrl,
+  magnetFromTorrentFile,
   searchTorrents,
   testTorrentIndexer,
   updateTorrentIndexer,
+  type DebridAccount,
   type Library,
-  type Torrent,
   type TorrentIndexer,
   type TorrentIndexerProvider,
   type TorrentSearchResult,
@@ -48,14 +48,14 @@ const INDEXER_PRESETS: { label: string; name: string; baseUrl: string }[] = [
 
 export function AdminTorrents() {
   const [searchParams] = useSearchParams()
-  const [torrents, setTorrents] = useState<Torrent[]>([])
   const [libraries, setLibraries] = useState<Library[]>([])
   const [indexers, setIndexers] = useState<TorrentIndexer[]>([])
+  const [accounts, setAccounts] = useState<DebridAccount[]>([])
   const [error, setError] = useState<string | null>(null)
 
+  const [accountId, setAccountId] = useState('')
   const [magnetUri, setMagnetUri] = useState('')
   const [libraryId, setLibraryId] = useState('')
-  const [sequential, setSequential] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const dropzoneRef = useRef<FileDropzoneHandle>(null)
 
@@ -85,30 +85,33 @@ export function AdminTorrents() {
   const [results, setResults] = useState<TorrentSearchResult[] | null>(null)
   const [searching, setSearching] = useState(false)
 
-  async function refreshTorrents() {
-    setTorrents(await listTorrents())
-  }
-
   useEffect(() => {
-    Promise.all([refreshTorrents(), listLibraries().then(setLibraries), listTorrentIndexers().then(setIndexers)]).catch(
-      (err) => setError(err instanceof ApiError ? err.message : String(err)),
-    )
-    const interval = setInterval(() => {
-      refreshTorrents().catch(() => {})
-    }, 2000)
-    return () => clearInterval(interval)
+    Promise.all([
+      listLibraries().then(setLibraries),
+      listTorrentIndexers().then(setIndexers),
+      listDebridAccounts().then(setAccounts),
+    ]).catch((err) => setError(err instanceof ApiError ? err.message : String(err)))
   }, [])
 
-  async function handleAddMagnet(e: FormEvent) {
+  // resolveViaDebrid is the one place a magnet actually gets acted on --
+  // every entry point (pasted magnet, uploaded .torrent file, a search
+  // result) funnels into this, which just calls the same debrid resolve
+  // AdminDebrid.tsx's own "Add magnet/hash" form uses. Vorn never
+  // downloads the torrent itself; the debrid provider fetches from the
+  // swarm on its own infrastructure and hands back a direct stream URL.
+  async function resolveViaDebrid(sourceRef: string, name?: string) {
+    await addDebridLink({ accountId, sourceRef, name, libraryId: libraryId || undefined })
+  }
+
+  async function handleResolveMagnet(e: FormEvent) {
     e.preventDefault()
     setError(null)
     setSubmitting(true)
     try {
-      await addMagnet({ magnetUri, libraryId: libraryId || undefined, sequential })
+      await resolveViaDebrid(magnetUri)
       setMagnetUri('')
-      await refreshTorrents()
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to add magnet')
+      setError(err instanceof ApiError ? err.message : 'Failed to resolve magnet')
     } finally {
       setSubmitting(false)
     }
@@ -118,22 +121,13 @@ export function AdminTorrents() {
     setError(null)
     setSubmitting(true)
     try {
-      await addTorrentFile(file, { libraryId: libraryId || undefined, sequential })
-      await refreshTorrents()
+      const { magnetUri: extracted } = await magnetFromTorrentFile(file)
+      await resolveViaDebrid(extracted, file.name)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to add torrent file')
+      setError(err instanceof ApiError ? err.message : 'Failed to resolve torrent file')
     } finally {
       setSubmitting(false)
       dropzoneRef.current?.reset()
-    }
-  }
-
-  async function handleRemove(id: string, deleteFiles: boolean) {
-    try {
-      await removeTorrent(id, deleteFiles)
-      await refreshTorrents()
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to remove torrent')
     }
   }
 
@@ -280,84 +274,56 @@ export function AdminTorrents() {
     if (q) runSearch(q)
   }, [searchParams])
 
-  async function handleDownloadResult(res: TorrentSearchResult) {
-    if (!res.downloadUrl.startsWith('magnet:')) {
-      setError('This result is a .torrent file link, not a magnet — open it and upload the file below.')
-      return
-    }
+  async function handleResolveResult(res: TorrentSearchResult) {
     setError(null)
+    setSubmitting(true)
     try {
-      await addMagnet({ magnetUri: res.downloadUrl, libraryId: libraryId || undefined, sequential })
-      await refreshTorrents()
+      if (res.downloadUrl.startsWith('magnet:')) {
+        await resolveViaDebrid(res.downloadUrl, res.title)
+      } else {
+        const { magnetUri: extracted } = await magnetFromDownloadUrl(res.downloadUrl)
+        await resolveViaDebrid(extracted, res.title)
+      }
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to add magnet')
+      setError(err instanceof ApiError ? err.message : 'Failed to resolve')
+    } finally {
+      setSubmitting(false)
     }
   }
 
-  const torrentsPage = usePagination(torrents)
   const resultsPage = usePagination(results ?? [])
 
   return (
     <section className="vorn-admin-page">
       <div className="vorn-admin-page-header">
         <h1>Torrents</h1>
-        <p className="vorn-admin-page-subtitle">Add magnets/files directly, or search configured Torznab indexers.</p>
+        <p className="vorn-admin-page-subtitle">
+          Search configured Torznab indexers, or resolve a magnet/.torrent file through a debrid provider -- nothing is
+          ever downloaded to this server.
+        </p>
       </div>
       {error && <p className="vorn-form-error">{error}</p>}
 
       <div className="vorn-panel">
         <div className="vorn-panel-header">
-          <h2>Active torrents</h2>
+          <h2>Resolve via debrid</h2>
         </div>
-        <div className="vorn-table-wrap">
-        <table className="vorn-table">
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Status</th>
-              <th>Progress</th>
-              <th>Sequential</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {torrentsPage.pageItems.map((t) => (
-              <tr key={t.id}>
-                <td>{t.name || t.infoHash}</td>
-                <td>{t.status === 'error' ? `error: ${t.error}` : t.status}</td>
-                <td>
-                  {formatBytes(t.bytesDone)} / {formatBytes(t.bytesTotal)}
-                  {t.bytesTotal > 0 ? ` (${Math.floor((100 * t.bytesDone) / t.bytesTotal)}%)` : ''}
-                </td>
-                <td>{t.sequential ? 'yes' : 'no'}</td>
-                <td>
-                  <div className="vorn-button-group">
-                    {(t.status === 'downloading' || t.status === 'seeding' || t.status === 'completed') && (
-                      <Link to={`/admin/torrents/${t.id}/stream`} className="vorn-link-button-plain">
-                        Stream
-                      </Link>
-                    )}
-                    <button type="button" className="vorn-btn-danger" onClick={() => handleRemove(t.id, false)}>
-                      Remove
-                    </button>
-                    <button type="button" className="vorn-btn-danger" onClick={() => handleRemove(t.id, true)}>
-                      Remove + delete files
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        </div>
-        <Pagination page={torrentsPage.page} totalPages={torrentsPage.totalPages} onChange={torrentsPage.setPage} />
-      </div>
-
-      <div className="vorn-panel">
-        <div className="vorn-panel-header">
-          <h2>Add torrent</h2>
-        </div>
-        <form className="vorn-inline-form" onSubmit={handleAddMagnet}>
+        {accounts.length === 0 && (
+          <p className="vorn-panel-subtitle">
+            No debrid accounts configured yet -- add one on the{' '}
+            <Link to="/admin/debrid">Debrid</Link> page first.
+          </p>
+        )}
+        <form className="vorn-inline-form" onSubmit={handleResolveMagnet}>
+          <Select
+            value={accountId}
+            onChange={setAccountId}
+            placeholder="Select account…"
+            options={accounts.map((a) => ({
+              value: a.id,
+              label: `${a.provider}${!a.enabled ? ' (disabled)' : ''}`,
+            }))}
+          />
           <input
             placeholder="Magnet URI"
             value={magnetUri}
@@ -371,21 +337,18 @@ export function AdminTorrents() {
             placeholder="No destination library"
             options={libraries.map((l) => ({ value: l.id, label: l.name }))}
           />
-          <label>
-            <input type="checkbox" checked={sequential} onChange={(e) => setSequential(e.target.checked)} /> Sequential
-          </label>
-          <button type="submit" disabled={submitting}>
-            {submitting ? 'Adding…' : 'Add magnet'}
+          <button type="submit" disabled={submitting || !accountId}>
+            {submitting ? 'Resolving…' : 'Resolve'}
           </button>
         </form>
         <p className="vorn-panel-subtitle" style={{ margin: '1rem 0 0.5rem' }}>
-          Or upload a .torrent file:
+          Or upload a .torrent file (its magnet is extracted locally, nothing is downloaded):
         </p>
         <FileDropzone
           ref={dropzoneRef}
           accept=".torrent"
           hint=".torrent files"
-          disabled={submitting}
+          disabled={submitting || !accountId}
           onFile={handleFileSelected}
         />
       </div>
@@ -421,8 +384,8 @@ export function AdminTorrents() {
                   <td>{formatBytes(r.sizeBytes)}</td>
                   <td>{r.seeders}</td>
                   <td>
-                    <button type="button" onClick={() => handleDownloadResult(r)}>
-                      Download
+                    <button type="button" onClick={() => handleResolveResult(r)} disabled={submitting || !accountId}>
+                      Resolve
                     </button>
                   </td>
                 </tr>

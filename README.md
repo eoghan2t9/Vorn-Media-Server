@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/eoghan2t9/Vorn-Media-Server"></a>
-  <img alt="Version" src="https://img.shields.io/badge/version-8.15.0-blue">
+  <img alt="Version" src="https://img.shields.io/badge/version-8.16.0-blue">
   <img alt="Go backend" src="https://img.shields.io/badge/backend-Go-00ADD8">
   <img alt="React + TypeScript frontend" src="https://img.shields.io/badge/frontend-React%20%2B%20TypeScript-61DAFB">
   <img alt="Docker ready" src="https://img.shields.io/badge/docker-ready-2496ED">
@@ -80,9 +80,8 @@ Tracked in phases; each phase is delivered as a runnable increment with its own 
 - [x] **Phase 4 — Metadata sync**: TMDb-backed art/trailers, manual metadata override.
 - [x] **Phase 5 — Transcoder**: ffmpeg/ffprobe wrapper, GPU capability probing, on-the-fly HLS.
 - [x] **Phase 6 — Player**: resume playback, autoplay-next-episode, currently-watching admin view.
-- [x] **Phase 7 — Torrent acquisition**: anacrolix/torrent-backed client with sequential
-      (streaming-order) or rarest-first download, a Torznab indexer plugin system for search,
-      and an auto-add-to-library watcher on completion.
+- [x] **Phase 7 — Torrent acquisition**: a Torznab indexer plugin system for search, releases
+      resolved through a debrid provider (see Phase 8) rather than downloaded locally.
 - [x] **Phase 8 — NZB & debrid acquisition**: TorBox-backed Usenet caching, Real-Debrid/TorBox
       clients behind a shared `Provider.Resolve()` interface, and direct-stream-from-provider
       playback with no local download step.
@@ -177,13 +176,10 @@ docker compose -f deploy/docker-compose.yml up --build
 - `VORN_TRANSCODE_DIR` — where HLS output for active transcode sessions is written (default: a
   temp directory).
 - `VORN_TRANSCODE_MAX_SESSIONS` — max concurrent transcode sessions (default: number of CPUs).
-- `VORN_TORRENT_ENABLED=true` — enables torrent acquisition (`/api/torrents`, `/api/torrent-indexers`).
-  Off by default since it opens a peer listening port and starts DHT.
-- `VORN_TORRENT_DOWNLOAD_DIR` — where torrent data is saved (default: `./data/downloads`; the
-  Docker Compose backend service always uses `/downloads`, backed by the `VORN_TORRENT_DOWNLOAD_PATH`
-  host bind mount).
-- `VORN_TORRENT_PEER_PORT` — TCP/uTP port for incoming peer connections (default: the
-  anacrolix/torrent library default, 42069).
+- `VORN_TORRENT_ENABLED=true` — enables torrent acquisition (`/api/torrents/search`,
+  `/api/torrent-indexers`). Torrent releases are only ever resolved through a debrid provider
+  (see `VORN_NZB_ENABLED` below) -- Vorn itself never opens a peer port or downloads torrent
+  data.
 - `VORN_NZB_ENABLED=true` — enables NZB/Usenet acquisition (`/api/nzb`, `/api/usenet-servers`). Off
   by default; requires a TorBox account (name + API key) to be configured via the admin UI before
   any download can start. TorBox does the caching/repair server-side and hands back a direct
